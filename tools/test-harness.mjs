@@ -129,6 +129,15 @@ const lock3 = JSON.parse(readFileSync(join(proj, '.harness/kit.lock.json'), 'utf
 ok(JSON.stringify(lock3.files) === JSON.stringify(lock1.files), 'managed files hash-identical to the first install');
 ok(owned.every((f) => hash(join(proj, f)) === before[f]), 'project-owned files still byte-identical');
 
+// 6b. a lock is project data: a path in it that leaves the project is refused, never written or deleted
+const lockPath = join(proj, '.harness/kit.lock.json');
+const goodLock = readFileSync(lockPath, 'utf8');
+writeFileSync(join(proj, '..', 'outside.txt'), 'KEEP\n');
+writeFileSync(lockPath, JSON.stringify({ ...lock3, files: { ...lock3.files, '../outside.txt': 'x' } }));
+r = tool(['update', '--version', v2]);
+ok(r.status === 1 && /outside the project/.test(r.stderr) && readFileSync(join(proj, '..', 'outside.txt'), 'utf8') === 'KEEP\n', 'a lock path outside the project is refused and the file there untouched');
+writeFileSync(lockPath, goodLock);
+
 // 7. a moved tag is refused
 git(kitRepo, 'tag', '-f', `v${v1}`, 'main');
 r = tool(['update', '--version', v2]);

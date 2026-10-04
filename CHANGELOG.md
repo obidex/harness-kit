@@ -15,6 +15,9 @@ Each version is the tag `v<version>` on this repository, never moved (K003). Pro
 - Adapter A14 "One App holds GitHub's hands"; the audit checks the settings file is valid and
   matches the live repository. A13 now judges the App's update PRs.
 - Removed from projects: `harness-update.yml` and the `HARNESS_TOKEN` secret it used.
+- `harness.mjs` refuses a lock path that leaves the project or passes through a symlink.
+- Audit A13 and A14 never turn a project's strict audit red on update: no settings file yet, live
+  drift until the next apply, and an update PR from the old token are UNKNOWN.
 
 ## 0.4.1 · 2026-10-04 · update PRs carry one identity
 
