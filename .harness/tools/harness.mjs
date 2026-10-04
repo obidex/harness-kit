@@ -13,6 +13,7 @@
 // What the kit owns in a project, and nothing else:
 //   .harness/**                      every kit file except profile.json and kit.lock.json
 //   .github/workflows/harness-*.yml  from the kit's .harness/templates/workflows/
+//   .claude/skills/<name>/**         from the kit's .harness/templates/skills/<name>/ (only those names)
 // Recorded with their hashes in .harness/kit.lock.json. Everything else is project-owned and never
 // written by update or rollback. init writes three project-owned files only when they are absent or
 // lack the kit: .harness/profile.json (a skeleton), CLAUDE.md (created, or the kit imports added).
@@ -83,6 +84,7 @@ function managedFrom(kitDir) {
   for (const rel of walk(join(kitDir, '.harness/templates/workflows'))) {
     if (/^harness-[a-z0-9-]+\.ya?ml$/.test(rel)) out[`.github/workflows/${rel}`] = join(kitDir, '.harness/templates/workflows', rel);
   }
+  for (const rel of walk(join(kitDir, '.harness/templates/skills'))) out[`.claude/skills/${rel}`] = join(kitDir, '.harness/templates/skills', rel);
   return out;
 }
 

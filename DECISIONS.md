@@ -100,3 +100,39 @@ an initial limit, not a permanent rule.
    reads it.
 
 **Status:** STANDING.
+
+## K004 · 2026-10-04 · STANDING — prevention after every correction, and the correct skill
+
+**Source:** the owner's message that opened this card in the Harness Kit project (project thread
+`cmsg_01C7xQzuv2D5T8yCbVzmNegvQzZmTJb3SdjckXHE42UCPW`, 2026-10-04 15:51 UTC). He approved it by
+pasting it ("Owner-approved by pasting this message; record that source in DECISIONS"). Recorded
+verbatim below.
+
+<details><summary>The message, verbatim</summary>
+
+```text
+Owner-approved by pasting this message; record that source in DECISIONS.
+H1/H2 are merged (kit 0.2.0). Add ONE core entry and one skill:
+1. Core principle: every owner correction or repeated failure ends with its prevention, at the highest level worth its cost. Escalate when an issue happens twice or is costly; a one-off small mistake is fixed, not ruled. Owner review is not a prevention level; independent AI review only for risky areas. Each prevention is recorded once with where it lives; the audit reports corrections that recurred.
+2. A /correct skill adapted from pstack's (cursor/plugins, pstack/skills/correct/SKILL.md, MIT; credit the source in the file): assume every contributor is an agent that sees only the files it opened, copies the nearest example and takes the shortest path that compiles; fix each mistake class at the highest level that works — architecture and one source of truth (delete old ways an agent would copy) → types → a lint or CI check whose error names the fix (failing only on new occurrences when the pattern is already common) → a behaviour test (reject tests that pass with empty functions) → a rule last, only for judgment calls; prove each new check fails on a real past mistake; same command locally and in CI; keep a rule table pairing each rule with what enforces it and drop a rule once its mistake can't happen. Exceptions carry a reason and an expiry checked by the reviewer, never an owner approval. Evidence: commits and reverts, review and verifier findings, threads' Found lines, owner corrections.
+3. Then post the H2 one-page summary for the owner (at most 3 decisions, A/B plus a recommendation) if it is not posted yet.
+```
+
+</details>
+
+How it was applied (decided by the thread, within the message):
+
+1. **C19 Prevention** is the one new core entry. Core grows by it although C17 caps always-loaded
+   text; the owner asked for exactly this entry. C18 still says *where* a correction lives (narrowest
+   home first); C19 says *how strongly* it is enforced. The ladder itself lives once, in the skill.
+2. **The skill ships with the kit.** `.harness/templates/skills/correct/SKILL.md`, installed in each
+   project as `.claude/skills/correct/SKILL.md`. This extends K003 §3: the kit also owns
+   `.claude/skills/<name>/` for each name it ships, and nothing else under `.claude/`. The installer's
+   existing clash guard refuses to overwrite a project's own skill of the same name.
+3. **Agents may load it themselves** (pstack's `disable-model-invocation` is dropped), since C19
+   applies after every correction, not only when someone types `/correct`.
+4. **The rule table lives in the project's rulebook** (`AGENTS.md` or what the profile names), as in
+   pstack: `Rule · What enforces it · Where it lives · Proven by`. That row is C19's single record.
+5. Item 3 (the H2 owner page) was already posted by card H2; nothing here.
+
+**Status:** STANDING.

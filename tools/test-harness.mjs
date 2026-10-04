@@ -58,6 +58,7 @@ const lock1 = JSON.parse(readFileSync(join(proj, '.harness/kit.lock.json'), 'utf
 ok(lock1.version === v1 && lock1.commit === git(kitRepo, 'rev-parse', `v${v1}`), 'the lock records the version and the commit its tag points to');
 ok(existsSync(join(proj, '.github/workflows/harness-update.yml')) && existsSync(join(proj, '.github/workflows/harness-audit.yml')), 'workflows installed from templates');
 ok(!existsSync(join(proj, '.harness/templates')), 'templates are not copied into the project');
+ok(existsSync(join(proj, '.claude/skills/correct/SKILL.md')) && '.claude/skills/correct/SKILL.md' in lock1.files, 'kit skills installed into .claude/skills and listed in the lock');
 const claude = readFileSync(join(proj, 'CLAUDE.md'), 'utf8');
 ok(/^@\.harness\/core\.md$/m.test(claude) && /^@\.harness\/VERSION$/m.test(claude) && claude.includes('Local note.'), 'CLAUDE.md gained the kit imports and kept its own text');
 const profile = JSON.parse(readFileSync(join(proj, '.harness/profile.json'), 'utf8'));

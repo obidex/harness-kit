@@ -3,6 +3,15 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.3.0 · 2026-10-04 · prevention principle and the correct skill
+
+- Core C19: every owner correction or repeated failure ends with its prevention, at the highest level
+  worth its cost; the audit reports corrections that recurred (judgment review step 8).
+- Kit skill `correct` (`/correct`), adapted from pstack (MIT, credited in the file): the prevention
+  ladder, proof that each new check fails on a real past mistake, and the rule table.
+- The installer now also manages `.claude/skills/<name>/` for each skill the kit ships in
+  `.harness/templates/skills/`.
+
 ## 0.2.0 · 2026-10-04 · card H2, prove the kit
 
 - Audit: `.harness/tools/audit.mjs` (structural, one result per rule) and `.harness/audit/README.md`
