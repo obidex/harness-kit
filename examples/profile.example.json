@@ -1,0 +1,70 @@
+{
+  "kit": { "version": "0.1.0" },
+  "project": {
+    "name": "Example Shop Site",
+    "repo": "example-org/example-site",
+    "summary": "A fictional bilingual catalogue site used to illustrate the profile. Not a real project."
+  },
+  "preset": "public-website",
+  "capabilities": ["public-interface", "bilingual", "database", "auth", "deployments", "recurring-jobs", "sensitive-data"],
+  "stack": {
+    "languages": ["TypeScript", "JavaScript"],
+    "frameworks": ["a static-site framework", "a headless CMS"],
+    "package_manager": "npm",
+    "runtime": "Node 22",
+    "services": ["hosting: a static host", "database: managed Postgres"]
+  },
+  "commands": {
+    "install": "npm ci",
+    "build": "npm run build",
+    "typecheck": "npx tsc --noEmit",
+    "test": "npm test",
+    "verify": "bash scripts/verify.sh",
+    "reference": "npm run reference"
+  },
+  "branches": {
+    "default": "main",
+    "required_checks": ["ci-ok"],
+    "merge_method": "squash",
+    "branch_prefixes": ["card-"]
+  },
+  "environments": [
+    { "name": "production", "deploys_from": "main", "probe": "/", "real_data": false },
+    { "name": "preview", "deploys_from": "pull requests" }
+  ],
+  "modules": [
+    { "name": "catalogue", "paths": ["src/pages/products/**", "src/lib/catalogue/**"], "rules": ".claude/rules/modules/catalogue.md" },
+    { "name": "accounts", "paths": ["src/pages/account/**", "src/lib/auth/**"] }
+  ],
+  "business_rules": ["AGENTS.md §2", "AGENTS.md §3", "docs/DECISIONS.md"],
+  "permissions": {
+    "owner_only": ["entering or rotating secrets", "hosting and DNS settings", "approving consent-class migrations"],
+    "settings_file": ".claude/settings.json"
+  },
+  "risk": {
+    "tier3_paths": ["supabase/migrations/**", "src/lib/auth/**", "src/middleware*", ".github/**", ".claude/**", ".harness/**"],
+    "review_required_for": ["all-code"],
+    "turn_budget": 60
+  },
+  "reviewers": {
+    "required": ["reviewer subagent (fresh context)"],
+    "optional": ["an external code-review bot"]
+  },
+  "canon": {
+    "rulebook": "AGENTS.md",
+    "state": "docs/STATE.md",
+    "decisions": "docs/DECISIONS.md",
+    "decision_prefix": "X",
+    "generated": ["docs/reference/site.md"],
+    "caps": { "AGENTS.md": 12288, "CLAUDE.md": 2560, "docs/STATE.md": 10240 }
+  },
+  "alerts": { "channel": "telegram", "secret_name": "TELEGRAM_BOT_TOKEN" },
+  "exceptions": [
+    {
+      "rule": "C10",
+      "local_rule": "The reviewer subagent runs on every code diff, not only tier 3.",
+      "why": "Public output leaks are the main risk, and any component can leak.",
+      "decision": "X042"
+    }
+  ]
+}
