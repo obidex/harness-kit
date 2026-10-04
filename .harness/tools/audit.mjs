@@ -35,7 +35,10 @@ const PASS = 'PASS', FAIL = 'FAIL', UNKNOWN = 'UNKNOWN', NA = 'NOT APPLICABLE';
 const has = (p) => existsSync(join(root, p));
 const read = (p) => readFileSync(join(root, p), 'utf8');
 const git = (...a) => { try { return execFileSync('git', ['-C', root, ...a], { encoding: 'utf8', maxBuffer: 64 << 20, stdio: ['ignore', 'pipe', 'ignore'] }); } catch { return null; } };
-const tracked = (git('ls-files') || '').split('\n').filter(Boolean);
+const lsFiles = git('ls-files');
+const tracked = (lsFiles || '').split('\n').filter(Boolean);
+// Rules that scan tracked files or history decide nothing without git: UNKNOWN, never PASS.
+const NEEDS_GIT = new Set(['A02', 'A03', 'A06', 'A09', 'A10', 'A12', 'C02', 'C08', 'C09', 'C15', 'C17', 'O09', 'DB01', 'DB02', 'DB03', 'DB05', 'RJ01', 'RJ02', 'RJ04', 'SD03', 'HI02', 'PI03', 'PW02', 'BL03']);
 const short = (s, n = 160) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 
 // --- the kit's rule list, read from the kit's own layer files ------------------------------------
@@ -51,6 +54,7 @@ if (existsSync(profilePath)) {
   try { profile = JSON.parse(readFileSync(profilePath, 'utf8')); } catch (e) { profileErrors = [`not JSON: ${e.message}`]; }
   if (profile) profileErrors = validateSchema(JSON.parse(readFileSync(join(kitDir, 'profile.schema.json'), 'utf8')), profile);
 }
+if (profile && profileErrors.length) profile = null; // an invalid profile decides nothing (UNKNOWN)
 const caps = new Set(profile?.capabilities || []);
 const defaultBranch = profile?.branches?.default || (git('symbolic-ref', '--short', 'refs/remotes/origin/HEAD') || '').trim().replace(/^origin\//, '') || 'main';
 
@@ -81,12 +85,17 @@ async function load() {
   }
 }
 const noAccess = (r) => `GitHub API ${r ? `answered ${r.status}` : 'not queried (no --repo)'}; missing access is UNKNOWN`;
+const bypassUnknown = (b) => b?.unreadableBypass && [UNKNOWN, `ruleset ${b.names.join(', ')}: its bypass list is not readable with this token (needs ruleset admin read)`];
 
 /** The active branch ruleset(s) covering the default branch, merged into one view. */
 function branchRules() {
   if (!api.rulesetDetails) return null;
-  const covering = api.rulesetDetails.filter((r) => r.status === 200 && r.data.enforcement === 'active').map((r) => r.data)
-    .filter((r) => { const inc = r.conditions?.ref_name?.include || []; return inc.includes('~DEFAULT_BRANCH') || inc.includes(`refs/heads/${defaultBranch}`) || inc.includes('~ALL'); });
+  if (api.rulesetDetails.some((r) => r.status !== 200)) return null; // a ruleset we cannot read may cover the branch
+  const names = (l) => l.includes('~DEFAULT_BRANCH') || l.includes(`refs/heads/${defaultBranch}`) || l.includes('~ALL');
+  const covering = api.rulesetDetails.map((r) => r.data).filter((r) => r.enforcement === 'active')
+    .filter((r) => names(r.conditions?.ref_name?.include || []) && !(r.conditions?.ref_name?.exclude || []).some((e) => e === '~DEFAULT_BRANCH' || e === `refs/heads/${defaultBranch}`));
+  // bypass_actors is returned only to callers who can edit rulesets: absent means unknown, not none
+  if (covering.some((r) => !Array.isArray(r.bypass_actors))) return { unreadableBypass: true, names: covering.map((r) => r.name) };
   const rulesOf = (t) => covering.flatMap((r) => r.rules.filter((x) => x.type === t));
   return {
     names: covering.map((r) => r.name),
@@ -103,6 +112,12 @@ const applies = {
 };
 function applicability(id) {
   const p = id.replace(/[0-9]+$/, '');
+  const gate = applicabilityOf(id, p);
+  if (gate && gate[0] === NA) return gate;
+  if (lsFiles === null && NEEDS_GIT.has(id)) return [UNKNOWN, 'git ls-files failed (no repository, or not readable): this rule scans tracked files or history'];
+  return gate;
+}
+function applicabilityOf(id, p) {
   if (applies[p]) {
     if (!profile) return [UNKNOWN, 'no valid profile, so capabilities are unknown'];
     return caps.has(applies[p]) ? null : [NA, `capability ${applies[p]} is not enabled in the profile`];
@@ -207,6 +222,7 @@ const checks = {
   A11() {
     const b = branchRules();
     if (!b) return [UNKNOWN, noAccess(api.rulesets)];
+    if (bypassUnknown(b)) return bypassUnknown(b);
     if (!b.names.length) return [FAIL, `no active ruleset covers ${defaultBranch}`];
     const problems = [];
     if (!b.pr) problems.push('no pull_request rule');
@@ -260,7 +276,7 @@ const checks = {
     const g = checks.A12();
     if (g[0] !== PASS) return g;
     const b = branchRules();
-    if (!b) return [UNKNOWN, `guard exists; whether it is required: ${noAccess(api.rulesets)}`];
+    if (!b || b.unreadableBypass) return [UNKNOWN, `guard exists; whether it is required: ${noAccess(api.rulesets)}`];
     const guardWf = workflows.find((w) => /Tier-3:\s*authorized/i.test(w.text));
     const jobNames = guardWf.jobs.flatMap(([k, j]) => [k, j.name].filter(Boolean));
     const required = b.checks.some((c) => jobNames.includes(c) || guardWf.wf.name === c);
@@ -277,6 +293,7 @@ const checks = {
   C12() {
     const b = branchRules();
     if (!b) return [UNKNOWN, noAccess(api.rulesets)];
+    if (bypassUnknown(b)) return bypassUnknown(b);
     if (!b.names.length) return [FAIL, `no active ruleset covers ${defaultBranch}`];
     const ok = b.pr && b.checks.length && !b.bypass.length;
     return ok ? [PASS, `PR only, required ${b.checks.join(', ')}, no bypass actor (${b.names.join(', ')})`]
@@ -337,14 +354,16 @@ const checks = {
     const dir = ['supabase/migrations', 'db/migrations', 'migrations', 'prisma/migrations'].find(has);
     if (!dir) return [UNKNOWN, 'no migrations directory found'];
     const edits = (git('log', '-200', '--diff-filter=MD', '--name-only', '--format=%x1e%h %s', '--', dir) || '').split('\x1e').filter((c) => c.trim().includes('\n'));
-    const replay = workflows.filter((w) => /replay|from scratch|db reset|supabase start/i.test(w.text) && w.on.includes('pull_request'));
+    // a PR workflow that replays migrations itself, or runs a script that does
+    const replayScripts = tracked.filter((f) => /\.(sh|mjs|js)$/.test(f) && /migration|replay/i.test(f) && /supabase (start|db reset)|createdb|initdb|pg_ctl|throwaway|replay|from scratch/i.test(read(f)));
+    const replay = workflows.filter((w) => w.on.includes('pull_request') && (/replay|from scratch|db reset|supabase start/i.test(w.text) || replayScripts.some((f) => w.text.includes(f))));
     const problems = [];
     if (edits.length) problems.push(`${edits.length} recent commit(s) modified or deleted an existing migration: ${edits.slice(0, 3).map((c) => c.trim().split('\n')[0]).join(' | ')}`);
     if (!replay.length) problems.push('no pull_request workflow replays migrations on a throwaway database');
     return problems.length ? [FAIL, short(problems.join('; '), 400)] : [PASS, `no applied migration edited in recent history; replay in ${replay.map((w) => w.file).join(', ')}`];
   },
   DB02() {
-    const gate = tracked.filter((f) => /migration[-_]?(gate|class|consent)|classify[-_]?migration/i.test(f));
+    const gate = tracked.filter((f) => /migration[-_]?(gate|guard|class|consent)|classify[-_]?migration/i.test(f));
     const inCi = gate.filter((g) => wfText.includes(g.split('/').pop()));
     return inCi.length ? [PASS, `${inCi.join(', ')} classifies migrations in CI (applies match approvals: judgment review)`]
       : [FAIL, gate.length ? `${gate.join(', ')} exists but no workflow runs it` : 'no migration classifier script found'];
@@ -382,7 +401,7 @@ const checks = {
   },
   RJ02() {
     if (!scheduled.length) return [NA, 'no scheduled workflow'];
-    const bad = scheduled.filter((w) => !/gh issue|issues\.(create|update)|\/issues/.test(w.text) && !w.jobs.some(([, j]) => j.uses) && !tracked.some((f) => /\.(sh|mjs|js)$/.test(f) && w.text.includes(f) && /gh issue|\/issues/.test(read(f))));
+    const bad = scheduled.filter((w) => !/gh issue|issues\.(create|update)|\/issues/.test(w.text) && !tracked.some((f) => /\.(sh|mjs|js)$/.test(f) && w.text.includes(f) && /gh issue|\/issues/.test(read(f))));
     return bad.length ? [FAIL, `scheduled without a tracking-issue step: ${bad.map((w) => w.file).join(', ')}`] : [PASS, `${scheduled.length} scheduled workflow(s) report to an issue (one issue per job and stop-after-3: judgment review)`];
   },
   RJ04() {
@@ -432,10 +451,10 @@ const checks = {
   PW02() {
     const v = profile?.commands?.verify;
     if (!v) return [FAIL, 'the profile names no verify command'];
-    const ci = workflows.filter((w) => w.on.includes('pull_request') && w.text.includes(v.split(' ').pop()));
+    const ci = workflows.filter((w) => w.on.includes('pull_request') && w.text.includes(v));
     if (!ci.length) return [FAIL, `no pull_request workflow runs ${v}`];
     const b = branchRules();
-    if (!b) return [UNKNOWN, `${ci.map((w) => w.file).join(', ')} runs ${v}; whether it is required: ${noAccess(api.rulesets)}`];
+    if (!b || b.unreadableBypass) return [UNKNOWN, `${ci.map((w) => w.file).join(', ')} runs ${v}; whether it is required: ${noAccess(api.rulesets)}`];
     const names = ci.flatMap((w) => [w.wf.name, ...w.jobs.flatMap(([k, j]) => [k, j.name])]).filter(Boolean);
     return b.checks.some((c) => names.includes(c)) ? [PASS, `${v} runs in ${ci.map((w) => w.file).join(', ')}, part of required ${b.checks.join(', ')}`]
       : [FAIL, `${v} runs in ${ci.map((w) => w.file).join(', ')} but no required check comes from it`];

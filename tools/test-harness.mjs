@@ -70,6 +70,15 @@ const audit = JSON.parse(readFileSync(join(work, 'audit.json'), 'utf8'));
 const res = (id) => audit.results.find((x) => x.id === id).result;
 ok(r.status === 0 && res('A01') === 'PASS' && res('A04') === 'PASS', `audit on the project: A01 ${res('A01')}, A04 ${res('A04')}`);
 
+// 2b. without git, file-scanning rules are UNKNOWN, never PASS
+const nogit = join(work, 'nogit');
+cpSync(proj, nogit, { recursive: true, filter: (p) => !p.includes('/.git') });
+writeFileSync(join(nogit, 'leak.txt'), `ghp_${'a'.repeat(36)}\n`);
+spawnSync('node', [join(nogit, '.harness/tools/audit.mjs'), nogit, '--json', join(work, 'nogit.json')], { encoding: 'utf8' });
+const ng = JSON.parse(readFileSync(join(work, 'nogit.json'), 'utf8')).results;
+const ngPass = ['PI03', 'RJ01', 'RJ04', 'A09', 'C08', 'O09'].filter((id) => ng.find((x) => x.id === id).result === 'PASS');
+ok(!ngPass.length, `audit without git reports no PASS for file-scanning rules${ngPass.length ? ` (PASS: ${ngPass.join(', ')})` : ''}`);
+
 // 3. project work after install, committed
 git(proj, 'add', '-A'); git(proj, 'commit', '-q', '-m', 'install kit');
 writeFileSync(join(proj, 'src/app.js'), 'console.log(2)\n');
@@ -79,7 +88,12 @@ git(proj, 'add', '-A'); git(proj, 'commit', '-q', '-m', 'project work');
 const owned = git(proj, 'ls-files').split('\n').filter((f) => !(f in lock1.files) && f !== '.harness/kit.lock.json');
 const before = Object.fromEntries(owned.map((f) => [f, hash(join(proj, f))]));
 
-// 4. update to the next release
+// 4. update to the next release: first refused while a project file sits where the kit adds one
+writeFileSync(join(proj, '.harness/added-in-next.md'), 'PROJECT OWNED\n');
+r = tool(['update', '--version', v2]);
+ok(r.status === 1 && /sit where kit/.test(r.stderr) && readFileSync(join(proj, '.harness/added-in-next.md'), 'utf8') === 'PROJECT OWNED\n' && readFileSync(join(proj, '.harness/VERSION'), 'utf8').trim() === v1,
+  'update refuses to overwrite a project file at a path the new kit claims, and changes nothing');
+rmSync(join(proj, '.harness/added-in-next.md'));
 r = tool(['update', '--version', v2]);
 ok(r.status === 0, `update ${v1} → ${v2}: ${r.stdout.trim()}`);
 ok(readFileSync(join(proj, '.harness/VERSION'), 'utf8').trim() === v2, 'VERSION moved');

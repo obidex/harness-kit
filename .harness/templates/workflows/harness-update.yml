@@ -77,7 +77,7 @@ jobs:
           git switch -c "$branch"
           git add -A .harness .github/workflows
           git commit -q -m "chore(harness): $verb kit $CURRENT to $TARGET"
-          git push -q origin "$branch"
+          git push -q --force origin "$branch"   # harness/* branches belong to this workflow; a leftover from a closed PR is replaced
           body="$(printf 'Kit %s → %s (%s), opened by harness-update.\n\nOnly kit-managed files change (the paths in .harness/kit.lock.json); project-owned files are untouched. Release notes: https://github.com/obidex/harness-kit/blob/v%s/CHANGELOG.md\n\nRoll back: run harness-update with version %s.' "$CURRENT" "$TARGET" "$verb" "$TARGET" "$CURRENT")"
           url="$(gh pr create --head "$branch" --title "chore(harness): $verb kit $CURRENT to $TARGET" --body "$body")"
           gh pr merge "$url" --auto --squash

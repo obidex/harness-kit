@@ -32,7 +32,8 @@ const opt = (n) => { const i = argv.indexOf(n); return i >= 0 ? argv[i + 1] : un
 const root = resolve(opt('--root') || '.');
 const KIT_REPO = process.env.HARNESS_KIT_REPO || 'https://github.com/obidex/harness-kit';
 const LOCK = '.harness/kit.lock.json';
-const OWNED_IN_HARNESS = new Set(['.harness/profile.json', LOCK]);
+// project-owned files that live under .harness/: the kit never ships, writes or deletes them
+const OWNED_IN_HARNESS = new Set(['.harness/profile.json', LOCK, '.harness/audit-baseline.json']);
 
 const die = (msg) => { console.error(`harness: ${msg}`); process.exit(1); };
 const say = (msg) => console.log(`harness: ${msg}`);
@@ -42,10 +43,10 @@ const readLock = () => (existsSync(at(LOCK)) ? JSON.parse(readFileSync(at(LOCK),
 const VERSION_RE = /^[0-9]+\.[0-9]+\.[0-9]+$/;
 const cmpVer = (a, b) => { const x = a.split('.').map(Number), y = b.split('.').map(Number); for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] - y[i]; return 0; };
 
-/** The commit a version tag points to in the kit repo (peeled), or null. */
-function tagCommit(version) {
+/** The commit a version tag points to in the kit repo (peeled); null if absent, undefined if unreadable. */
+function tagCommit(version, repo = KIT_REPO) {
   let out;
-  try { out = run('git', ['ls-remote', '--tags', KIT_REPO, `refs/tags/v${version}`, `refs/tags/v${version}^{}`]); } catch { return null; }
+  try { out = run('git', ['ls-remote', '--tags', repo, `refs/tags/v${version}`, `refs/tags/v${version}^{}`]); } catch { return undefined; }
   const lines = out.split('\n').filter(Boolean).map((l) => l.split('\t'));
   const peeled = lines.find(([, r]) => r.endsWith('^{}'));
   return (peeled || lines[0] || [])[0] || null;
@@ -98,6 +99,11 @@ function removeEmptyDirs(dir) {
 /** Write the kit's managed files; remove ones the previous lock had that the new kit dropped. */
 function apply(kit, oldLock) {
   const files = managedFrom(kit.dir);
+  // A path the kit now claims that the project already holds, and the previous lock did not list,
+  // is the project's file: refuse rather than overwrite it (init adopts an identical copy).
+  const clash = Object.entries(files).filter(([dest, src]) => existsSync(at(dest)) && !(dest in (oldLock?.files || {}))
+    && sha256(readFileSync(at(dest))) !== sha256(readFileSync(src))).map(([dest]) => dest);
+  if (clash.length) { kit.cleanup(); die(`these project files sit where kit ${kit.version} installs its own; move or rename them first, nothing was changed:\n  ${clash.join('\n  ')}`); }
   const hashes = {};
   let added = 0, changed = 0, removed = 0;
   for (const [dest, src] of Object.entries(files)) {
@@ -130,8 +136,10 @@ function guardUpdate(lock, target) {
   const d = drift(lock);
   if (d.length) die(`kit-managed files were edited in this project, so the update would lose those edits:\n  ${d.join('\n  ')}\nMove the change into the kit (or the project's own files) and restore these first.`);
   if (lock.source !== 'local' && !opt('--from')) {
-    const now = tagCommit(lock.version);
-    if (now && now !== lock.commit) die(`tag v${lock.version} now points to ${now.slice(0, 12)}, but ${lock.commit.slice(0, 12)} was installed: kit versions are immutable, so stop and report`);
+    const now = tagCommit(lock.version, lock.source);
+    if (now === undefined) die(`cannot read the tags of ${lock.source}; the installed version's tag must be checked before an update`);
+    if (now === null) die(`tag v${lock.version} no longer exists at ${lock.source}: kit versions are immutable, so stop and report`);
+    if (now !== lock.commit) die(`tag v${lock.version} now points to ${now.slice(0, 12)}, but ${lock.commit.slice(0, 12)} was installed: kit versions are immutable, so stop and report`);
   }
   if (target === lock.version) { say(`already at ${target}; nothing to do`); process.exit(0); }
 }

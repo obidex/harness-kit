@@ -26,7 +26,8 @@ with "judgment review" as evidence.
 Run by an Opus reviewer with read-only access, never by the thread that did the work (O07). Input: the
 structural JSON (`--json`), the profile, read access to the repository and its issues and PRs.
 
-1. **Sample recent active work.** The last 8 closed cards (or issues labelled as cards), the last 10
+1. **Sample recent active work.** The last 8 closed cards (find them by the card template's
+   headings, not only by label: labels drift), the last 10
    merged PRs, every open PR older than 3 days, and the last 3 runs of each scheduled job. Name the
    sample in the report so a re-run can repeat it.
 2. **Cards end in a valid outcome or a durable handover (C03, C04, C16).** For each sampled card, read
@@ -37,6 +38,8 @@ structural JSON (`--json`), the profile, read access to the repository and its i
    is FAIL.
 4. **Enforcement really requires the intended checks (C12, A11, C09).** Compare the structural ruleset
    result with what happened: did any sampled merge land with a required check red, skipped or absent?
+   A required job that a workflow-level or job-level `if:` can skip satisfies the ruleset without
+   running; so does a non-strict required check computed before a newer merge. Both are FAIL.
 5. **Jobs are bounded and fail loudly (RJ01–RJ04, O10).** For each sampled scheduled run: it ended
    within its timeout; a failure produced or updated exactly one tracking issue; alerts were not sent
    for success; three failures in a row stopped the job.
