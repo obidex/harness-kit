@@ -21,10 +21,16 @@
 // Versions are immutable: a version is a tag the kit never moves. The lock records the commit each
 // tag pointed to; update refuses to proceed if the installed version's tag now points elsewhere, and
 // refuses if a kit-managed file was edited in the project (changes come through the kit).
+//
+// The target version's own tool writes the files (K006): update and rollback check the lock and the
+// tag here, then hand the fetched kit to its harness.mjs, so a release that changes what the kit
+// manages takes effect on the update that installs it. A version older than 0.4.0 has no such entry
+// point, and this tool applies it instead.
 
 import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync, mkdtempSync, rmdirSync, readdirSync } from 'node:fs';
 import { join, dirname, resolve, basename } from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { walk, sha256 } from './lib.mjs';
 
@@ -42,6 +48,8 @@ const run = (c, a, o = {}) => execFileSync(c, a, { encoding: 'utf8', stdio: ['ig
 const at = (p) => join(root, p);
 const readLock = () => (existsSync(at(LOCK)) ? JSON.parse(readFileSync(at(LOCK), 'utf8')) : null);
 const VERSION_RE = /^[0-9]+\.[0-9]+\.[0-9]+$/;
+// the entry point a newer tool calls on an older or newer one; its presence in a tool's text is the handshake
+const APPLY_PROTOCOL = 'harness-apply/1';
 const cmpVer = (a, b) => { const x = a.split('.').map(Number), y = b.split('.').map(Number); for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] - y[i]; return 0; };
 
 /** The commit a version tag points to in the kit repo (peeled); null if absent, undefined if unreadable. */
@@ -62,7 +70,7 @@ function fetchKit(version) {
     if (version && v !== version) die(`--from holds kit ${v}, not ${version}`);
     let commit = 'local';
     try { commit = run('git', ['-C', dir, 'rev-parse', 'HEAD']); } catch { /* not a git checkout */ }
-    return { dir, version: v, commit, source: dir, cleanup() {} };
+    return { dir, version: v, commit, source: 'local', cleanup() {} };
   }
   if (!version || !VERSION_RE.test(version)) die('--version X.Y.Z is required');
   const tmp = mkdtempSync(join(tmpdir(), 'harness-kit-'));
@@ -125,7 +133,7 @@ function apply(kit, oldLock) {
   const lock = {
     version: kit.version,
     commit: kit.commit,
-    source: opt('--from') ? 'local' : kit.source,
+    source: kit.source,
     previous: oldLock ? { version: oldLock.version, commit: oldLock.commit } : null,
     files: Object.fromEntries(Object.entries(hashes).sort(([a], [b]) => a.localeCompare(b))),
   };
@@ -212,9 +220,29 @@ switch (cmd) {
     if (cmd === 'rollback' && lock.previous.commit !== 'local' && kit.commit !== lock.previous.commit && !opt('--from')) {
       kit.cleanup(); die(`tag v${target} now points to ${kit.commit.slice(0, 12)}, not ${lock.previous.commit.slice(0, 12)} as installed before`);
     }
+    const verb = cmd === 'rollback' ? 'rolled back' : 'updated';
+    const targetTool = join(kit.dir, '.harness/tools/harness.mjs');
+    if (existsSync(targetTool) && resolve(targetTool) !== fileURLToPath(import.meta.url) && readFileSync(targetTool, 'utf8').includes(APPLY_PROTOCOL)) {
+      const r = spawnSync(process.execPath, [targetTool, '__apply', '--root', root, '--kit-dir', kit.dir, '--kit-version', kit.version, '--kit-commit', kit.commit, '--kit-source', kit.source], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] });
+      kit.cleanup();
+      if (r.status !== 0) die(`kit ${kit.version}'s own tool could not apply it (exit ${r.status ?? r.signal})`);
+      say(`${verb} kit ${lock.version} → ${kit.version} (${kit.commit.slice(0, 12)}): ${r.stdout.trim()}; applied by kit ${kit.version}'s own tool; project-owned files untouched`);
+      break;
+    }
     const r = apply(kit, lock);
     kit.cleanup();
-    say(`${cmd === 'rollback' ? 'rolled back' : 'updated'} kit ${lock.version} → ${kit.version} (${kit.commit.slice(0, 12)}): ${r.added} added, ${r.changed} changed, ${r.removed} removed; project-owned files untouched`);
+    say(`${verb} kit ${lock.version} → ${kit.version} (${kit.commit.slice(0, 12)}): ${r.added} added, ${r.changed} changed, ${r.removed} removed; project-owned files untouched`);
+    break;
+  }
+  case '__apply': {
+    // called by another version's update or rollback after it checked the lock and the tag (harness-apply/1)
+    const lock = readLock();
+    if (!lock) die('the kit is not installed here');
+    const dir = opt('--kit-dir'), version = opt('--kit-version'), commit = opt('--kit-commit'), source = opt('--kit-source');
+    if (!dir || !version || !commit || !source) die('__apply needs --kit-dir, --kit-version, --kit-commit and --kit-source');
+    if (readFileSync(join(dir, '.harness/VERSION'), 'utf8').trim() !== version) die(`${dir} does not hold kit ${version}`);
+    const r = apply({ dir, version, commit, source, cleanup() {} }, lock);
+    console.log(`${r.added} added, ${r.changed} changed, ${r.removed} removed`);
     break;
   }
   case 'status': {
