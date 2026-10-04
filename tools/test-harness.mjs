@@ -36,6 +36,11 @@ writeFileSync(join(kitRepo, '.harness/VERSION'), `${v2}\n`);
 appendFileSync(join(kitRepo, '.harness/owner-defaults.md'), '\n<!-- test release marker -->\n');
 writeFileSync(join(kitRepo, '.harness/added-in-next.md'), 'added in the next release\n');
 rmSync(join(kitRepo, '.harness/presets/public-website.md'));
+// the next release also manages one more path, which only its own tool knows (K006 §4)
+const nextTool = join(kitRepo, '.harness/tools/harness.mjs');
+const marked = readFileSync(nextTool, 'utf8').replace(/(\n  return out;\n\})/, "\n  out['.claude/next-only.md'] = join(kitDir, '.harness/VERSION');$1");
+if (!marked.includes('next-only')) throw new Error('test setup: managedFrom not found');
+writeFileSync(nextTool, marked);
 git(kitRepo, 'add', '-A'); git(kitRepo, 'commit', '-q', '-m', 'kit next'); git(kitRepo, 'tag', `v${v2}`);
 process.env.HARNESS_KIT_REPO = `file://${kitRepo}`;
 
@@ -56,7 +61,7 @@ let r = boot(['init', '--version', v1, '--preset', 'web-app']);
 ok(r.status === 0, `init ${v1}: ${(r.stdout + r.stderr).trim().split('\n')[0]}`);
 const lock1 = JSON.parse(readFileSync(join(proj, '.harness/kit.lock.json'), 'utf8'));
 ok(lock1.version === v1 && lock1.commit === git(kitRepo, 'rev-parse', `v${v1}`), 'the lock records the version and the commit its tag points to');
-ok(existsSync(join(proj, '.github/workflows/harness-update.yml')) && existsSync(join(proj, '.github/workflows/harness-audit.yml')), 'workflows installed from templates');
+ok(['update', 'audit', 'scrub'].every((w) => existsSync(join(proj, `.github/workflows/harness-${w}.yml`))), 'workflows installed from templates');
 ok(!existsSync(join(proj, '.harness/templates')), 'templates are not copied into the project');
 ok(existsSync(join(proj, '.claude/skills/correct/SKILL.md')) && '.claude/skills/correct/SKILL.md' in lock1.files, 'kit skills installed into .claude/skills and listed in the lock');
 const claude = readFileSync(join(proj, 'CLAUDE.md'), 'utf8');
@@ -97,6 +102,8 @@ ok(r.status === 1 && /sit where kit/.test(r.stderr) && readFileSync(join(proj, '
 rmSync(join(proj, '.harness/added-in-next.md'));
 r = tool(['update', '--version', v2]);
 ok(r.status === 0, `update ${v1} → ${v2}: ${r.stdout.trim()}`);
+ok(tool(['paths']).stdout.split('\n').includes('.claude/next-only.md') && tool(['paths']).stdout.includes('.harness/presets/public-website.md'), 'paths lists what the update PR must stage: added and removed paths outside .harness too');
+ok(/applied by kit .*own tool/.test(r.stdout) && existsSync(join(proj, '.claude/next-only.md')), 'the new version\'s own tool applied it (a path only it manages arrived)');
 ok(readFileSync(join(proj, '.harness/VERSION'), 'utf8').trim() === v2, 'VERSION moved');
 ok(existsSync(join(proj, '.harness/added-in-next.md')) && !existsSync(join(proj, '.harness/presets/public-website.md')), 'added file arrived; dropped file removed');
 ok(owned.every((f) => existsSync(join(proj, f)) && hash(join(proj, f)) === before[f]), `${owned.length} project-owned files byte-identical after update`);
@@ -117,7 +124,7 @@ git(proj, 'checkout', '--', '.harness/core.md');
 // 6. rollback
 r = tool(['rollback']);
 ok(r.status === 0, `rollback: ${r.stdout.trim()}`);
-ok(readFileSync(join(proj, '.harness/VERSION'), 'utf8').trim() === v1 && existsSync(join(proj, '.harness/presets/public-website.md')) && !existsSync(join(proj, '.harness/added-in-next.md')), `back on ${v1} with its exact file set`);
+ok(readFileSync(join(proj, '.harness/VERSION'), 'utf8').trim() === v1 && existsSync(join(proj, '.harness/presets/public-website.md')) && !existsSync(join(proj, '.harness/added-in-next.md')) && !existsSync(join(proj, '.claude/next-only.md')), `back on ${v1} with its exact file set`);
 const lock3 = JSON.parse(readFileSync(join(proj, '.harness/kit.lock.json'), 'utf8'));
 ok(JSON.stringify(lock3.files) === JSON.stringify(lock1.files), 'managed files hash-identical to the first install');
 ok(owned.every((f) => hash(join(proj, f)) === before[f]), 'project-owned files still byte-identical');
