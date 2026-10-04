@@ -7,4 +7,9 @@ examples only.
 - `.harness/` — the kit's layers; start with `.harness/README.md`.
 - `DECISIONS.md` — append-only register; `K001` is the founding decision.
 - `examples/` — a sanitized profile and a `CLAUDE.md` entry file.
-- `tools/check-kit.mjs` — structural checks on the kit (`node tools/check-kit.mjs`), run in CI.
+- `.harness/tools/` — what projects run: `harness.mjs` (install, update, roll back) and `audit.mjs`
+  (the structural audit); `.harness/audit/README.md` explains the audit.
+- `tools/` — the kit's own checks, run in CI: `check-kit.mjs` (every rule has a complete record),
+  `check-version.mjs` (a kit change is a new version), `test-harness.mjs` (install, update and
+  rollback end to end); `probe-loading.sh` proves a project's sessions load the kit.
+- `CHANGELOG.md` — what each version (tag `v<version>`) changed.

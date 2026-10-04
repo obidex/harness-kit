@@ -13,6 +13,7 @@
 
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { validateSchema, parseYaml } from '../.harness/tools/lib.mjs';
 
 const root = process.argv[2] || new URL('..', import.meta.url).pathname;
 const read = (p) => readFileSync(join(root, p), 'utf8');
@@ -77,33 +78,9 @@ for (const [f, max] of Object.entries(caps)) {
   if (n > max) fail(`${f} is ${n} bytes, over its cap of ${max}`);
 }
 
-// --- 4. profile example against the schema (the subset of JSON Schema the schema uses) ------------
+// --- 4. profile example against the schema ------------------------------------------------------
 const schema = JSON.parse(read('.harness/profile.schema.json'));
-const typeOk = (t, v) => ({ object: v && typeof v === 'object' && !Array.isArray(v), array: Array.isArray(v), string: typeof v === 'string',
-  integer: Number.isInteger(v), boolean: typeof v === 'boolean', number: typeof v === 'number' }[t]);
-function validate(s, v, path) {
-  if (s.enum && !s.enum.includes(v)) return fail(`profile ${path}: ${JSON.stringify(v)} not in ${s.enum.join(', ')}`);
-  if (s.type && !typeOk(s.type, v)) return fail(`profile ${path}: expected ${s.type}`);
-  if (typeof v === 'string') {
-    if (s.minLength && v.length < s.minLength) fail(`profile ${path}: too short`);
-    if (s.pattern && !new RegExp(s.pattern).test(v)) fail(`profile ${path}: does not match ${s.pattern}`);
-  }
-  if (typeof v === 'number' && s.minimum !== undefined && v < s.minimum) fail(`profile ${path}: below ${s.minimum}`);
-  if (Array.isArray(v)) {
-    if (s.minItems && v.length < s.minItems) fail(`profile ${path}: fewer than ${s.minItems} items`);
-    if (s.uniqueItems && new Set(v.map((x) => JSON.stringify(x))).size !== v.length) fail(`profile ${path}: items repeat`);
-    if (s.items) v.forEach((x, i) => validate(s.items, x, `${path}[${i}]`));
-  }
-  if (typeOk('object', v)) {
-    for (const k of s.required || []) if (!(k in v)) fail(`profile ${path}: missing ${k}`);
-    for (const [k, x] of Object.entries(v)) {
-      if (s.properties && k in s.properties) validate(s.properties[k], x, `${path}.${k}`);
-      else if (s.additionalProperties === false) fail(`profile ${path}: unknown key ${k}`);
-      else if (typeof s.additionalProperties === 'object') validate(s.additionalProperties, x, `${path}.${k}`);
-    }
-  }
-}
-validate(schema, JSON.parse(read('examples/profile.example.json')), '$');
+for (const e of validateSchema(schema, JSON.parse(read('examples/profile.example.json')))) fail(`profile ${e}`);
 
 // --- 5. preset capabilities -----------------------------------------------------------------------
 const known = schema.properties.capabilities.items.enum;
@@ -120,6 +97,19 @@ for (const f of list('.harness/presets')) {
 const secretish = /(ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9]{20,}|eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}|[0-9]{8,10}:AA[A-Za-z0-9_-]{30,})/;
 for (const f of ['DECISIONS.md', 'README.md', ...layers.map((l) => l.file), ...recordFiles, '.harness/project-specific.md', 'examples/profile.example.json']) {
   if (existsSync(join(root, f)) && secretish.test(read(f))) fail(`${f} contains a secret-shaped string`);
+}
+
+// --- 7. the kit's own and its installed workflows are bounded (RJ01) and named harness-* -----------
+const wfFiles = [...readdirSync(join(root, '.github/workflows')).map((f) => `.github/workflows/${f}`),
+  ...readdirSync(join(root, '.harness/templates/workflows')).map((f) => `.harness/templates/workflows/${f}`)];
+for (const f of wfFiles) {
+  const wf = parseYaml(read(f));
+  const jobs = Object.entries(wf.jobs || {});
+  if (!jobs.length) fail(`${f} has no jobs (unparsable?)`);
+  for (const [k, j] of jobs) if (!j['timeout-minutes']) fail(`${f}#${k} has no timeout-minutes`);
+  if (!wf.concurrency) fail(`${f} has no concurrency group`);
+  if (!wf.permissions) fail(`${f} does not declare permissions`);
+  if (f.startsWith('.harness/templates/') && !/\/harness-[a-z0-9-]+\.yml$/.test(f)) fail(`${f}: installed workflows are named harness-*.yml`);
 }
 
 const rules = worded.size;
