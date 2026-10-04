@@ -198,3 +198,45 @@ projects, propose a lasting update credential that needs no yearly renewal."
    entry point and are applied by the running tool.
 
 **Status:** STANDING.
+
+## K007 · 2026-10-04 · STANDING — one GitHub App holds the owner's GitHub hands
+
+**Source:** the owner's message in the project chat on 2026-10-04 answering decision 4, verbatim:
+"4A. Make this GitHub App the single "GitHub hands" for all the owner's projects, so repository
+housekeeping never comes back to him: One-time owner setup, as short as possible: prefer GitHub's
+App-manifest flow so the name and permissions are prefilled; exact clicks; the private key goes
+straight into a repository secret, never into chat. Batch every remaining owner step into that one
+sitting. Settings as code: each enrolled repo keeps its settings, rulesets (incl. strict required
+checks), auto-merge, labels and required checks in a file; a workflow on main applies them with the
+App after review, so a settings change is a PR that merges itself and the owner never clicks
+repository settings again. The App is used only by reviewed workflows on main, never by an AI
+session directly; least privilege per job; every use logged; failures alert by Telegram. Report
+which owner steps this removes (rulesets, auto-merge, repo settings, update PRs) and what still
+needs him (creating a new repo, payments, physical machines)."
+
+1. **One App, one control repo.** The owner creates one GitHub App, installs it on all his
+   repositories, and keeps its key only in the `hands` environment of a private control repository,
+   restricted to `main`. The kit ships that repository's workflows in `.harness/templates/hands/`;
+   they run only on a schedule or a manual dispatch from `main`, never on a pull request, so no
+   session or PR code reaches the key (`hands.mjs control-check`, in check-kit and `hands-check`).
+2. **Registration by prefilled URL, not the manifest flow.** The manifest flow returns the private
+   key to whatever exchanges its code, which would be a session or a page; the URL-parameter form
+   prefills the name and permissions and the owner downloads the key himself into the environment
+   secret. Same clicks, the key never leaves GitHub and his browser.
+3. **Least privilege per job.** Each job mints a token for one repository with only what it needs:
+   `hands-settings` administration and issues write, `hands-update` contents, pull requests and
+   workflows write, the log job issues write on the control repo.
+4. **Settings as code (A14).** A project's `.github/harness-settings.json` (schema
+   `.harness/settings.schema.json`) names its repository settings, rulesets with strict required
+   checks, auto-merge and labels. `hands-settings` applies it hourly from the default branch, so a
+   reviewed PR that changes the file is the only way settings change. The tool refuses auto-merge
+   without an active ruleset requiring checks, and a required check no PR workflow defines.
+5. **Updates by the App.** `hands-update` replaces each repo's `harness-update.yml` and the
+   `HARNESS_TOKEN` token: it opens the update PR as the App and turns on auto-merge. Maintenance
+   commits are the App's, the owner's own identity, never Claude's (O09).
+6. **Logged and alerted.** Every write is a line in the control repo's monthly "hands log" issue; a
+   failed run opens one tracking issue and sends one Telegram message per failure (O10).
+7. **The trust boundary is a kit release.** The control repo runs the kit at the tag it pins, with
+   the key; a kit change reaches the key only through a reviewed release and a reviewed pin bump.
+
+**Status:** STANDING.

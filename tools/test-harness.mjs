@@ -61,7 +61,7 @@ let r = boot(['init', '--version', v1, '--preset', 'web-app']);
 ok(r.status === 0, `init ${v1}: ${(r.stdout + r.stderr).trim().split('\n')[0]}`);
 const lock1 = JSON.parse(readFileSync(join(proj, '.harness/kit.lock.json'), 'utf8'));
 ok(lock1.version === v1 && lock1.commit === git(kitRepo, 'rev-parse', `v${v1}`), 'the lock records the version and the commit its tag points to');
-ok(['update', 'audit', 'scrub'].every((w) => existsSync(join(proj, `.github/workflows/harness-${w}.yml`))), 'workflows installed from templates');
+ok(['audit', 'scrub'].every((w) => existsSync(join(proj, `.github/workflows/harness-${w}.yml`))), 'workflows installed from templates');
 ok(!existsSync(join(proj, '.harness/templates')), 'templates are not copied into the project');
 ok(existsSync(join(proj, '.claude/skills/correct/SKILL.md')) && '.claude/skills/correct/SKILL.md' in lock1.files, 'kit skills installed into .claude/skills and listed in the lock');
 const claude = readFileSync(join(proj, 'CLAUDE.md'), 'utf8');
@@ -128,6 +128,15 @@ ok(readFileSync(join(proj, '.harness/VERSION'), 'utf8').trim() === v1 && existsS
 const lock3 = JSON.parse(readFileSync(join(proj, '.harness/kit.lock.json'), 'utf8'));
 ok(JSON.stringify(lock3.files) === JSON.stringify(lock1.files), 'managed files hash-identical to the first install');
 ok(owned.every((f) => hash(join(proj, f)) === before[f]), 'project-owned files still byte-identical');
+
+// 6b. a lock is project data: a path in it that leaves the project is refused, never written or deleted
+const lockPath = join(proj, '.harness/kit.lock.json');
+const goodLock = readFileSync(lockPath, 'utf8');
+writeFileSync(join(proj, '..', 'outside.txt'), 'KEEP\n');
+writeFileSync(lockPath, JSON.stringify({ ...lock3, files: { ...lock3.files, '../outside.txt': 'x' } }));
+r = tool(['update', '--version', v2]);
+ok(r.status === 1 && /outside the project/.test(r.stderr) && readFileSync(join(proj, '..', 'outside.txt'), 'utf8') === 'KEEP\n', 'a lock path outside the project is refused and the file there untouched');
+writeFileSync(lockPath, goodLock);
 
 // 7. a moved tag is refused
 git(kitRepo, 'tag', '-f', `v${v1}`, 'main');

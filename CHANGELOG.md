@@ -3,6 +3,22 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.5.0 · 2026-10-04 · one App holds GitHub's hands; settings as code
+
+- `.harness/templates/hands/`: the control repository's workflows. `hands-settings` applies each
+  enrolled repo's `.github/harness-settings.json` (repository settings, rulesets with strict required
+  checks, auto-merge, labels) hourly with the hands App; `hands-update` opens kit update PRs as the
+  App with auto-merge; `hands-report` logs every write to a monthly issue and alerts a failure once
+  by Telegram; `hands-check` validates the control repo's PRs (K007).
+- `.harness/tools/hands.mjs` (`validate`, `control-check`, `discover`, `plan`, `apply`, `export`)
+  and `.harness/settings.schema.json`.
+- Adapter A14 "One App holds GitHub's hands"; the audit checks the settings file is valid and
+  matches the live repository. A13 now judges the App's update PRs.
+- Removed from projects: `harness-update.yml` and the `HARNESS_TOKEN` secret it used.
+- `harness.mjs` refuses a lock path that leaves the project or passes through a symlink.
+- Audit A13 and A14 never turn a project's strict audit red on update: no settings file yet, live
+  drift until the next apply, and an update PR from the old token are UNKNOWN.
+
 ## 0.4.1 · 2026-10-04 · update PRs carry one identity
 
 - `harness-update.yml` commits as the identity whose token opens the PR (unless

@@ -1,0 +1,65 @@
+# Harness Kit control repository (K007): the record and the alert for every hands run.
+# Each run that changed something adds one comment, listing every write, to this month's log issue
+# here. A failure opens one tracking issue and sends one Telegram message; while that issue stays
+# open, later failures only comment on it (O10: deduplicated, never for success).
+name: hands-report
+
+on:
+  workflow_call:
+    inputs:
+      job:
+        required: true
+        type: string
+      result:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: hands
+    permissions:
+      actions: read
+      issues: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: logs
+          pattern: log-*
+        continue-on-error: true
+      - name: Log every write
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          JOB: ${{ inputs.job }}
+        run: |
+          set -euo pipefail
+          url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          writes="$(cat logs/*/log.txt 2>/dev/null | grep -E ': (applied|opened) ' || true)"
+          [ -z "$writes" ] && { echo "No writes this run." >> "$GITHUB_STEP_SUMMARY"; exit 0; }
+          title="hands log $(date -u +%Y-%m)"
+          n="$(gh issue list --state all --search "\"$title\" in:title" --json number --jq '.[0].number // empty')"
+          [ -n "$n" ] || n="$(gh issue create --title "$title" --body "Every write the hands App made this month, one comment per run." | grep -oE '[0-9]+$')"
+          printf '%s · %s\n\n%s\n' "$JOB" "$url" "$writes" | gh issue comment "$n" --body-file -
+      - name: Alert once on failure
+        if: inputs.result == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          JOB: ${{ inputs.job }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          set -euo pipefail
+          url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          title="$JOB failing"
+          n="$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number // empty')"
+          if [ -n "$n" ]; then gh issue comment "$n" --body "Still failing: $url"; exit 0; fi
+          gh issue create --title "$title" --body "FAIL: $url"
+          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then echo "::error::Telegram secrets are not set; the alert went only to the issue"; exit 1; fi
+          curl -fsS -o /dev/null "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" --data-urlencode "text=⚠️ ${JOB} failed in ${{ github.repository }}: ${url}"

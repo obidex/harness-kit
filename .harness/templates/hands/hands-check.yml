@@ -1,0 +1,34 @@
+# Harness Kit control repository (K007): the required check on this repository's pull requests.
+# It needs no secret: it validates the settings file and the workflow files with the pinned kit.
+name: hands-check
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hands-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  hands-check:
+    name: hands-check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - id: kit
+        run: echo "ref=v$(tr -d '[:space:]' < HANDS_KIT_VERSION)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.HARNESS_KIT_REPO || 'obidex/harness-kit' }}
+          ref: ${{ steps.kit.outputs.ref }}
+          path: kit
+          persist-credentials: false
+      - name: Settings file is valid
+        run: node kit/.harness/tools/hands.mjs validate .
+      - name: Every job that can reach the App key runs only from main
+        run: node kit/.harness/tools/hands.mjs control-check .
