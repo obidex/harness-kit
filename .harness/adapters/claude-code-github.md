@@ -7,8 +7,8 @@
 ## Loading
 
 - **A01 Entry files import the kit.** `CLAUDE.md` loads the kit with the supported `@path` import:
-  `@.harness/core.md`, `@.harness/owner-defaults.md`, then the project's own rulebook (commonly
-  `@AGENTS.md`, which other agents such as Codex also read). `CLAUDE.md` itself adds only
+  `@.harness/core.md`, `@.harness/owner-defaults.md`, `@.harness/VERSION`, then the project's own
+  rulebook (commonly `@AGENTS.md`, which other agents such as Codex also read). `CLAUDE.md` itself adds only
   Claude-specific mechanics. Loading is proven in a fresh session and again after a resume, by
   asking the session which kit version and which rule a given ID names.
 - **A02 Lookup stays out of context.** The catalogue, capabilities, presets and this adapter are
@@ -18,7 +18,8 @@
   `.claude/skills/<name>/SKILL.md` and load when named; review seats are subagents in
   `.claude/agents/` with read-only tools and a pinned model.
 - **A04 No plugin delivery.** Cloud threads do not load plugins, so kit files are installed as a
-  pinned copy in each project and updated by maintenance PRs.
+  pinned copy in each project by `.harness/tools/harness.mjs`, listed with their hashes in
+  `.harness/kit.lock.json`, and changed only by maintenance PRs (`harness-update`).
 - **A05 Settings are project-owned.** The kit does not manage `.claude/settings.json` (K001
   boundary). It records what projects keep there today: attribution turned off; deny `--admin`
   merges, force pushes, destructive git, `.env*` reads and edits to the settings file itself; a
@@ -53,16 +54,18 @@
 - **A13 Unattended PRs need real identity.** Events caused by `GITHUB_TOKEN` do not start new
   workflow runs, and Actions may be barred from creating or approving PRs, so a maintenance PR that
   must run checks and auto-merge is opened by a GitHub App or a fine-grained token the owner
-  creates once (O01, O02). Auto-merge also needs the repository setting enabled.
+  creates once (O01, O02), stored as the `HARNESS_TOKEN` secret. It needs Contents, Pull requests,
+  Workflows (the PR changes `.github/workflows/harness-*.yml`) and Issues read/write. Auto-merge
+  also needs the repository setting enabled and a required check to wait for.
 
 ## Records
 
 | ID | Applies when | Expected outcome | Source | Verify |
 |---|---|---|---|---|
-| A01 | Claude Code is used | `CLAUDE.md` imports core, defaults and the rulebook; a fresh and a resumed session both answer the kit version correctly. | K001; ERP and WEB CLAUDE.md; PLATFORM (CLAUDE.md imports) | script: `CLAUDE.md` contains the two kit imports and their targets exist. judgment: fresh-session and resume probes (H2). |
+| A01 | Claude Code is used | `CLAUDE.md` imports core, defaults and the rulebook; a fresh and a resumed session both answer the kit version correctly. | K001; ERP and WEB CLAUDE.md; PLATFORM (CLAUDE.md imports) | script: `CLAUDE.md` contains the three kit imports and their targets exist. judgment: `tools/probe-loading.sh` in a fresh session and after a resume. |
 | A02 | Claude Code is used | No lookup file is imported; path rules carry `paths:`. | K001; ERP AGENTS §8, .claude/rules; PLATFORM | script: imports in `CLAUDE.md` exclude lookup files; each `.claude/rules/*.md` has `paths:`. |
 | A03 | the project uses skills or subagents | Review subagents declare read-only tools and a model. | ERP .claude/agents · D282; WEB .claude/agents | script: agent files in review roles have `tools:` without write tools and a `model:`. |
-| A04 | always | Kit files are present as a pinned copy with a recorded version. | K001 | script: `.harness/VERSION` exists and matches the kit release the project pins. |
+| A04 | always | Kit files are present as a pinned copy with a recorded version. | K001 | script: `harness.mjs status`: `.harness/VERSION` matches the lock and every managed file matches its hash. |
 | A05 | always | Settings are project-edited only; sessions cannot edit them. | K001; ERP settings · D289; WEB CLAUDE.md · W138 | script: settings deny edits to themselves and admin merges. judgment: settings changes came through owner or reviewed PR. |
 | A06 | a session waits on CI or another event | Waits use a watcher; no conversation polling; handovers for long waits. | ERP run-card §7, wait-for script · D258; WEB run-card §7 · W221 | script: a watcher script exists with a self-test. judgment: sampled threads ended turns on a watcher. |
 | A07 | long sessions or noisy commands | Sessions compact on time; noisy steps print summaries. | ERP CLAUDE.md, run-card §4 · D260; WEB run-card §4 | judgment: sampled transcripts show logged noisy steps. |

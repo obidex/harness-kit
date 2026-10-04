@@ -19,7 +19,14 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - run: node tools/check-kit.mjs
+      - name: A change to the kit is a new version
+        if: github.event_name == 'pull_request'
+        run: node tools/check-version.mjs "origin/${{ github.base_ref }}"
+      - name: Initializer and updater, end to end
+        run: node tools/test-harness.mjs

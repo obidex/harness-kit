@@ -1,0 +1,41 @@
+# Releases are tags: when main carries a .harness/VERSION that has no tag yet, tag that commit
+# v<VERSION>. A tag is never moved or deleted (K003); projects' locks record the commit it named.
+name: release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Tag a new version
+        run: |
+          set -euo pipefail
+          v="$(tr -d '[:space:]' < .harness/VERSION)"
+          if git rev-parse -q --verify "refs/tags/v$v" >/dev/null; then
+            echo "v$v already exists at $(git rev-list -n 1 "v$v"); tags are immutable, nothing to do." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          node tools/check-kit.mjs
+          node tools/test-harness.mjs
+          git tag "v$v" "$GITHUB_SHA"
+          git push origin "refs/tags/v$v"
+          echo "Released v$v at $GITHUB_SHA." >> "$GITHUB_STEP_SUMMARY"

@@ -5,16 +5,8 @@
   "description": "One per project, at .harness/profile.json. Project-owned: the kit never overwrites it. Holds facts and pointers, never secrets, host details or private data; business rules are pointers to the project's own files.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["kit", "project", "preset", "capabilities", "stack", "commands", "branches", "environments", "modules", "business_rules", "permissions", "risk", "canon", "exceptions"],
+  "required": ["project", "preset", "capabilities", "stack", "commands", "branches", "environments", "modules", "business_rules", "permissions", "risk", "canon", "exceptions"],
   "properties": {
-    "kit": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["version"],
-      "properties": {
-        "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$", "description": "The pinned kit version installed in this project." }
-      }
-    },
     "project": {
       "type": "object",
       "additionalProperties": false,

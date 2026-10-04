@@ -72,3 +72,31 @@ an initial limit, not a permanent rule.
    keeps out of scope; they wait for that boundary to move.
 
 **Status:** STANDING.
+
+## K003 · 2026-10-04 · STANDING — how card H2 installs, updates and audits the kit
+
+**Source:** card H2 under K001's authorization (decided by the thread, within the approved plan).
+
+1. **Versions are tags.** A kit version is the tag `v<X.Y.Z>`, created by the `release` workflow when
+   `main` carries a `.harness/VERSION` with no tag yet. Tags are never moved or deleted. A pull
+   request that changes `.harness/**` must raise `VERSION` and add a `CHANGELOG.md` entry
+   (`tools/check-version.mjs`).
+2. **One home for the installed version.** `.harness/VERSION`, imported by `CLAUDE.md` so a session
+   can state it. The profile's `kit.version` is removed (C17: one home per fact).
+3. **What the kit owns in a project.** Every file under `.harness/` except `profile.json` and
+   `kit.lock.json`, plus `.github/workflows/harness-*.yml`. `.harness/kit.lock.json` lists them with
+   their hashes and records the commit each version's tag named. Everything else is project-owned:
+   `update` and `rollback` never write it; `init` writes `CLAUDE.md` and `profile.json` only when
+   they are absent or lack the kit's imports.
+4. **Update and rollback are one path.** `harness-update` opens a pull request that moves the pin to
+   a version (the newest by default, an older one to roll back) and turns on auto-merge; the
+   project's required checks decide. The updater refuses when a kit-managed file was edited in the
+   project, or when the installed version's tag now names a different commit.
+5. **Audit.** A structural script decides what a machine can decide; a fresh-context judgment review
+   samples recent work for the rest. Results are `PASS · FAIL · UNKNOWN · NOT APPLICABLE` with
+   evidence. A project may accept today's FAILs as a baseline so CI fails only on new ones (the C18
+   ratchet). Reports about a real project are private and never committed here (K001).
+6. **Boundary kept.** The kit still does not manage `.claude/settings.json` (K001); the audit only
+   reads it.
+
+**Status:** STANDING.
