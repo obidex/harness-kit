@@ -14,6 +14,7 @@ Installed in each project as a pinned copy (K001). Layers, not systems:
 | Rules left to projects, and conflicts | `project-specific.md` | Lookup |
 | Audit: structural script and judgment review | `tools/audit.mjs`, `audit/README.md` | Run, never loaded |
 | Installer and updater | `tools/harness.mjs`, workflows from `templates/workflows/` | Run, never loaded |
+| Kit skills: `correct` (C19 prevention ladder) | `templates/skills/<name>/`, installed as `.claude/skills/<name>/` | Loaded when named |
 
 `VERSION` is the kit version a project pins (imported by `CLAUDE.md`); cards record it. In a project,
 `kit.lock.json` lists every kit-managed file with its hash; `profile.json` is the project's own.

@@ -68,3 +68,8 @@
 - **C18 Ratchet.** A correction lands in its narrowest home first (the card, a module rule, a
   test) and becomes global only when it recurs. The owner's correction to how work runs is
   recorded as a decision the same day; chat is never the record.
+- **C19 Prevention.** Every owner correction or repeated failure ends with its prevention, at the
+  highest level worth its cost (the ladder is the `correct` skill). Escalate when an issue happens
+  twice or is costly; a one-off small mistake is fixed, not ruled. Owner review is not a prevention
+  level; independent AI review counts only for risky areas. Each prevention is recorded once, with
+  where it lives; the audit reports corrections that recurred.

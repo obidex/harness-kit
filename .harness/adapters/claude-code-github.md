@@ -16,7 +16,8 @@
   are touched go in `.claude/rules/*.md` with `paths:` frontmatter.
 - **A03 Skills and subagents are project files.** Procedures live in
   `.claude/skills/<name>/SKILL.md` and load when named; review seats are subagents in
-  `.claude/agents/` with read-only tools and a pinned model.
+  `.claude/agents/` with read-only tools and a pinned model. The kit's own skills come from
+  `.harness/templates/skills/<name>/` and are installed as `.claude/skills/<name>/` (kit-managed).
 - **A04 No plugin delivery.** Cloud threads do not load plugins, so kit files are installed as a
   pinned copy in each project by `.harness/tools/harness.mjs`, listed with their hashes in
   `.harness/kit.lock.json`, and changed only by maintenance PRs (`harness-update`).
