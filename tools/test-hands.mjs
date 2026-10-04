@@ -7,6 +7,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, readdirSyn
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { plan, covers, validate, controlProblems, unsafe } from '../.harness/tools/hands.mjs';
+import { parseYaml } from '../.harness/tools/lib.mjs';
 
 let n = 0;
 const ok = (cond, what) => { n++; if (!cond) { console.log(`test-hands: FAIL ${n}. ${what}`); process.exit(1); } console.log(`test-hands: ok ${n}. ${what}`); };
@@ -84,7 +85,14 @@ const caller = "name: x\non:\n  pull_request:\njobs:\n  r:\n    uses: ./.github/
 ok(controlProblems({ 'x.yml': caller }).some((p) => p.includes('repository event')), 'a PR workflow handing its secrets to a keyed workflow is refused');
 // a called workflow only gets the permissions its caller job grants
 for (const f of ['hands-settings.yml', 'hands-update.yml']) {
-  ok(/\n  report:\n(?: {4}.*\n)*? {4}permissions:\n {6}actions: read\n {6}issues: write\n/.test(files[f]), `${f}: the report job grants what hands-report needs`);
+  // GitHub refuses to start the run (startup_failure) when a caller grants less than the called
+  // workflow declares, at its top level or in a job; seen on the first real run of 0.5.0
+  const caller = parseYaml(files[f]).jobs.report;
+  const called = parseYaml(files['hands-report.yml']);
+  const need = [called.permissions || {}, ...Object.values(called.jobs).map((j) => j.permissions || {})];
+  const rank = { none: 0, read: 1, write: 2 };
+  const short = need.flatMap((p) => Object.entries(p)).filter(([k, v]) => (rank[caller.permissions?.[k]] ?? 0) < rank[v]).map(([k, v]) => `${k}: ${v}`);
+  ok(!short.length, `${f}: the report job grants all hands-report declares${short.length ? ` (missing ${short.join(', ')})` : ''}`);
 }
 // no project code runs where the key is: the update job runs only the pinned kit's tool
 ok(!/node \.harness\/tools\//.test(files['hands-update.yml']) && files['hands-update.yml'].includes('node "$tool" update --root .'), 'hands-update runs the pinned kit, never the project\'s own copy');

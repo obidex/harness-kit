@@ -3,6 +3,14 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.5.1 · 2026-10-04 · fixes from the first real hands runs
+
+- The `report` jobs of `hands-settings` and `hands-update` also grant `contents: read`, which
+  `hands-report` declares; without it GitHub refused to start either run (startup failure).
+  `test-hands` now compares every permission a caller grants with what the called workflow declares.
+- Audit O09 no longer judges a body changed in the last ten minutes: on a new PR it raced the
+  scrubber and failed on the footer the scrubber was about to remove.
+
 ## 0.5.0 · 2026-10-04 · one App holds GitHub's hands; settings as code
 
 - `.harness/templates/hands/`: the control repository's workflows. `hands-settings` applies each

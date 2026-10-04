@@ -167,6 +167,7 @@ jobs:
     if: always() && github.ref == 'refs/heads/main'
     permissions:
       actions: read
+      contents: read
       issues: write
     uses: ./.github/workflows/hands-report.yml
     with:
