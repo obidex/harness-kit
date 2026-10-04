@@ -6,6 +6,7 @@
 //   node .harness/tools/harness.mjs rollback                  (to the version the lock records as previous)
 //   node .harness/tools/harness.mjs status                    (exit 1 if a kit-managed file drifted)
 //   node .harness/tools/harness.mjs latest                    (print the newest released kit version)
+//   node .harness/tools/harness.mjs paths                     (every path the lock, or the lock committed at HEAD, lists: what an update PR stages)
 //
 // Run from the project root (or pass --root <dir>). The kit comes from --from, or from the tag
 // v<version> of $HARNESS_KIT_REPO (default https://github.com/obidex/harness-kit).
@@ -48,7 +49,7 @@ const run = (c, a, o = {}) => execFileSync(c, a, { encoding: 'utf8', stdio: ['ig
 const at = (p) => join(root, p);
 const readLock = () => (existsSync(at(LOCK)) ? JSON.parse(readFileSync(at(LOCK), 'utf8')) : null);
 const VERSION_RE = /^[0-9]+\.[0-9]+\.[0-9]+$/;
-// the entry point a newer tool calls on an older or newer one; its presence in a tool's text is the handshake
+// the entry point one version's tool calls on another's; `__apply --protocol` prints it (the handshake)
 const APPLY_PROTOCOL = 'harness-apply/1';
 const cmpVer = (a, b) => { const x = a.split('.').map(Number), y = b.split('.').map(Number); for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] - y[i]; return 0; };
 
@@ -222,7 +223,9 @@ switch (cmd) {
     }
     const verb = cmd === 'rollback' ? 'rolled back' : 'updated';
     const targetTool = join(kit.dir, '.harness/tools/harness.mjs');
-    if (existsSync(targetTool) && resolve(targetTool) !== fileURLToPath(import.meta.url) && readFileSync(targetTool, 'utf8').includes(APPLY_PROTOCOL)) {
+    const speaks = existsSync(targetTool) && resolve(targetTool) !== fileURLToPath(import.meta.url)
+      && spawnSync(process.execPath, [targetTool, '__apply', '--protocol'], { encoding: 'utf8' }).stdout?.trim() === APPLY_PROTOCOL;
+    if (speaks) {
       const r = spawnSync(process.execPath, [targetTool, '__apply', '--root', root, '--kit-dir', kit.dir, '--kit-version', kit.version, '--kit-commit', kit.commit, '--kit-source', kit.source], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] });
       kit.cleanup();
       if (r.status !== 0) die(`kit ${kit.version}'s own tool could not apply it (exit ${r.status ?? r.signal})`);
@@ -236,6 +239,7 @@ switch (cmd) {
   }
   case '__apply': {
     // called by another version's update or rollback after it checked the lock and the tag (harness-apply/1)
+    if (argv.includes('--protocol')) { console.log(APPLY_PROTOCOL); break; }
     const lock = readLock();
     if (!lock) die('the kit is not installed here');
     const dir = opt('--kit-dir'), version = opt('--kit-version'), commit = opt('--kit-commit'), source = opt('--kit-source');
@@ -253,6 +257,14 @@ switch (cmd) {
     say(`kit ${lock.version} (${lock.commit.slice(0, 12)}): ${Object.keys(lock.files).length} managed files match the lock`);
     break;
   }
+  case 'paths': {
+    const lock = readLock();
+    if (!lock) die('the kit is not installed here');
+    let before = {};
+    try { before = JSON.parse(run('git', ['-C', root, 'show', `HEAD:${LOCK}`])).files || {}; } catch { /* no committed lock yet */ }
+    console.log([...new Set([...Object.keys(before), ...Object.keys(lock.files), LOCK])].sort().join('\n'));
+    break;
+  }
   case 'latest': {
     const out = run('git', ['ls-remote', '--tags', '--refs', KIT_REPO, 'refs/tags/v*']);
     const versions = out.split('\n').map((l) => l.split('refs/tags/v')[1]).filter((v) => v && VERSION_RE.test(v)).sort(cmpVer);
@@ -261,5 +273,5 @@ switch (cmd) {
     break;
   }
   default:
-    die('usage: harness.mjs init|update|rollback|status|latest  (see the header of this file)');
+    die('usage: harness.mjs init|update|rollback|status|latest|paths  (see the header of this file)');
 }

@@ -86,7 +86,8 @@ jobs:
           git config user.name "${GIT_NAME:-harness-kit}"
           git config user.email "${GIT_EMAIL:-harness-kit@users.noreply.github.com}"
           git switch -c "$branch"
-          git add -A .harness .github/workflows
+          node .harness/tools/harness.mjs paths > "$RUNNER_TEMP/paths"   # every path either lock lists, and the lock
+          git add -A --pathspec-from-file="$RUNNER_TEMP/paths"
           git commit -q -m "chore(harness): $verb kit $CURRENT to $TARGET"
           git push -q --force origin "$branch"   # harness/* branches belong to this workflow; a leftover from a closed PR is replaced
           body="$(printf 'Kit %s → %s (%s), opened by harness-update.\n\nOnly kit-managed files change (the paths in .harness/kit.lock.json); project-owned files are untouched. Release notes: https://github.com/obidex/harness-kit/blob/v%s/CHANGELOG.md\n\nRoll back: run harness-update with version %s.' "$CURRENT" "$TARGET" "$verb" "$TARGET" "$CURRENT")"

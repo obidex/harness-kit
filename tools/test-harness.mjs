@@ -102,6 +102,7 @@ ok(r.status === 1 && /sit where kit/.test(r.stderr) && readFileSync(join(proj, '
 rmSync(join(proj, '.harness/added-in-next.md'));
 r = tool(['update', '--version', v2]);
 ok(r.status === 0, `update ${v1} → ${v2}: ${r.stdout.trim()}`);
+ok(tool(['paths']).stdout.split('\n').includes('.claude/next-only.md') && tool(['paths']).stdout.includes('.harness/presets/public-website.md'), 'paths lists what the update PR must stage: added and removed paths outside .harness too');
 ok(/applied by kit .*own tool/.test(r.stdout) && existsSync(join(proj, '.claude/next-only.md')), 'the new version\'s own tool applied it (a path only it manages arrived)');
 ok(readFileSync(join(proj, '.harness/VERSION'), 'utf8').trim() === v2, 'VERSION moved');
 ok(existsSync(join(proj, '.harness/added-in-next.md')) && !existsSync(join(proj, '.harness/presets/public-website.md')), 'added file arrived; dropped file removed');

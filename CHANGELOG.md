@@ -12,7 +12,9 @@ Each version is the tag `v<version>` on this repository, never moved (K003). Pro
 - `harness-update.yml` mints a GitHub App token when `HARNESS_APP_ID` and `HARNESS_APP_KEY` are
   set, else uses `HARNESS_TOKEN` (A13).
 - `update` and `rollback` hand the fetched kit to the target version's own `harness.mjs`, so new
-  managed-file rules apply on the update that brings them.
+  managed-file rules apply on the update that brings them. `harness.mjs paths` lists every path the
+  old and new locks name, and `harness-update.yml` stages exactly those (it used to miss
+  `.claude/skills/`).
 - X02 resolved: the website aligns to O06 (K006).
 
 ## 0.3.0 · 2026-10-04 · prevention principle and the correct skill

@@ -352,16 +352,18 @@ const checks = {
     if (!off) problems.push('.claude/settings.json does not blank attribution.commit and attribution.pr');
     if (gen) problems.push(`${gen} of the last 200 commits carry Claude attribution`);
     if (!tracked.includes('.github/workflows/harness-scrub.yml')) problems.push('no harness-scrub.yml removes attribution from posted bodies (K006)');
-    // behaviour: bodies posted recently, after the scrubber had its chance
-    const bodies = [...(api.pulls?.status === 200 ? api.pulls.data : []).filter((x) => x.body).map((x) => [`PR #${x.number}`, x.body]),
-      ...(api.issues?.status === 200 ? api.issues.data : []).filter((x) => x.body && !x.pull_request).map((x) => [`issue #${x.number}`, x.body]),
-      ...(api.comments?.status === 200 ? api.comments.data : []).filter((x) => x.body).map((x) => [`comment on #${x.issue_url.split('/').pop()}`, x.body])];
+    // behaviour: recent bodies posted after the scrubber was installed (it does not rewrite history)
+    const since = (git('log', '--diff-filter=A', '--format=%cI', '-1', '--', '.github/workflows/harness-scrub.yml') || '').trim();
+    const after = (x) => x.body && since && Date.parse(x.created_at) > Date.parse(since);
+    const bodies = [...(api.pulls?.status === 200 ? api.pulls.data : []).filter(after).map((x) => [`PR #${x.number}`, x.body]),
+      ...(api.issues?.status === 200 ? api.issues.data : []).filter((x) => after(x) && !x.pull_request).map((x) => [`issue #${x.number}`, x.body]),
+      ...(api.comments?.status === 200 ? api.comments.data : []).filter(after).map((x) => [`comment on #${x.issue_url.split('/').pop()}`, x.body])];
     const left = bodies.filter(([, b]) => scrub(b) !== b).map(([w]) => w);
     if (left.length) problems.push(`${left.length} recent bodies still carry attribution: ${left.slice(0, 5).join(', ')}`);
     if (problems.length) return [FAIL, short(problems.join('; '), 400)];
     const allRead = [api.pulls, api.issues, api.comments].every((r) => r?.status === 200);
-    if (!allRead) return [UNKNOWN, `settings, the last 200 commits and the scrubber hold; recent PR, issue and comment bodies not read (${noAccess(api.pulls)})`];
-    return [PASS, `attribution blanked in settings; none in the last 200 commits; harness-scrub.yml installed; none left in ${bodies.length} recent PR, issue and comment bodies`];
+    if (!allRead) return [UNKNOWN, `settings, the last 200 commits and the scrubber hold; recent PR, issue and comment bodies not read (${noAccess([api.pulls, api.issues, api.comments].find((r) => r?.status !== 200))})`];
+    return [PASS, `attribution blanked in settings; none in the last 200 commits; harness-scrub.yml installed; none left in ${bodies.length} PR, issue and comment bodies posted since it was`];
   },
 
   // ---- capabilities
