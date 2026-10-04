@@ -1,0 +1,117 @@
+# Harness Kit control repository (K007): copied into the owner's control repository, never into a project.
+# Hourly, or on dispatch, applies each enrolled repository's .github/harness-settings.json (from its
+# default branch, so only reviewed and merged settings) with the hands App. The App key lives in the
+# `hands` environment, which only this repository's main branch can use; every token is minted for
+# one job, one repository and the permissions that job needs.
+name: hands-settings
+
+on:
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+    inputs:
+      repo:
+        description: One repository (owner/name) instead of every enrolled one
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hands-settings
+  cancel-in-progress: false
+
+jobs:
+  discover:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: hands
+    outputs:
+      repos: ${{ steps.find.outputs.repos }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: kit
+        run: echo "ref=v$(tr -d '[:space:]' < HANDS_KIT_VERSION)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.HARNESS_KIT_REPO || 'obidex/harness-kit' }}
+          ref: ${{ steps.kit.outputs.ref }}
+          path: kit
+          persist-credentials: false
+      - id: token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.HARNESS_APP_ID }}
+          private-key: ${{ secrets.HARNESS_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          permission-contents: read
+          permission-metadata: read
+      - id: find
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          ONLY: ${{ inputs.repo }}
+        run: |
+          set -euo pipefail
+          all="$(node kit/.harness/tools/hands.mjs discover)"
+          repos="$(printf '%s' "$all" | node -e 'const a=JSON.parse(require("fs").readFileSync(0,"utf8")).filter(r=>r.settings&&(!process.env.ONLY||r.repo===process.env.ONLY));console.log(JSON.stringify(a.map(r=>r.repo)))')"
+          echo "repos=$repos" >> "$GITHUB_OUTPUT"
+          echo "Enrolled for settings: $repos" >> "$GITHUB_STEP_SUMMARY"
+
+  apply:
+    needs: discover
+    if: needs.discover.outputs.repos != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: hands
+    strategy:
+      fail-fast: false
+      matrix:
+        repo: ${{ fromJSON(needs.discover.outputs.repos) }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: kit
+        run: echo "ref=v$(tr -d '[:space:]' < HANDS_KIT_VERSION)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.HARNESS_KIT_REPO || 'obidex/harness-kit' }}
+          ref: ${{ steps.kit.outputs.ref }}
+          path: kit
+          persist-credentials: false
+      - id: name
+        env:
+          REPO: ${{ matrix.repo }}
+        run: echo "name=${REPO#*/}" >> "$GITHUB_OUTPUT"
+      - id: token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.HARNESS_APP_ID }}
+          private-key: ${{ secrets.HARNESS_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ steps.name.outputs.name }}
+          permission-administration: write
+          permission-issues: write
+          permission-contents: read
+      - name: Apply the settings file
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          REPO: ${{ matrix.repo }}
+        run: |
+          set -euo pipefail
+          node kit/.harness/tools/hands.mjs apply --repo "$REPO" | tee "$RUNNER_TEMP/log.txt"
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: log-${{ steps.name.outputs.name }}
+          path: ${{ runner.temp }}/log.txt
+          if-no-files-found: ignore
+          retention-days: 7
+
+  report:
+    needs: [discover, apply]
+    if: always() && github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/hands-report.yml
+    with:
+      job: hands-settings
+      result: ${{ (needs.discover.result == 'failure' || needs.apply.result == 'failure') && 'failure' || 'success' }}
+    secrets: inherit

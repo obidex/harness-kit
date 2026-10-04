@@ -14,6 +14,7 @@
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { validateSchema, parseYaml } from '../.harness/tools/lib.mjs';
+import { controlProblems } from '../.harness/tools/hands.mjs';
 
 const root = process.argv[2] || new URL('..', import.meta.url).pathname;
 const read = (p) => readFileSync(join(root, p), 'utf8');
@@ -101,15 +102,23 @@ for (const f of ['DECISIONS.md', 'README.md', ...layers.map((l) => l.file), ...r
 
 // --- 7. the kit's own and its installed workflows are bounded (RJ01) and named harness-* -----------
 const wfFiles = [...readdirSync(join(root, '.github/workflows')).map((f) => `.github/workflows/${f}`),
-  ...readdirSync(join(root, '.harness/templates/workflows')).map((f) => `.harness/templates/workflows/${f}`)];
+  ...readdirSync(join(root, '.harness/templates/workflows')).map((f) => `.harness/templates/workflows/${f}`),
+  ...readdirSync(join(root, '.harness/templates/hands')).map((f) => `.harness/templates/hands/${f}`)];
 for (const f of wfFiles) {
-  const wf = parseYaml(read(f));
+  const text = read(f);
+  const wf = parseYaml(text);
   const jobs = Object.entries(wf.jobs || {});
+  const called = /^on:\n\s+workflow_call:/m.test(text) && !/^\s+(schedule|workflow_dispatch|push|pull_request):/m.test(text);
   if (!jobs.length) fail(`${f} has no jobs (unparsable?)`);
-  for (const [k, j] of jobs) if (!j['timeout-minutes']) fail(`${f}#${k} has no timeout-minutes`);
-  if (!wf.concurrency) fail(`${f} has no concurrency group`);
+  for (const [k, j] of jobs) if (!j['timeout-minutes'] && !j.uses) fail(`${f}#${k} has no timeout-minutes`);
+  if (!wf.concurrency && !called) fail(`${f} has no concurrency group`);
   if (!wf.permissions) fail(`${f} does not declare permissions`);
-  if (f.startsWith('.harness/templates/') && !/\/harness-[a-z0-9-]+\.yml$/.test(f)) fail(`${f}: installed workflows are named harness-*.yml`);
+  if (f.startsWith('.harness/templates/workflows/') && !/\/harness-[a-z0-9-]+\.yml$/.test(f)) fail(`${f}: installed workflows are named harness-*.yml`);
+  if (f.startsWith('.harness/templates/hands/')) {
+    if (!/\/hands-[a-z0-9-]+\.yml$/.test(f)) fail(`${f}: control workflows are named hands-*.yml`);
+    // A14: the App key is reachable only from main, and never from an event others can cause
+    for (const p of controlProblems({ [f]: text })) fail(p); // A14
+  }
 }
 
 const rules = worded.size;

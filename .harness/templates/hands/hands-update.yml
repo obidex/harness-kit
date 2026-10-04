@@ -1,0 +1,155 @@
+# Harness Kit control repository (K007): copied into the owner's control repository, never into a project.
+# Weekly, or on dispatch, moves every enrolled project's pinned kit (and this repository's own
+# HANDS_KIT_VERSION) to the newest release, or to the version given (a rollback), through a PR the
+# hands App opens and sets to auto-merge; the project's required checks decide. Replaces the
+# per-project harness-update workflow and its token (K007).
+name: hands-update
+
+on:
+  schedule:
+    - cron: '41 6 * * 1'
+  workflow_dispatch:
+    inputs:
+      repo:
+        description: One repository (owner/name) instead of every enrolled one
+        required: false
+      version:
+        description: Kit version to pin (empty = newest release; an older one rolls back)
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hands-update
+  cancel-in-progress: false
+
+jobs:
+  discover:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: hands
+    outputs:
+      repos: ${{ steps.find.outputs.repos }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: kit
+        run: echo "ref=v$(tr -d '[:space:]' < HANDS_KIT_VERSION)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.HARNESS_KIT_REPO || 'obidex/harness-kit' }}
+          ref: ${{ steps.kit.outputs.ref }}
+          path: kit
+          persist-credentials: false
+      - id: token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.HARNESS_APP_ID }}
+          private-key: ${{ secrets.HARNESS_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          permission-contents: read
+          permission-metadata: read
+      - id: find
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          ONLY: ${{ inputs.repo }}
+          SELF: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          all="$(node kit/.harness/tools/hands.mjs discover)"
+          repos="$(printf '%s' "$all" | node -e 'const a=JSON.parse(require("fs").readFileSync(0,"utf8")).filter(r=>(r.kit||r.repo===process.env.SELF)&&(!process.env.ONLY||r.repo===process.env.ONLY));console.log(JSON.stringify(a.map(r=>r.repo)))')"
+          echo "repos=$repos" >> "$GITHUB_OUTPUT"
+          echo "Enrolled for kit updates: $repos" >> "$GITHUB_STEP_SUMMARY"
+
+  update:
+    needs: discover
+    if: needs.discover.outputs.repos != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: hands
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        repo: ${{ fromJSON(needs.discover.outputs.repos) }}
+    steps:
+      - id: name
+        env:
+          REPO: ${{ matrix.repo }}
+        run: echo "name=${REPO#*/}" >> "$GITHUB_OUTPUT"
+      - id: token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.HARNESS_APP_ID }}
+          private-key: ${{ secrets.HARNESS_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ steps.name.outputs.name }}
+          permission-contents: write
+          permission-pull-requests: write
+          permission-workflows: write
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ matrix.repo }}
+          token: ${{ steps.token.outputs.token }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Open the maintenance PR and turn on auto-merge
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          HARNESS_KIT_REPO: ${{ vars.HARNESS_KIT_REPO && format('https://github.com/{0}', vars.HARNESS_KIT_REPO) || '' }}
+          REPO: ${{ matrix.repo }}
+          SLUG: ${{ steps.token.outputs.app-slug }}
+          WANT: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          [ -n "$HARNESS_KIT_REPO" ] || unset HARNESS_KIT_REPO
+          log() { echo "hands: $REPO: $*" | tee -a "$RUNNER_TEMP/log.txt"; }
+          kit=0; [ -f .harness/kit.lock.json ] && kit=1
+          if [ "$kit" = 1 ]; then current="$(tr -d '[:space:]' < .harness/VERSION)"; else current="$(tr -d '[:space:]' < HANDS_KIT_VERSION)"; fi
+          if [ -n "$WANT" ]; then
+            printf '%s' "$WANT" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || { echo "FAIL: version '$WANT' is not X.Y.Z"; exit 1; }
+            target="$WANT"
+          else
+            target="$(git ls-remote --tags --refs "${HARNESS_KIT_REPO:-https://github.com/obidex/harness-kit}" 'refs/tags/v*' | sed 's|.*refs/tags/v||' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)"
+          fi
+          [ "$target" = "$current" ] && { log "kit $current is current"; exit 0; }
+          branch="harness/kit-$target"
+          if gh pr list --repo "$REPO" --head "$branch" --state open --json number --jq '.[0].number // empty' | grep -q .; then log "a PR for kit $target is already open"; exit 0; fi
+          if [ "$(printf '%s\n%s\n' "$target" "$current" | sort -V | head -1)" = "$target" ]; then verb="roll back"; else verb="update"; fi
+          if [ "$kit" = 1 ]; then
+            node .harness/tools/harness.mjs update --version "$target"
+            node .harness/tools/harness.mjs status
+            node .harness/tools/harness.mjs paths > "$RUNNER_TEMP/paths" 2>/dev/null || printf '.harness\n.github/workflows\n' > "$RUNNER_TEMP/paths"
+          else
+            echo "$target" > HANDS_KIT_VERSION
+            echo HANDS_KIT_VERSION > "$RUNNER_TEMP/paths"
+          fi
+          id="$(gh api "/users/${SLUG}%5Bbot%5D" --jq .id)"
+          git config user.name "${SLUG}[bot]"
+          git config user.email "${id}+${SLUG}[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git add -A --pathspec-from-file="$RUNNER_TEMP/paths"
+          git commit -q -m "chore(harness): $verb kit $current to $target"
+          git push -q --force origin "$branch"   # harness/* branches belong to this workflow
+          body="$(printf 'Kit %s → %s (%s), opened by hands-update.\n\nOnly kit-managed files change; project-owned files are untouched.\n\nRoll back: run hands-update with version %s.' "$current" "$target" "$verb" "$current")"
+          url="$(gh pr create --repo "$REPO" --head "$branch" --title "chore(harness): $verb kit $current to $target" --body "$body")"
+          gh pr merge "$url" --auto --squash
+          log "opened $url ($verb kit $current to $target) with auto-merge on"
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: log-${{ steps.name.outputs.name }}
+          path: ${{ runner.temp }}/log.txt
+          if-no-files-found: ignore
+          retention-days: 7
+
+  report:
+    needs: [discover, update]
+    if: always() && github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/hands-report.yml
+    with:
+      job: hands-update
+      result: ${{ (needs.discover.result == 'failure' || needs.update.result == 'failure') && 'failure' || 'success' }}
+    secrets: inherit
