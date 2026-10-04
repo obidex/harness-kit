@@ -30,7 +30,7 @@ const schema = () => JSON.parse(readFileSync(join(kitDir, 'settings.schema.json'
 export function covers(live, want) {
   if (Array.isArray(want)) {
     if (!Array.isArray(live) || live.length !== want.length) return false;
-    const key = (x) => (x && typeof x === 'object' ? x.type ?? x.context ?? x.name ?? x.actor_id ?? JSON.stringify(x) : JSON.stringify(x));
+    const key = (x) => (x && typeof x === 'object' ? x.type ?? x.context ?? x.name ?? (x.actor_id !== undefined ? `${x.actor_type}:${x.actor_id}` : JSON.stringify(x)) : JSON.stringify(x));
     const byKey = new Map(live.map((x) => [key(x), x]));
     return want.every((w) => byKey.has(key(w)) && covers(byKey.get(key(w)), w));
   }
@@ -58,14 +58,17 @@ export function plan(repo, desired, live) {
     const liveByName = new Map((live.rulesets || []).map((r) => [r.name, r]));
     for (const want of desired.rulesets) {
       const named = pick(want, RULESET_KEYS); // compared as the file states it
-      const body = { bypass_actors: [], ...named }; // written whole: an unnamed bypass list means none
       const have = liveByName.get(want.name);
+      // a bypass list the file leaves out is kept as it is live; a new ruleset then has none
+      const body = { bypass_actors: have?.bypass_actors ?? [], ...named };
       if (!have) steps.push({ what: `ruleset "${want.name}": create`, call: { method: 'POST', path: `${base}/rulesets`, body } });
       else if (!covers(have, named)) steps.push({ what: `ruleset "${want.name}": replace (differs from the file)`, call: { method: 'PUT', path: `${base}/rulesets/${have.id}`, body } });
     }
     if (desired.prune?.rulesets) {
+      // only rulesets of a target the file manages (a branch-only file never deletes tag rulesets)
       const named = new Set(desired.rulesets.map((r) => r.name));
-      for (const r of live.rulesets || []) if (!named.has(r.name)) steps.push({ what: `ruleset "${r.name}": delete (not in the file; prune)`, call: { method: 'DELETE', path: `${base}/rulesets/${r.id}` } });
+      const targets = new Set(desired.rulesets.map((r) => r.target));
+      for (const r of live.rulesets || []) if (!named.has(r.name) && targets.has(r.target)) steps.push({ what: `ruleset "${r.name}": delete (not in the file; prune)`, call: { method: 'DELETE', path: `${base}/rulesets/${r.id}` } });
     }
   }
   if (desired.labels) {
@@ -91,6 +94,7 @@ export function plan(repo, desired, live) {
 export function validate(settings, root) {
   const errors = validateSchema(schema(), settings);
   if (errors.length) return errors;
+  errors.push(...unsafe(settings));
   // a required check that no pull_request job produces would block every merge
   const dir = join(root, '.github/workflows');
   const jobs = new Set();
@@ -108,9 +112,15 @@ export function validate(settings, root) {
       }
     }
   }
-  if (settings.repository?.allow_auto_merge && !(settings.rulesets || []).some((r) => r.enforcement === 'active' && r.rules.some((x) => x.type === 'required_status_checks'))) {
-    errors.push('allow_auto_merge without an active ruleset requiring checks: auto-merge would merge at once');
-  }
+  return errors;
+}
+
+/** Settings that would leave a repository unprotected; refused by validate and again by plan/apply. */
+export function unsafe(settings) {
+  const errors = [];
+  const guarded = (settings.rulesets || []).some((r) => r.target === 'branch' && r.enforcement === 'active' && r.rules.some((x) => x.type === 'required_status_checks'));
+  if (settings.repository?.allow_auto_merge && !guarded) errors.push('allow_auto_merge without an active branch ruleset requiring checks: auto-merge would merge at once');
+  if (settings.prune?.rulesets && !(settings.rulesets || []).some((r) => r.target === 'branch' && r.enforcement === 'active')) errors.push('prune.rulesets with no active branch ruleset named: it would delete all branch protection');
   return errors;
 }
 
@@ -122,11 +132,16 @@ export function controlProblems(files) {
     let wf = {};
     try { wf = parseYaml(text) || {}; } catch { problems.push(`${f}: unparsable`); continue; }
     const on = triggers(wf);
-    const keyed = /^\s+environment: hands\s*$/m.test(text);
-    if (!keyed) continue;
     const calledOnly = on.length === 1 && on[0] === 'workflow_call';
-    if (on.some((t) => !['schedule', 'workflow_dispatch', 'workflow_call'].includes(t))) problems.push(`${f} holds the App key on a repository event (${on.join(', ')})`);
-    if (!calledOnly && !text.includes("github.ref == 'refs/heads/main'")) problems.push(`${f} uses the hands environment without the main-branch guard`);
+    const offEvent = on.filter((t) => !['schedule', 'workflow_dispatch', 'workflow_call'].includes(t));
+    for (const [id, job] of Object.entries(wf.jobs || {})) {
+      const env = typeof job?.environment === 'object' ? job?.environment?.name : job?.environment;
+      // a job reaches the key through the environment, or by calling a workflow with the caller's secrets
+      const keyed = String(env ?? '').trim() === 'hands' || (typeof job?.uses === 'string' && job.secrets !== undefined);
+      if (!keyed) continue;
+      if (offEvent.length) problems.push(`${f}: job ${id} can reach the App key on a repository event (${offEvent.join(', ')})`);
+      if (!calledOnly && !/github\.ref\s*==\s*'refs\/heads\/main'/.test(String(job.if ?? ''))) problems.push(`${f}: job ${id} reaches the App key without the main-branch guard in its own if:`);
+    }
   }
   return problems;
 }
@@ -233,6 +248,7 @@ async function main() {
     if (text === null) { console.log(`hands: ${repo}: not enrolled (no ${SETTINGS_PATH} on its default branch)`); return; }
     const desired = JSON.parse(text);
     const errors = validateSchema(schema(), desired);
+    if (!errors.length) errors.push(...unsafe(desired));
     if (errors.length) throw new Error(`${repo}: ${SETTINGS_PATH} is invalid: ${errors.join('; ')}`);
     const steps = plan(repo, desired, await liveState(repo));
     if (!steps.length) { console.log(`hands: ${repo}: matches its settings file`); summary(`- ${repo}: matches its settings file`); return; }

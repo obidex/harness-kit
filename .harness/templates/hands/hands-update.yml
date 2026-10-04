@@ -58,13 +58,13 @@ jobs:
         run: |
           set -euo pipefail
           all="$(node kit/.harness/tools/hands.mjs discover)"
-          repos="$(printf '%s' "$all" | node -e 'const a=JSON.parse(require("fs").readFileSync(0,"utf8")).filter(r=>(r.kit||r.repo===process.env.SELF)&&(!process.env.ONLY||r.repo===process.env.ONLY));console.log(JSON.stringify(a.map(r=>r.repo)))')"
+          repos="$(printf '%s' "$all" | node -e 'const a=JSON.parse(require("fs").readFileSync(0,"utf8")).filter(r=>r.kit&&r.repo!==process.env.SELF).map(r=>r.repo).concat(process.env.SELF).filter(r=>!process.env.ONLY||r===process.env.ONLY);console.log(JSON.stringify(a))')"
           echo "repos=$repos" >> "$GITHUB_OUTPUT"
           echo "Enrolled for kit updates: $repos" >> "$GITHUB_STEP_SUMMARY"
 
   update:
     needs: discover
-    if: needs.discover.outputs.repos != '[]'
+    if: github.ref == 'refs/heads/main' && needs.discover.outputs.repos != '[]'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: hands
@@ -78,6 +78,19 @@ jobs:
         env:
           REPO: ${{ matrix.repo }}
         run: echo "name=${REPO#*/}" >> "$GITHUB_OUTPUT"
+      # only code from the kit tag this repository pins runs here, never the project's own copy (K007.7)
+      - uses: actions/checkout@v4
+        with:
+          path: control
+          persist-credentials: false
+      - id: kit
+        run: echo "ref=v$(tr -d '[:space:]' < control/HANDS_KIT_VERSION)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.HARNESS_KIT_REPO || 'obidex/harness-kit' }}
+          ref: ${{ steps.kit.outputs.ref }}
+          path: kit
+          persist-credentials: false
       - id: token
         uses: actions/create-github-app-token@v1
         with:
@@ -92,6 +105,7 @@ jobs:
         with:
           repository: ${{ matrix.repo }}
           token: ${{ steps.token.outputs.token }}
+          path: project
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -104,6 +118,8 @@ jobs:
           WANT: ${{ inputs.version }}
         run: |
           set -euo pipefail
+          tool="$GITHUB_WORKSPACE/kit/.harness/tools/harness.mjs"
+          cd project
           [ -n "$HARNESS_KIT_REPO" ] || unset HARNESS_KIT_REPO
           log() { echo "hands: $REPO: $*" | tee -a "$RUNNER_TEMP/log.txt"; }
           kit=0; [ -f .harness/kit.lock.json ] && kit=1
@@ -119,9 +135,10 @@ jobs:
           if gh pr list --repo "$REPO" --head "$branch" --state open --json number --jq '.[0].number // empty' | grep -q .; then log "a PR for kit $target is already open"; exit 0; fi
           if [ "$(printf '%s\n%s\n' "$target" "$current" | sort -V | head -1)" = "$target" ]; then verb="roll back"; else verb="update"; fi
           if [ "$kit" = 1 ]; then
-            node .harness/tools/harness.mjs update --version "$target"
-            node .harness/tools/harness.mjs status
-            node .harness/tools/harness.mjs paths > "$RUNNER_TEMP/paths" 2>/dev/null || printf '.harness\n.github/workflows\n' > "$RUNNER_TEMP/paths"
+            # the pinned kit's tool hands the apply to the target release's own tool (harness-apply/1)
+            node "$tool" update --root . --version "$target"
+            node "$tool" status --root .
+            node "$tool" paths --root . > "$RUNNER_TEMP/paths"
           else
             echo "$target" > HANDS_KIT_VERSION
             echo HANDS_KIT_VERSION > "$RUNNER_TEMP/paths"
@@ -148,6 +165,9 @@ jobs:
   report:
     needs: [discover, update]
     if: always() && github.ref == 'refs/heads/main'
+    permissions:
+      actions: read
+      issues: write
     uses: ./.github/workflows/hands-report.yml
     with:
       job: hands-update

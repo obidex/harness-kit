@@ -60,7 +60,7 @@ jobs:
 
   apply:
     needs: discover
-    if: needs.discover.outputs.repos != '[]'
+    if: github.ref == 'refs/heads/main' && needs.discover.outputs.repos != '[]'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     environment: hands
@@ -110,6 +110,9 @@ jobs:
   report:
     needs: [discover, apply]
     if: always() && github.ref == 'refs/heads/main'
+    permissions:
+      actions: read
+      issues: write
     uses: ./.github/workflows/hands-report.yml
     with:
       job: hands-settings

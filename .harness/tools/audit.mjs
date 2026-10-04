@@ -259,12 +259,15 @@ const checks = {
     const maint = api.pulls.data.filter((p) => /^harness\/kit-/.test(p.head?.ref || ''));
     if (!maint.length) return [UNKNOWN, 'no maintenance PR among the 30 most recent: nothing to judge yet'];
     const last = maint[0];
-    if (last.user?.type !== 'Bot') return [FAIL, `the latest maintenance PR #${last.number} was opened by ${last.user?.login}, not the hands App`];
+    // UNKNOWN, not FAIL: the update that brings 0.5.0 may still come from the old per-repo token,
+    // and a strict FAIL here would then block every later PR until the App's next update
+    if (last.user?.type !== 'Bot') return [UNKNOWN, `the latest maintenance PR #${last.number} was opened by ${last.user?.login}, not the hands App; the next one should be (judgment review)`];
     return last.merged_at ? [PASS, `the latest maintenance PR #${last.number} was opened by ${last.user.login} and merged by auto-merge after its checks`]
       : [UNKNOWN, `the latest maintenance PR #${last.number} (${last.user.login}) is ${last.state} and not merged yet`];
   },
   A14() {
-    if (!has(SETTINGS_PATH)) return [FAIL, `no ${SETTINGS_PATH}: repository settings, rulesets and labels are not code`];
+    // not FAIL: a kit update must not turn a project's audit red before it enrols (UNKNOWN is never strict)
+    if (!has(SETTINGS_PATH)) return [UNKNOWN, `no ${SETTINGS_PATH}: repository settings, rulesets and labels are not code yet (enrol with hands.mjs export)`];
     let desired;
     try { desired = JSON.parse(read(SETTINGS_PATH)); } catch (e) { return [FAIL, `${SETTINGS_PATH} is not JSON: ${e.message}`]; }
     const errors = settingsValidate(desired, root);
@@ -277,7 +280,9 @@ const checks = {
     const want = Array.isArray(rulesets[0]?.bypass_actors) || !rulesets.length ? desired
       : { ...desired, rulesets: (desired.rulesets || []).map(({ bypass_actors, ...r }) => r) };
     const all = settingsPlan(repo, want, { repository: api.repo.data, rulesets, labels: api.labels.data });
-    return all.length ? [FAIL, short(`the live repository differs from ${SETTINGS_PATH}: ${all.map((s) => s.what).join('; ')}`, 400)]
+    // drift is UNKNOWN, not FAIL: the PR that changes the file differs from live until hands-settings
+    // applies it after the merge, and a run that cannot apply it alerts on its own (K007)
+    return all.length ? [UNKNOWN, short(`the live repository differs from ${SETTINGS_PATH} until hands-settings applies it: ${all.map((s) => s.what).join('; ')}`, 400)]
       : [PASS, `${SETTINGS_PATH} is valid and the live repository matches it`];
   },
 
