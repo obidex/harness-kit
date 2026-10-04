@@ -388,7 +388,10 @@ const checks = {
     if (!tracked.includes('.github/workflows/harness-scrub.yml')) problems.push('no harness-scrub.yml removes attribution from posted bodies (K006)');
     // behaviour: recent bodies posted after the scrubber was installed (it does not rewrite history)
     const since = (git('log', '--diff-filter=A', '--format=%cI', '-1', '--', '.github/workflows/harness-scrub.yml') || '').trim();
-    const after = (x) => x.body && since && Date.parse(x.created_at) > Date.parse(since);
+    // a body the scrubber may still be editing (its run takes seconds) is not judged yet: the audit runs
+    // on the same PR event as the scrubber, and judged its own fresh PR body before it was cleaned
+    const settled = Date.now() - 10 * 60 * 1000;
+    const after = (x) => x.body && since && Date.parse(x.created_at) > Date.parse(since) && Date.parse(x.updated_at || x.created_at) < settled;
     const bodies = [...(api.pulls?.status === 200 ? api.pulls.data : []).filter(after).map((x) => [`PR #${x.number}`, x.body]),
       ...(api.issues?.status === 200 ? api.issues.data : []).filter((x) => after(x) && !x.pull_request).map((x) => [`issue #${x.number}`, x.body]),
       ...(api.comments?.status === 200 ? api.comments.data : []).filter(after).map((x) => [`comment on #${x.issue_url.split('/').pop()}`, x.body])];
