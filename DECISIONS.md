@@ -136,3 +136,38 @@ How it was applied (decided by the thread, within the message):
 5. Item 3 (the H2 owner page) was already posted by card H2; nothing here.
 
 **Status:** STANDING.
+
+## K005 · 2026-10-04 · STANDING — correct before merging 0.3.0, proof of updates, H3 bounds
+
+**Source:** the owner's follow-up in the Harness Kit project chat (message
+`cmsg_01C7xQzuv2D5T8yCbVzmNegvEjkm3SSyHvwyMP4WdLpkhD`, 2026-10-04 16:09 UTC). He approved it by
+pasting it ("Owner-approved by pasting this message; record that source in DECISIONS"). Recorded
+verbatim below. It supersedes K004 §4 (the rule table's home).
+
+<details><summary>The message, verbatim</summary>
+
+```text
+Owner-approved by pasting this message; record that source in DECISIONS.
+Before merging PR #3 (v0.3.0):
+1. /correct: replace "a repeated mistake moves up a level in the same change" with diagnosis first: a repeat may mean the existing check was not run, was wired wrong or covered the wrong boundary, and that is fixed before escalating. Prioritize by impact and recurrence, not frequency alone. The prevention register lives in lookup docs, never in always-loaded files. Serious existing defects stay tracked for release even when a new check blocks only new occurrences. Each prevention needs proof that it catches a representative failure AND accepts correct behaviour.
+2. The one-page summary for the owner links evidence of a real unattended GitHub update: an update PR opened by the updater, required checks run, automatic merge. Local installer tests are not that proof. Anything not yet proven is marked unfinished; a release counts as "proven" only after evidence, never because its PR merged.
+3. H3 stays one bounded task with a pinned kit version. The ERP's launch never depends on adopting the kit, and nothing changes the ERP's governing workflow during its final verification.
+```
+
+</details>
+
+How it was applied:
+
+1. **Item 1** is in `.harness/templates/skills/correct/SKILL.md` (§1 diagnosis and priority, §3
+   two-sided proof and existing defects, §4 register) and C19's catalogue record. The prevention
+   register is a project lookup doc, `docs/preventions.md` unless the project names another; never
+   `CLAUDE.md`, `AGENTS.md` or anything they import. This replaces K004 §4.
+2. **Item 2** binds card H2's owner page and every later release claim: "proven" needs linked
+   evidence of the unattended path (an update PR opened by the updater, its required checks run, its
+   automatic merge); a merged PR or a local test is not that evidence, and unproven items say
+   unfinished. The H2 card owns the page.
+3. **Item 3 bounds card H3.** One bounded task in one project, on a pinned kit version. The ERP's
+   launch never depends on adopting the kit, and nothing in H3 changes the ERP's governing workflow
+   while the ERP is in its final verification.
+
+**Status:** STANDING.

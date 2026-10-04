@@ -1,6 +1,6 @@
 ---
 name: correct
-description: "Turn an owner correction or a repeated failure into a prevention: find the mistake class, make it impossible at the highest level that works (architecture, types, a check naming the fix, a behaviour test, a rule last), prove the check fails on a real past mistake, and keep the rule table. Use for /correct, after any owner correction, and when the same mistake happens twice (core C19)."
+description: "Turn an owner correction or a repeated failure into a prevention: find the mistake class, make it impossible at the highest level that works (architecture, types, a check naming the fix, a behaviour test, a rule last), diagnose repeats first, prove each prevention catches a real failure and accepts correct code, and keep the prevention register. Use for /correct, after any owner correction, and when the same mistake happens twice (core C19)."
 ---
 
 <!--
@@ -17,7 +17,8 @@ NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FO
 OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 Changes for the Harness Kit (K004): escalation threshold, no owner approval for exceptions, owner
-review is not a prevention, evidence sources, the rule table's home.
+review is not a prevention, evidence sources, diagnosis before escalating, priority by impact,
+the register in lookup docs, release tracking of existing defects, two-sided proof (K005).
 -->
 
 # Correct
@@ -38,8 +39,12 @@ mistakes into classes.
 - **Escalate** a class once it has happened twice, or once if it was costly (lost data, a red
   default branch, a security or money error, owner time).
 - **A one-off small mistake** is fixed, not ruled: no new check, no new rule.
-- **Already in the rule table and still happening** is a repeat: its enforcement failed, so move it
-  up a level in the same change.
+- **Already in the register and still happening** is a repeat. Diagnose it first: the existing
+  check may not have run, may be wired wrong, or may cover the wrong boundary. Fix that before
+  escalating; move the class up a level only when its enforcement, working as intended, still lets
+  the mistake through.
+- **Prioritize by impact and recurrence**, not frequency alone: one costly class outranks several
+  cheap ones.
 
 ## 2. Fix each class at the highest level that works
 
@@ -59,17 +64,22 @@ risky areas, where no check can decide.
 
 ## 3. Fix and prove
 
-- Fix the most frequent classes first, one commit each.
-- **Prove each new check fails on a real past mistake**: re-apply the mistake (or check out its
-  commit), show the check failing with its message, then passing on the fix. Cite both outputs (C07).
+- Fix the highest-priority classes first (§1), one commit each.
+- **Prove both sides of each prevention**: it catches a representative failure (re-apply a real past
+  mistake, or check out its commit, and show the check failing with its message) AND it accepts
+  correct behaviour (show it passing on the fix and on existing correct code). Cite both outputs (C07).
+- **Existing defects stay tracked.** When a check fails only on new occurrences, every serious
+  existing occurrence stays on the release's tracked findings (C11) until fixed; the ratchet hides
+  nothing from a release.
 - **Same command locally and in CI.** The check is a project command, and CI calls that command.
 - **Exceptions** go on the offending line with a reason and an expiry date. The reviewer checks
   both, and an expired exception fails. Exceptions never need an owner approval.
 
-## 4. Keep the rule table
+## 4. Keep the prevention register
 
-The project's rulebook (`AGENTS.md` or what the profile names) keeps one table:
-`Rule · What enforces it · Where it lives · Proven by`. Each prevention is recorded there once.
+One table, `Rule · What enforces it · Where it lives · Proven by`, in a lookup doc of the project
+(`docs/preventions.md` unless the project names another), never in an always-loaded file such as
+`CLAUDE.md`, `AGENTS.md` or an imported file. Each prevention is recorded there once.
 
 - When corrected: fix the mistake; for an escalated class, add or raise the row in the same change.
 - A row whose enforcement is "nothing" is a rule; keep those few and judgment-only.
@@ -78,5 +88,5 @@ The project's rulebook (`AGENTS.md` or what the profile names) keeps one table:
 ## Reply
 
 Each class with its evidence, the level picked and why a higher level did not work, the proof that
-the new check fails on the past mistake, and the rule-table rows changed. In a card, this is the
+the prevention catches the past mistake and accepts correct code, and the register rows changed. In a card, this is the
 `Found:` line's "where it is now prevented" (C14).

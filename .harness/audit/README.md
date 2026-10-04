@@ -49,7 +49,7 @@ structural JSON (`--json`), the profile, read access to the repository and its i
    or two kit rules pull apart in practice, record a `CONFLICT` line naming both sides and the kit's
    `project-specific.md` X-ID if one exists. The owner decides; the review does not.
 8. **Corrections that recurred (C19).** List the owner corrections and repeated `Found:` classes in
-   the sample. For each, name the rule-table row and the enforcement it records; a class that recurred
+   the sample. For each, name the prevention-register row and the enforcement it records; a class that recurred
    after its prevention was recorded, or a repeat with no row, is reported with both occurrences.
 9. **Settle the rest.** Every rule still `UNKNOWN` gets a result from the sample, or stays `UNKNOWN`
    with what access would decide it.

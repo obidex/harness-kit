@@ -8,7 +8,9 @@ Each version is the tag `v<version>` on this repository, never moved (K003). Pro
 - Core C19: every owner correction or repeated failure ends with its prevention, at the highest level
   worth its cost; the audit reports corrections that recurred (judgment review step 8).
 - Kit skill `correct` (`/correct`), adapted from pstack (MIT, credited in the file): the prevention
-  ladder, proof that each new check fails on a real past mistake, and the rule table.
+  ladder, diagnosis of repeats before escalating, two-sided proof (catches a real failure, accepts
+  correct code), existing defects kept on release tracking, and a prevention register in a lookup
+  doc, never in always-loaded files (K005).
 - The installer now also manages `.claude/skills/<name>/` for each skill the kit ships in
   `.harness/templates/skills/`.
 
