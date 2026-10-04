@@ -1,0 +1,19 @@
+{
+  "attribution": { "commit": "", "pr": "", "sessionUrl": false },
+  "env": {
+    "GIT_AUTHOR_NAME": "Obada",
+    "GIT_AUTHOR_EMAIL": "144545793+obidex@users.noreply.github.com",
+    "GIT_COMMITTER_NAME": "Obada",
+    "GIT_COMMITTER_EMAIL": "144545793+obidex@users.noreply.github.com"
+  },
+  "permissions": {
+    "allow": [
+      "Bash(git:*)", "Bash(npm:*)", "Bash(ls:*)", "Bash(cat:*)", "Bash(find:*)", "Bash(grep:*)", "Bash(mkdir:*)",
+      "Bash(gh pr merge *)", "Bash(gh pr create *)", "Bash(gh pr view *)", "Bash(gh pr diff *)", "Bash(gh pr checks *)",
+      "Bash(gh pr comment *)", "Bash(gh pr edit *)", "Bash(gh pr list *)", "Bash(gh run view *)", "Bash(gh run list *)",
+      "Bash(gh run watch *)", "Bash(gh issue view *)", "Bash(gh issue list *)", "Bash(gh issue create *)",
+      "Bash(gh issue comment *)", "Bash(gh issue edit *)", "Edit(**)", "Read(**)", "Grep(**)"
+    ],
+    "deny": ["Bash(gh pr merge --admin*)", "Bash(gh pr merge * --admin*)", "Bash(git clean:*)"]
+  }
+}
