@@ -113,6 +113,8 @@ for (const f of wfFiles) {
   for (const [k, j] of jobs) if (!j['timeout-minutes'] && !j.uses) fail(`${f}#${k} has no timeout-minutes`);
   if (!wf.concurrency && !called) fail(`${f} has no concurrency group`);
   if (!wf.permissions) fail(`${f} does not declare permissions`);
+  // a mutable tag hands the job's token (and a self-hosted runner) to whoever moves it: pin full SHAs
+  for (const m of text.matchAll(/^\s*(?:-\s+)?uses:\s*([^\s#]+)/gm)) if (!m[1].startsWith('./') && !/@[0-9a-f]{40}$/.test(m[1])) fail(`${f}: ${m[1]} is not pinned to a full commit SHA`);
   if (f.startsWith('.harness/templates/workflows/') && !/\/harness-[a-z0-9-]+\.yml$/.test(f)) fail(`${f}: installed workflows are named harness-*.yml`);
   if (f.startsWith('.harness/templates/hands/')) {
     if (!/\/hands-[a-z0-9-]+\.yml$/.test(f)) fail(`${f}: control workflows are named hands-*.yml`);

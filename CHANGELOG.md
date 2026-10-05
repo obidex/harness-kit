@@ -3,6 +3,14 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.9.1 · 2026-10-05 · pinned actions; the audit issue closes on recovery
+
+- Every action in the kit's templates and its own workflows is pinned to a full commit SHA (the same
+  v4/v1 releases as before, so no behaviour changes): a moved tag can no longer reach a job's write
+  token or a self-hosted runner. `check-kit` fails on any unpinned `uses:`.
+- `harness-audit`: a scheduled run that passes again closes the "scheduled audit failing" issue with
+  a link to the passing run, instead of leaving it open.
+
 ## 0.9.0 · 2026-10-05 · a self-hosted lane for kit workflows; the stale-work check
 
 - Every kit-installed workflow (`harness-audit`, `harness-inbox`, `harness-scrub`, `harness-stale`)

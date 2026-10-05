@@ -41,17 +41,17 @@ jobs:
     outputs:
       repos: ${{ steps.find.outputs.repos }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - id: kit
         run: echo "ref=v$(tr -d '[:space:]' < HANDS_KIT_VERSION)" >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           repository: ${{ vars.HARNESS_KIT_REPO || 'obidex/harness-kit' }}
           ref: ${{ steps.kit.outputs.ref }}
           path: kit
           persist-credentials: false
       - id: token
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1.12.0
         with:
           app-id: ${{ vars.HARNESS_APP_ID }}
           private-key: ${{ secrets.HARNESS_APP_KEY }}
@@ -122,10 +122,10 @@ jobs:
       matrix:
         repo: ${{ fromJSON(needs.discover.outputs.repos) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - id: kit
         run: echo "ref=v$(tr -d '[:space:]' < HANDS_KIT_VERSION)" >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           repository: ${{ vars.HARNESS_KIT_REPO || 'obidex/harness-kit' }}
           ref: ${{ steps.kit.outputs.ref }}
@@ -136,7 +136,7 @@ jobs:
           REPO: ${{ matrix.repo }}
         run: echo "name=${REPO#*/}" >> "$GITHUB_OUTPUT"
       - id: token
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1.12.0
         with:
           app-id: ${{ vars.HARNESS_APP_ID }}
           private-key: ${{ secrets.HARNESS_APP_KEY }}
@@ -154,7 +154,7 @@ jobs:
           set -euo pipefail
           node kit/.harness/tools/hands.mjs apply --repo "$REPO" | tee "$RUNNER_TEMP/log.txt"
       - if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: log-${{ steps.name.outputs.name }}
           path: ${{ runner.temp }}/log.txt
