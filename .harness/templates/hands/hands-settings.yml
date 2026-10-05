@@ -124,7 +124,9 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           ALERTS_CHAT_ID_FILE: ALERTS_CHAT_ID
-        run: node kit/.harness/tools/stale.mjs schedules --repo "$GITHUB_REPOSITORY" --alert | tee -a "$GITHUB_STEP_SUMMARY"
+        run: |
+          set -euo pipefail
+          node kit/.harness/tools/stale.mjs schedules --repo "$GITHUB_REPOSITORY" --alert | tee -a "$GITHUB_STEP_SUMMARY"
 
   apply:
     needs: discover

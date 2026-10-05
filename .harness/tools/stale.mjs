@@ -335,7 +335,9 @@ export async function schedules(repo, now = Date.now(), limit = overdueHours()) 
     } catch (e) { if (!/answered 404/.test(e.message)) throw e; }
     if (!crons.length) continue;
     // a run by hand (the remedy for a missed one) counts as a run; a push or PR run does not
-    const runs = ((await api('GET', `/repos/${repo}/actions/workflows/${w.id}/runs?per_page=30`)).workflow_runs || []).filter((x) => RAN.includes(x.event));
+    const runs = [];
+    for (const ev of RAN) runs.push(...((await api('GET', `/repos/${repo}/actions/workflows/${w.id}/runs?event=${ev}&per_page=1`)).workflow_runs || []));
+    runs.sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
     const last = runs[0]?.created_at || w.created_at;
     const file = w.path.split('/').pop();
     out.push({ workflow: w.name || file, file, url: `${w.html_url ? w.html_url.replace(/\/blob\/.*$/, '') : `https://github.com/${repo}`}/actions/workflows/${file}`,
