@@ -158,6 +158,8 @@ export function controlProblems(files) {
 
 // --- GitHub ---------------------------------------------------------------------------------------
 export async function api(method, path, body) {
+  // the drift check holds a token that could write; the tool refuses to (K008)
+  if (process.env.HANDS_READ_ONLY && method !== 'GET') throw new Error(`refused ${method} ${path}: HANDS_READ_ONLY is set`);
   const r = await fetch(`${process.env.GITHUB_API_URL || 'https://api.github.com'}${path}`, {
     method,
     headers: {
@@ -258,10 +260,13 @@ async function main() {
   }
   if (cmd === 'drift') {
     // read-only: one job checks every enrolled repository, so an unchanged one costs no job of its own
-    const only = opt('--only');
+    const only = opt('--only')?.toLowerCase();
     const out = [];
     let failed = 0;
-    for (const r of (await discover()).filter((x) => x.settings && (!only || x.repo === only))) {
+    const enrolled = (await discover()).filter((x) => x.settings && (!only || x.repo.toLowerCase() === only));
+    // a dispatch for a repository that is not enrolled must not pass as "applied"
+    if (only && !enrolled.length) { note(`hands: FAIL ${opt('--only')}: not enrolled (no ${SETTINGS_PATH} on its default branch, or the App is not installed there)`); failed++; }
+    for (const r of enrolled) {
       if (paused(r.repo)) { note(`hands: ${r.repo}: paused (HANDS_PAUSED); left alone`); continue; }
       try {
         const steps = await planRepo(r.repo, await fileOnDefault(r.repo, SETTINGS_PATH));

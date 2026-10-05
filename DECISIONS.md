@@ -260,9 +260,11 @@ every project inherits it."
    So the session that merges a settings PR dispatches `hands-settings` for that repository; only
    write access to the control repository can, and only its reviewed `main` runs. Supersedes the
    "hourly" in K007 item 4.
-2. **One daily drift check.** One read-only job (installation-wide read of contents, metadata,
-   administration and issues) compares every enrolled repository with its file; only those that
-   differ get a write job. A missed dispatch is applied within a day.
+2. **One daily drift check.** One job compares every enrolled repository with its file; only
+   those that differ get a write job. A missed dispatch is applied within a day. GitHub hides a
+   ruleset's bypass list from a read-only token, which would read as drift every day, so the
+   check's token carries administration write and the tool itself refuses every write
+   (`HANDS_READ_ONLY`). The job runs only the pinned kit, which already holds the key there.
 3. **Read back.** Every apply re-reads the live settings and fails unless they match the file.
 4. **Emergency stop.** `HANDS_PAUSED` names repositories the hands leave alone; the path back is
    pause, repair, bring the file into agreement, resume (`.harness/hands.md`).

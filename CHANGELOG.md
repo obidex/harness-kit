@@ -6,9 +6,11 @@ Each version is the tag `v<version>` on this repository, never moved (K003). Pro
 ## 0.6.0 · 2026-10-05 · settings applied on change, not hourly; metered resources need notice
 
 - `hands-settings` no longer runs hourly with a job per repository. It runs on a dispatch right
-  after a settings PR merges, and once a day as a drift check: one read-only job (`hands.mjs drift`)
-  compares every enrolled repository with its file, and only a repository that differs gets an
-  apply job. The report job runs only when something was applied or failed (K008).
+  after a settings PR merges, and once a day as a drift check: one job (`hands.mjs drift`, which
+  refuses every write under `HANDS_READ_ONLY`) compares every enrolled repository with its file, and
+  only a repository that differs gets an apply job. One repository's failed check does not stop the
+  others; a cancelled run starts no apply; a dispatch for a repository that is not enrolled fails.
+  The report job runs only when something was applied or failed (K008).
 - `apply` reads the settings back after writing and fails unless they match the file.
 - `HANDS_PAUSED` (control-repo Actions variable) pauses chosen repositories, or all: the drift check
   skips them and apply refuses them. `.harness/hands.md` documents the emergency path (pause,

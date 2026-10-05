@@ -104,6 +104,22 @@ const hs = parseYaml(files['hands-settings.yml']);
 ok(hs.on.schedule.every((c) => /^\d+ \d+ \* \* [*\d]+$/.test(c.cron)), `hands-settings runs at most once a day on its schedule (${hs.on.schedule.map((c) => c.cron).join(', ')})`);
 ok(/hands\.mjs drift/.test(files['hands-settings.yml']) && /needs\.discover\.outputs\.repos != '\[\]'/.test(hs.jobs.apply.if) && /needs\.apply\.result == 'success'/.test(hs.jobs.report.if), 'apply runs only for drifted repositories, and the report only when something was applied or failed');
 
+// the find step's own shell, as GitHub runs it (bash -e): a failed check still hands on the list
+{
+  const step = hs.jobs.discover.steps.find((x) => x.id === 'find');
+  const dir = mkdtempSync(join(tmpdir(), 'hands-find-'));
+  mkdirSync(join(dir, 'kit/.harness/tools'), { recursive: true });
+  writeFileSync(join(dir, 'kit/.harness/tools/hands.mjs'), 'console.log(JSON.stringify(["o/drift"])); process.exit(1);\n');
+  writeFileSync(join(dir, 'step.sh'), step.run);
+  const out = join(dir, 'out');
+  writeFileSync(out, '');
+  const r = await new Promise((done) => execFile('bash', ['-e', join(dir, 'step.sh')], { cwd: dir, env: { ...process.env, GITHUB_OUTPUT: out, GITHUB_STEP_SUMMARY: join(dir, 'sum'), ONLY: '' } }, (err) => done(err ? err.code : 0)));
+  ok(r === 1 && readFileSync(out, 'utf8').includes('repos=["o/drift"]'), 'under bash -e a failed drift check still outputs the drifted repositories, then fails the job');
+  rmSync(dir, { recursive: true, force: true });
+}
+ok(/!cancelled\(\)/.test(hs.jobs.apply.if) && !/always\(\)/.test(hs.jobs.apply.if), 'a cancelled run starts no apply');
+ok(hs.jobs.discover.steps.find((x) => x.id === 'find').env.HANDS_READ_ONLY, 'the drift check runs read-only');
+
 // the emergency stop
 ok(paused('o/r', 'x/y, o/r') && paused('O/R', '*') && !paused('o/r', 'o/rr x/y') && !paused('o/r', ''), 'HANDS_PAUSED names repositories (or *) exactly');
 
@@ -147,6 +163,12 @@ const run = (srv, args, env = {}) => new Promise((done) => {
   ok(d.code === 0 && JSON.stringify(JSON.parse(d.stdout)) === '["o/drift"]', `drift lists only the repository that differs (${d.stdout.trim()})`);
   ok(/o\/same: matches/.test(d.stderr) && /o\/drift: drift: label "blocker": create/.test(d.stderr), 'drift says why, per repository');
   ok(JSON.parse((await run(srv, ['drift', '--only', 'o/same'])).stdout).length === 0, 'drift --only checks one repository (the dispatch after a merge)');
+  const odd = await run(srv, ['drift', '--only', 'O/Drift']);
+  ok(JSON.stringify(JSON.parse(odd.stdout)) === '["o/drift"]', 'drift --only matches the repository name without regard to case');
+  const missing = await run(srv, ['drift', '--only', 'o/none']);
+  ok(missing.code === 1 && /not enrolled/.test(missing.stderr), 'a dispatch for a repository that is not enrolled fails, never passes silently');
+  const ro = await run(srv, ['apply', '--repo', 'o/drift'], { HANDS_READ_ONLY: '1' });
+  ok(ro.code === 1 && /refused POST/.test(ro.stderr) && state['o/drift'].labels.length === 0, 'with HANDS_READ_ONLY the tool refuses every write');
   const p = await run(srv, ['drift'], { HANDS_PAUSED: 'o/drift' });
   ok(JSON.parse(p.stdout).length === 0 && /o\/drift: paused/.test(p.stderr), 'a paused repository is left alone by drift');
   const pa = await run(srv, ['apply', '--repo', 'o/drift'], { HANDS_PAUSED: '*' });

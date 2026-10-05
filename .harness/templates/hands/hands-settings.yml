@@ -50,19 +50,23 @@ jobs:
           app-id: ${{ vars.HARNESS_APP_ID }}
           private-key: ${{ secrets.HARNESS_APP_KEY }}
           owner: ${{ github.repository_owner }}
-          # read-only across the installation: compare live settings with each file
+          # GitHub hides a ruleset's bypass list (and some merge settings) from a read-only token, so
+          # the check would see false drift every day. Drift itself only reads: HANDS_READ_ONLY
+          # makes the tool refuse any write, and this job runs only the pinned kit (K008).
           permission-contents: read
           permission-metadata: read
-          permission-administration: read
+          permission-administration: write
           permission-issues: read
       - id: find
         env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
           ONLY: ${{ inputs.repo }}
           HANDS_PAUSED: ${{ vars.HANDS_PAUSED }}
+          HANDS_READ_ONLY: '1'
         run: |
           set -uo pipefail
-          repos="$(node kit/.harness/tools/hands.mjs drift ${ONLY:+--only "$ONLY"})"; rc=$?
+          # one repository's failed check must not stop the others being applied
+          rc=0; repos="$(node kit/.harness/tools/hands.mjs drift ${ONLY:+--only "$ONLY"})" || rc=$?
           echo "repos=${repos:-[]}" >> "$GITHUB_OUTPUT"
           echo "To apply: ${repos:-[]}" >> "$GITHUB_STEP_SUMMARY"
           exit $rc
@@ -70,7 +74,8 @@ jobs:
   apply:
     needs: discover
     # only repositories that differ from their file; one that failed its check does not stop the rest
-    if: always() && github.ref == 'refs/heads/main' && needs.discover.outputs.repos != '' && needs.discover.outputs.repos != '[]'
+    # and never after the run was cancelled (an emergency stop)
+    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && needs.discover.outputs.repos != '' && needs.discover.outputs.repos != '[]' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     environment: hands
