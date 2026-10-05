@@ -5,8 +5,10 @@
 
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { createServer } from 'node:http';
+import { execFile } from 'node:child_process';
 import { tmpdir } from 'node:os';
-import { plan, covers, validate, controlProblems, unsafe } from '../.harness/tools/hands.mjs';
+import { plan, covers, validate, controlProblems, unsafe, paused } from '../.harness/tools/hands.mjs';
 import { parseYaml } from '../.harness/tools/lib.mjs';
 
 let n = 0;
@@ -96,5 +98,73 @@ for (const f of ['hands-settings.yml', 'hands-update.yml']) {
 }
 // no project code runs where the key is: the update job runs only the pinned kit's tool
 ok(!/node \.harness\/tools\//.test(files['hands-update.yml']) && files['hands-update.yml'].includes('node "$tool" update --root .'), 'hands-update runs the pinned kit, never the project\'s own copy');
+
+// cost (O13, K008): the settings workflow runs at most daily on its own, and only drifted repos get a job
+const hs = parseYaml(files['hands-settings.yml']);
+ok(hs.on.schedule.every((c) => /^\d+ \d+ \* \* [*\d]+$/.test(c.cron)), `hands-settings runs at most once a day on its schedule (${hs.on.schedule.map((c) => c.cron).join(', ')})`);
+ok(/hands\.mjs drift/.test(files['hands-settings.yml']) && /needs\.discover\.outputs\.repos != '\[\]'/.test(hs.jobs.apply.if) && /needs\.apply\.result == 'success'/.test(hs.jobs.report.if), 'apply runs only for drifted repositories, and the report only when something was applied or failed');
+
+// the emergency stop
+ok(paused('o/r', 'x/y, o/r') && paused('O/R', '*') && !paused('o/r', 'o/rr x/y') && !paused('o/r', ''), 'HANDS_PAUSED names repositories (or *) exactly');
+
+// drift and apply end to end, against a stand-in GitHub API (K008: unchanged repos cost no job)
+const world = () => ({
+  'o/same': { file: desired, repository: { ...matching.repository }, rulesets: [liveRuleset(true)], labels: [...matching.labels] },
+  'o/drift': { file: desired, repository: { ...matching.repository }, rulesets: [liveRuleset(true)], labels: [] },
+  'o/none': { file: null, repository: {}, rulesets: [], labels: [] },
+});
+const serve = (state, { sticky = true } = {}) => new Promise((done) => {
+  const srv = createServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', () => {
+      const u = new URL(req.url, 'http://x');
+      const send = (code, data) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(data)); };
+      if (u.pathname === '/installation/repositories') return send(200, { repositories: Object.keys(state).map((full_name) => ({ full_name, archived: false })) });
+      const m = u.pathname.match(/^\/repos\/([^/]+\/[^/]+)(.*)$/);
+      const r = m && state[m[1]];
+      if (!r) return send(404, {});
+      const rest = m[2];
+      if (rest === '') return send(200, r.repository);
+      if (rest === '/contents/.github/harness-settings.json') return r.file ? send(200, { content: Buffer.from(JSON.stringify(r.file)).toString('base64') }) : send(404, {});
+      if (rest.startsWith('/contents/')) return send(404, {});
+      if (rest === '/rulesets') return send(200, r.rulesets.map(({ id, name, target, source_type }) => ({ id, name, target, source_type })));
+      if (rest.startsWith('/rulesets/')) return send(200, r.rulesets.find((x) => String(x.id) === rest.split('/')[2]));
+      if (rest === '/labels' && req.method === 'GET') return send(200, u.searchParams.get('page') === '1' ? r.labels : []);
+      if (rest === '/labels' && req.method === 'POST') { const l = JSON.parse(body); if (sticky) r.labels.push(l); return send(201, l); }
+      return send(404, {});
+    });
+  });
+  srv.listen(0, '127.0.0.1', () => done(srv));
+});
+const run = (srv, args, env = {}) => new Promise((done) => {
+  execFile(process.execPath, [join(new URL('..', import.meta.url).pathname, '.harness/tools/hands.mjs'), ...args], { env: { ...process.env, GITHUB_API_URL: `http://127.0.0.1:${srv.address().port}`, GH_TOKEN: 't', GITHUB_STEP_SUMMARY: '', HANDS_PAUSED: '', ...env } }, (err, stdout, stderr) => done({ code: err ? err.code : 0, stdout, stderr }));
+});
+{
+  const state = world();
+  const srv = await serve(state);
+  const d = await run(srv, ['drift']);
+  ok(d.code === 0 && JSON.stringify(JSON.parse(d.stdout)) === '["o/drift"]', `drift lists only the repository that differs (${d.stdout.trim()})`);
+  ok(/o\/same: matches/.test(d.stderr) && /o\/drift: drift: label "blocker": create/.test(d.stderr), 'drift says why, per repository');
+  ok(JSON.parse((await run(srv, ['drift', '--only', 'o/same'])).stdout).length === 0, 'drift --only checks one repository (the dispatch after a merge)');
+  const p = await run(srv, ['drift'], { HANDS_PAUSED: 'o/drift' });
+  ok(JSON.parse(p.stdout).length === 0 && /o\/drift: paused/.test(p.stderr), 'a paused repository is left alone by drift');
+  const pa = await run(srv, ['apply', '--repo', 'o/drift'], { HANDS_PAUSED: '*' });
+  ok(pa.code === 0 && /paused/.test(pa.stdout) && state['o/drift'].labels.length === 0, 'apply refuses a paused repository and writes nothing');
+  const a = await run(srv, ['apply', '--repo', 'o/drift']);
+  ok(a.code === 0 && /applied label "blocker": create/.test(a.stdout) && /read back, live settings match the file/.test(a.stdout), 'apply writes, then reads back and confirms the match');
+  ok(JSON.parse((await run(srv, ['drift'])).stdout).length === 0, 'after the apply nothing drifts');
+  state['o/same'].file = { repository: { allow_auto_merge: true } };
+  const bad = await run(srv, ['drift']);
+  ok(bad.code === 1 && /o\/same: FAIL .*invalid/.test(bad.stderr), 'an invalid file fails the drift check loudly, and the others are still checked');
+  srv.close();
+}
+{
+  const state = world();
+  const srv = await serve(state, { sticky: false });
+  const a = await run(srv, ['apply', '--repo', 'o/drift']);
+  ok(a.code === 1 && /read back after apply still differs/.test(a.stderr), 'a write GitHub did not keep fails the apply (read-back compare)');
+  srv.close();
+}
 
 console.log(`test-hands: OK · ${n} checks`);

@@ -1,13 +1,18 @@
 # Harness Kit control repository (K007): copied into the owner's control repository, never into a project.
-# Hourly, or on dispatch, applies each enrolled repository's .github/harness-settings.json (from its
-# default branch, so only reviewed and merged settings) with the hands App. The App key lives in the
-# `hands` environment, which only this repository's main branch can use; every token is minted for
-# one job, one repository and the permissions that job needs.
+# Applies each enrolled repository's .github/harness-settings.json (from its default branch, so only
+# reviewed and merged settings) with the hands App, at two moments (K008, resource rule O13):
+# - on dispatch, right after a PR that changes a settings file merges: the merging session runs
+#   this workflow with `repo` set (the authorized trigger; no session ever holds the key);
+# - once a day, a drift check: one read-only job compares every enrolled repository with its file,
+#   and only a repository that differs gets an apply job. An unchanged day costs one short job.
+# The App key lives in the `hands` environment, which only this repository's main branch can use;
+# every write token is minted for one job, one repository and the permissions that job needs.
+# Emergency stop: the Actions variable HANDS_PAUSED (README "Emergency").
 name: hands-settings
 
 on:
   schedule:
-    - cron: '17 * * * *'
+    - cron: '17 5 * * *'
   workflow_dispatch:
     inputs:
       repo:
@@ -45,22 +50,27 @@ jobs:
           app-id: ${{ vars.HARNESS_APP_ID }}
           private-key: ${{ secrets.HARNESS_APP_KEY }}
           owner: ${{ github.repository_owner }}
+          # read-only across the installation: compare live settings with each file
           permission-contents: read
           permission-metadata: read
+          permission-administration: read
+          permission-issues: read
       - id: find
         env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
           ONLY: ${{ inputs.repo }}
+          HANDS_PAUSED: ${{ vars.HANDS_PAUSED }}
         run: |
-          set -euo pipefail
-          all="$(node kit/.harness/tools/hands.mjs discover)"
-          repos="$(printf '%s' "$all" | node -e 'const a=JSON.parse(require("fs").readFileSync(0,"utf8")).filter(r=>r.settings&&(!process.env.ONLY||r.repo===process.env.ONLY));console.log(JSON.stringify(a.map(r=>r.repo)))')"
-          echo "repos=$repos" >> "$GITHUB_OUTPUT"
-          echo "Enrolled for settings: $repos" >> "$GITHUB_STEP_SUMMARY"
+          set -uo pipefail
+          repos="$(node kit/.harness/tools/hands.mjs drift ${ONLY:+--only "$ONLY"})"; rc=$?
+          echo "repos=${repos:-[]}" >> "$GITHUB_OUTPUT"
+          echo "To apply: ${repos:-[]}" >> "$GITHUB_STEP_SUMMARY"
+          exit $rc
 
   apply:
     needs: discover
-    if: github.ref == 'refs/heads/main' && needs.discover.outputs.repos != '[]'
+    # only repositories that differ from their file; one that failed its check does not stop the rest
+    if: always() && github.ref == 'refs/heads/main' && needs.discover.outputs.repos != '' && needs.discover.outputs.repos != '[]'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     environment: hands
@@ -92,10 +102,11 @@ jobs:
           permission-administration: write
           permission-issues: write
           permission-contents: read
-      - name: Apply the settings file
+      - name: Apply the settings file, then read it back
         env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
           REPO: ${{ matrix.repo }}
+          HANDS_PAUSED: ${{ vars.HANDS_PAUSED }}
         run: |
           set -euo pipefail
           node kit/.harness/tools/hands.mjs apply --repo "$REPO" | tee "$RUNNER_TEMP/log.txt"
@@ -109,7 +120,8 @@ jobs:
 
   report:
     needs: [discover, apply]
-    if: always() && github.ref == 'refs/heads/main'
+    # only when something was applied or failed: an unchanged day adds no job
+    if: always() && github.ref == 'refs/heads/main' && (needs.discover.result == 'failure' || needs.apply.result == 'success' || needs.apply.result == 'failure')
     permissions:
       actions: read
       contents: read
