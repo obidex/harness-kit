@@ -53,9 +53,10 @@ repositories and K repositories that pin the kit:
 
 | Workflow | Where | Trigger | Jobs per run | Estimate |
 |---|---|---|---|---|
-| `hands-settings` | control repo | daily drift check; dispatch after a settings merge | 1, plus 2 when something drifts | ~30, plus ~3 per settings change |
+| `hands-settings` | control repo | daily drift check (which also ticks the alerts and posts the digest); dispatch after a settings merge | 1, plus 2 when something drifts | ~30, plus ~3 per settings change |
 | `hands-update` | control repo | weekly; dispatch | 2 + K | ~4.3 × (2 + K) |
 | `hands-report` | control repo | called by the two above | (counted above) | 0 extra |
+| `hands-alerts` | control repo | dispatch; hourly 08:00-22:00 Damascus only with `ALERTS_TICK=on` | 1 | ~1 per dispatch; ~450 with the tick on |
 | `hands-check` | control repo | each PR push there | 1 | ~1 per PR push |
 | `harness-audit` | each project | PR opened, pushed, reopened or edited; weekly | 1 | ~1 per PR event + 4 |
 | `harness-inbox` | each project | an issue labelled `inbox` or reopened | 1, only for a queued request | ~1 per request |
