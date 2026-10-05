@@ -57,7 +57,7 @@
     "generated": ["docs/reference/site.md"],
     "caps": { "AGENTS.md": 12288, "CLAUDE.md": 2560, "docs/STATE.md": 10240 }
   },
-  "alerts": { "channel": "telegram", "secret_name": "TELEGRAM_BOT_TOKEN" },
+  "alerts": { "channel": "telegram", "secret_name": "ALERTS_BOT_TOKEN", "topic": "website" },
   "exceptions": [
     {
       "rule": "C10",

@@ -3,7 +3,7 @@
 # bot PRs too), inbox requests queued or working, and `card` or `risk:*` issues idle past their
 # thresholds (.harness/tools/stale.mjs) in ONE tracking issue "Stale work", updated in place and
 # closed when the list is empty. Alerts go through notify.mjs (O10, .harness/alerts.md): newly stale
-# items open the problem `stale:<repo>` in the project's topic (Actions variable ALERTS_TOPIC); an
+# items open the problem `stale:<repo>` in the project's topic (profile alerts.topic); an
 # empty list resolves it. Without the ALERTS_BOT_TOKEN / ALERTS_CHAT_ID secrets the problem is kept as
 # an issue for the next tick. Thresholds can be set with the Actions variables HARNESS_STALE_PR_DAYS,
 # _CONFLICT_DAYS, _INBOX_DAYS, _CARD_DAYS.

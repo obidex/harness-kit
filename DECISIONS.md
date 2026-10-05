@@ -347,8 +347,8 @@ CI; propose the laptop lane only where measurements show a real benefit."
    empty (RJ02).
 3. **Alerts within the one standard (O10, K010).** The check sends nothing itself: when its list
    holds items not announced before, it opens the problem `stale:<owner/name>` through `notify.mjs`
-   in the project's topic (the Actions variable `ALERTS_TOPIC`, since a kit-installed workflow cannot
-   hard-code it), linking the "Stale work" issue; an empty list resolves it. Deduplication, caps,
+   in the project's topic (the profile's `alerts.topic`, since a kit-installed workflow cannot
+   hard-code it; the Actions variable `ALERTS_TOPIC` overrides it), linking the "Stale work" issue; an empty list resolves it. Deduplication, caps,
    quiet hours and escalation are `notify.mjs`'s, not repeated here. An undelivered alert fails the
    run and its items stay unannounced, so the next run asks again.
 4. **Kit update PRs carry a project's standing authorization lines** (`kit_updates.pr_body_lines` in

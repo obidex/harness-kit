@@ -139,7 +139,8 @@
       "additionalProperties": false,
       "properties": {
         "channel": { "enum": ["telegram", "github-issue", "none"] },
-        "secret_name": { "type": "string", "description": "The name of the secret holding the alert credential; never its value." }
+        "secret_name": { "type": "string", "description": "The name of the secret holding the alert credential; never its value." },
+        "topic": { "type": "string", "description": "This project's notify.mjs topic (e.g. website, erp) for alerts from kit-installed workflows; the Actions variable ALERTS_TOPIC overrides it." }
       }
     },
     "performance": {

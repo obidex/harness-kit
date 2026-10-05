@@ -9,7 +9,7 @@ import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { readFileSync, readdirSync, mkdtempSync, mkdirSync, copyFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { isTracking, checkState, classifyPr, classifyIssue, select, thresholds, render, readMarkers, signature, freshItems, message, topicOf, report, DEFAULTS, MAX_LISTED, MARKER } from '../.harness/tools/stale.mjs';
+import { isTracking, checkState, classifyPr, classifyIssue, select, thresholds, render, readMarkers, signature, freshItems, message, topicOf, profileTopic, report, DEFAULTS, MAX_LISTED, MARKER } from '../.harness/tools/stale.mjs';
 import { body as inboxBody, setField } from '../.harness/tools/inbox.mjs';
 import { parseYaml } from '../.harness/tools/lib.mjs';
 
@@ -86,6 +86,13 @@ const many = Array.from({ length: 14 }, (_, i) => ({ number: i + 1, url: `u${i}`
 const msg = message('o/r', many, many.slice(12));
 ok((msg.match(/#\d+ red/g) || []).length === MAX_LISTED && msg.includes('and 4 more') && /: #13 red 3d \(new\), #14/.test(msg) && !msg.includes('\n'), 'the problem text lists at most 10 items, new ones first, then "and N more", on one line');
 ok(topicOf('website') === 'website' && topicOf('erp') === 'erp' && topicOf('needs') === null && topicOf('daily') === null && topicOf('nope') === null && topicOf('') === null, "ALERTS_TOPIC names one of notify.mjs's project topics; never Needs you or Daily");
+{
+  const d = mkdtempSync(join(tmpdir(), 'stale-topic-'));
+  writeFileSync(join(d, 'p.json'), JSON.stringify({ alerts: { topic: 'website' } }));
+  writeFileSync(join(d, 'bad.json'), '{');
+  ok(profileTopic(join(d, 'p.json')) === 'website' && profileTopic(join(d, 'bad.json')) === '' && profileTopic(join(d, 'none.json')) === '' && topicOf(profileTopic(join(d, 'p.json'))) === 'website', "the profile's alerts.topic names the topic; a missing or broken profile names none");
+  rmSync(d, { recursive: true, force: true });
+}
 ok(!/api\.telegram\.org|sendMessage/.test(readFileSync(join(kit, '.harness/tools/stale.mjs'), 'utf8')), 'stale.mjs never talks to Telegram itself: every alert goes through notify.mjs (O10)');
 
 // --- report end to end: one tracking issue, in place, closed when empty; alerts through notify.mjs ----

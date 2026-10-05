@@ -25,6 +25,7 @@
 // ALERTS_CHAT_ID a problem is recorded as an issue for the next tick to send. GH_TOKEN reads the
 // repository and writes the issues.
 
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse as parseInbox } from './inbox.mjs';
@@ -140,8 +141,13 @@ export function message(repo, items, fresh) {
   return `Stale work in ${repo}: ${items.length} item(s), ${fresh.length} new: ${parts.join(', ')}${ordered.length > MAX_LISTED ? `, and ${ordered.length - MAX_LISTED} more` : ''}`;
 }
 
-/** The project's topic from ALERTS_TOPIC: one of notify.mjs's project topics, or null. */
-export function topicOf(v = process.env.ALERTS_TOPIC) {
+/** The topic in the profile (`alerts.topic`), or ''. */
+export function profileTopic(file = '.harness/profile.json') {
+  try { return String(JSON.parse(readFileSync(file, 'utf8'))?.alerts?.topic || ''); } catch { return ''; }
+}
+
+/** The project's topic (ALERTS_TOPIC, else the profile's `alerts.topic`): one of notify.mjs's project topics, or null. */
+export function topicOf(v = process.env.ALERTS_TOPIC || profileTopic()) {
   const t = String(v || '').trim();
   return t && t in TOPICS && !['needs', 'daily'].includes(t) ? t : null;
 }
@@ -233,7 +239,7 @@ export async function report(repo, now = Date.now()) {
   else if (issue.state !== 'open' || issue.body !== body) target = await api('PATCH', `/repos/${repo}/issues/${issue.number}`, { body, ...(issue.state !== 'open' ? { state: 'open' } : {}) });
   console.log(`stale: ${items.length} item(s) listed in ${target.html_url} (${fresh.length} new)`);
   if (!fresh.length) return { items, issue: target.number, alert: 'nothing new' };
-  if (!topic) { console.log('stale: no alert: set the Actions variable ALERTS_TOPIC to this project\'s topic (.harness/alerts.md)'); return { items, issue: target.number, alert: 'no topic' }; }
+  if (!topic) { console.log('stale: no alert: set alerts.topic in .harness/profile.json (or the Actions variable ALERTS_TOPIC) to this project\'s topic (.harness/alerts.md)'); return { items, issue: target.number, alert: 'no topic' }; }
   try {
     const r = await problem(alerts(), telegram(), { key, topic, title: `Stale work in ${repo}`, text: message(repo, items, fresh), link: target.html_url });
     console.log(`stale: alert ${key} ${r.status}`);
