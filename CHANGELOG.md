@@ -17,8 +17,10 @@ Each version is the tag `v<version>` on this repository, never moved (K003). Pro
   conflicted, red, green-unmerged, waiting; bot PRs too), conflicted PRs idle 1 day, inbox requests
   queued or working idle 1 day, and `card` or `risk:*` issues idle 3 days (each overridable with an
   Actions variable) in one "Stale work" issue, edited in place, closed when empty, reopened when
-  items return. Telegram (O10) only for newly stale items, at most once a day, at most 10 listed;
-  skipped when the secrets are absent. About 30 hosted minutes a month without a self-hosted
+  items return. Alerts go through `notify.mjs` (O10, K010): newly stale items open the problem
+  `stale:<owner/name>` in the project's topic, named by the Actions variable `ALERTS_TOPIC`, linking
+  the issue; an empty list resolves it. Without `ALERTS_BOT_TOKEN` / `ALERTS_CHAT_ID` the problem is
+  kept as an issue for the next tick. About 30 hosted minutes a month without a self-hosted
   `RUNNER`, none with one.
 - Profile field `kit_updates.pr_body_lines`: standing authorization lines `hands-update` appends,
   each verbatim at column 1, to a project's kit update or rollback PR body, read from the project's

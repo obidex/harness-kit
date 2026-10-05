@@ -9,7 +9,7 @@ import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { readFileSync, readdirSync, mkdtempSync, mkdirSync, copyFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { isTracking, checkState, classifyPr, classifyIssue, select, thresholds, render, readMarkers, signature, decide, message, report, DEFAULTS, MAX_LISTED, MARKER } from '../.harness/tools/stale.mjs';
+import { isTracking, checkState, classifyPr, classifyIssue, select, thresholds, render, readMarkers, signature, freshItems, message, topicOf, report, DEFAULTS, MAX_LISTED, MARKER } from '../.harness/tools/stale.mjs';
 import { body as inboxBody, setField } from '../.harness/tools/inbox.mjs';
 import { parseYaml } from '../.harness/tools/lib.mjs';
 
@@ -75,96 +75,95 @@ let threw = false;
 try { thresholds({ HARNESS_STALE_PR_DAYS: 'two' }); } catch { threw = true; }
 ok(threw, 'a threshold that is not a number is refused');
 
-// --- body, signature, caps ------------------------------------------------------------------------
-const b = render(picked, { announced: [9, 1], sent: '2026-10-04' });
+// --- body, signature, the alert text ---------------------------------------------------------------
+const b = render(picked, { announced: [9, 1] });
 const back = readMarkers(b);
-ok(b.startsWith(MARKER) && back.sent === '2026-10-04' && signature(back.announced) === '1,9' && b.includes('| [#9](u9) Bump x from 1 to 2 | red | 9 |'), 'the body round-trips: marker first, the list, the announced set and the last alert date');
-ok(readMarkers(render([], {})).sent === '' && readMarkers(render([], {})).announced.length === 0 && readMarkers('no markers').sent === '', 'an empty list and a foreign body read as never alerted, nothing announced');
+ok(b.startsWith(MARKER) && signature(back.announced) === '1,9' && b.includes('| [#9](u9) Bump x from 1 to 2 | red | 9 |'), 'the body round-trips: marker first, the list, the announced set');
+ok(readMarkers(render([], {})).announced.length === 0 && readMarkers('no markers').announced.length === 0, 'an empty list and a foreign body read as nothing announced');
 ok(render([{ number: 1, url: 'u', title: 'a | b @someone [x]', kind: 'card', days: 3 }]).includes('a \\| b @​someone \\[x\\]'), 'titles cannot break the table or mention anyone');
-const today = '2026-10-05';
-let d = decide(picked, { announced: [1, 3, 5, 7, 9], sent: '2026-10-01' }, today, true);
-ok(!d.send && d.fresh.length === 0, 'no alert when every item was announced before');
-d = decide(picked, { announced: [1, 3], sent: '2026-10-04' }, today, true);
-ok(d.send && signature(d.fresh) === '5,7,9' && signature(d.announced) === '1,3,5,7,9', 'new stale items alert, and the whole list becomes announced');
-d = decide(picked, { announced: [1, 3], sent: today }, today, true);
-ok(!d.send && signature(d.announced) === '1,3', 'at most one alert a day: a capped alert keeps its new items unannounced for tomorrow');
-d = decide(picked, { announced: [], sent: '' }, today, false);
-ok(!d.send && signature(d.announced) === '1,3,5,7,9', 'without the Telegram secrets no alert is attempted');
-ok(!decide([], { announced: [1], sent: '' }, today, true).send, 'never an alert for an empty list');
+ok(freshItems(picked, [1, 3, 5, 7, 9]).length === 0 && signature(freshItems(picked, [1, 3])) === '5,7,9' && freshItems([], [1]).length === 0, 'new items are those not announced before; an empty list has none');
 const many = Array.from({ length: 14 }, (_, i) => ({ number: i + 1, url: `u${i}`, title: `t${i}`, kind: 'red', days: 3 }));
-const msg = message('o/r', many, many.slice(12), 'https://gh.test/o/r/issues/99');
-ok(msg.split('\n').filter((l) => l.startsWith('- ')).length === MAX_LISTED && msg.includes('and 4 more') && msg.split('\n')[1].startsWith('- #13') && msg.endsWith('/issues/99'), 'an alert lists at most 10 items, new ones first, then "and N more" and the issue link');
+const msg = message('o/r', many, many.slice(12));
+ok((msg.match(/#\d+ red/g) || []).length === MAX_LISTED && msg.includes('and 4 more') && /: #13 red 3d \(new\), #14/.test(msg) && !msg.includes('\n'), 'the problem text lists at most 10 items, new ones first, then "and N more", on one line');
+ok(topicOf('website') === 'website' && topicOf('erp') === 'erp' && topicOf('needs') === null && topicOf('daily') === null && topicOf('nope') === null && topicOf('') === null, "ALERTS_TOPIC names one of notify.mjs's project topics; never Needs you or Daily");
+ok(!/api\.telegram\.org|sendMessage/.test(readFileSync(join(kit, '.harness/tools/stale.mjs'), 'utf8')), 'stale.mjs never talks to Telegram itself: every alert goes through notify.mjs (O10)');
 
-// --- report end to end: one tracking issue, in place, closed when empty ------------------------------
+// --- report end to end: one tracking issue, in place, closed when empty; alerts through notify.mjs ----
 const issues = [];
 const pulls = [];
 const tg = [];
-let tgFail = false;
+let tgFail = false, nextIssue = 100, nextMsg = 1;
 const srv = createServer((q, res) => {
   let data = '';
   q.on('data', (c) => { data += c; });
   q.on('end', () => {
     const u = new URL(q.url, 'http://x');
     const send = (code, j) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(j)); };
-    if (u.pathname === '/botTOKEN/sendMessage') { if (tgFail) return send(500, { ok: false }); tg.push(JSON.parse(data)); return send(200, { ok: true }); }
+    if (u.pathname === '/botTOKEN/sendMessage') { if (tgFail) return send(500, { ok: false, description: 'down' }); const m = { ...JSON.parse(data), message_id: nextMsg++ }; tg.push(m); return send(200, { ok: true, result: m }); }
     if (u.pathname === '/repos/o/r/pulls') return send(200, u.searchParams.get('page') === '1' ? pulls.map((p) => p.list) : []);
     let m = u.pathname.match(/^\/repos\/o\/r\/pulls\/(\d+)$/);
     if (m) return send(200, pulls.find((p) => p.list.number === Number(m[1])).full);
     m = u.pathname.match(/^\/repos\/o\/r\/commits\/(\w+)\/(check-runs|status)$/);
     if (m) { const p = pulls.find((x) => x.full.head.sha === m[1]); return send(200, m[2] === 'status' ? { state: 'pending', total_count: 0 } : { check_runs: p.runs }); }
     if (u.pathname === '/repos/o/r/issues' && q.method === 'GET') return send(200, u.searchParams.get('page') === '1' ? issues.filter((i) => i.state === u.searchParams.get('state')) : []);
-    if (u.pathname === '/repos/o/r/issues' && q.method === 'POST') { const j = JSON.parse(data); const i = { number: 100 + issues.length, state: 'open', html_url: `https://gh.test/o/r/issues/${100 + issues.length}`, labels: [], updated_at: new Date(NOW).toISOString(), user: { login: 'github-actions[bot]', type: 'Bot' }, ...j }; issues.push(i); return send(201, i); }
-    m = u.pathname.match(/^\/repos\/o\/r\/issues\/(\d+)$/);
+    if (u.pathname === '/repos/o/r/issues' && q.method === 'POST') { const j = JSON.parse(data); const n2 = nextIssue++; const i = { number: n2, state: 'open', html_url: `https://gh.test/o/r/issues/${n2}`, labels: [], updated_at: new Date(NOW).toISOString(), user: { login: 'github-actions[bot]', type: 'Bot' }, comments: [], ...j }; issues.push(i); return send(201, i); }
+    m = u.pathname.match(/^\/repos\/o\/r\/issues\/(\d+)(\/comments)?$/);
     const i = m && issues.find((x) => x.number === Number(m[1]));
     if (!i) return send(404, {});
+    if (m[2]) { (i.comments ||= []).push(JSON.parse(data).body); return send(201, {}); }
     if (q.method === 'PATCH') { i.patches = (i.patches || 0) + 1; Object.assign(i, JSON.parse(data)); }
     return send(200, i);
   });
 });
 await new Promise((r) => srv.listen(0, '127.0.0.1', r));
 const base = `http://127.0.0.1:${srv.address().port}`;
-Object.assign(process.env, { GITHUB_API_URL: base, GH_TOKEN: 't', HARNESS_TELEGRAM_API: base, TELEGRAM_BOT_TOKEN: '', TELEGRAM_CHAT_ID: '' });
-for (const k of ['HARNESS_STALE_PR_DAYS', 'HARNESS_STALE_CONFLICT_DAYS', 'HARNESS_STALE_INBOX_DAYS', 'HARNESS_STALE_CARD_DAYS']) delete process.env[k];
+Object.assign(process.env, { GITHUB_API_URL: base, GH_TOKEN: 't', ALERTS_API: base, ALERTS_STORE: 'github:o/r', ALERTS_TOPICS: '{"needs":1,"website":5}', ALERTS_NOW: new Date(NOW).toISOString() });
+for (const k of ['HARNESS_STALE_PR_DAYS', 'HARNESS_STALE_CONFLICT_DAYS', 'HARNESS_STALE_INBOX_DAYS', 'HARNESS_STALE_CARD_DAYS', 'ALERTS_TOPIC', 'ALERTS_BOT_TOKEN', 'ALERTS_CHAT_ID', 'ALERTS_CHAT_ID_FILE', 'TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID', 'ALERTS_REQUIRE_SEND']) delete process.env[k];
 const pr = (number, days, full, runs) => ({ list: { number, title: `PR ${number}`, html_url: `https://gh.test/o/r/pull/${number}`, updated_at: ago(days) }, full: { number, head: { sha: `sha${number}` }, ...full }, runs });
 pulls.push(pr(1, 3, { mergeable: true }, [run('success')]), pr(2, 0, { mergeable: false }, []), pr(3, 1, { mergeable: false }, []));
 issues.push({ number: 10, state: 'open', html_url: 'https://gh.test/o/r/issues/10', title: 'a card', labels: [{ name: 'card' }], body: '', updated_at: ago(4) });
-// someone plants a marker issue claiming everything was announced and alerted today: it must not count
-issues.push({ number: 50, state: 'open', html_url: 'https://gh.test/o/r/issues/50', title: 'Stale work', labels: [], updated_at: ago(0), user: { login: 'mallory', type: 'User' },
-  body: render([], { announced: [1, 2, 3, 10, 11, 12, 13], sent: '2026-10-05' }) });
-issues.push({ number: 51, state: 'open', html_url: 'https://gh.test/o/r/issues/51', title: 'Stale work', labels: [], updated_at: ago(0), user: { login: 'github-actions', type: 'User' },
-  body: render([], { announced: [1, 2, 3, 10, 11, 12, 13], sent: '2026-10-05' }) });
+// someone plants marker issues claiming everything was announced: they must not count
+issues.push({ number: 50, state: 'open', html_url: 'https://gh.test/o/r/issues/50', title: 'Stale work', labels: [], updated_at: ago(0), user: { login: 'mallory', type: 'User' }, body: render([], { announced: [1, 2, 3, 10, 11, 12, 13] }) });
+issues.push({ number: 51, state: 'open', html_url: 'https://gh.test/o/r/issues/51', title: 'Stale work', labels: [], updated_at: ago(0), user: { login: 'github-actions', type: 'User' }, body: render([], { announced: [1, 2, 3, 10, 11, 12, 13] }) });
 const tracking = () => issues.filter((i) => String(i.body).includes(MARKER) && i.user.type === 'Bot');
+const alertIssues = () => issues.filter((i) => String(i.body).includes('<!-- harness-alert:'));
+const add = (number, label, days) => issues.push({ number, state: 'open', html_url: `https://gh.test/o/r/issues/${number}`, title: `issue ${number}`, labels: [{ name: label }], body: '', updated_at: ago(days) });
 
 ok(!isTracking(issues[1]) && !isTracking(issues[2]) && isTracking({ body: MARKER, user: { login: 'github-actions[bot]', type: 'Bot' } }), 'only an issue filed by github-actions[bot] can be the tracking issue; a planted marker issue never counts');
 let r = await report('o/r', NOW);
-ok(signature(r.items) === '1,3,10' && tracking().length === 1 && tracking()[0].number !== 50 && tracking()[0].title === 'Stale work' && !r.sent && tg.length === 0, 'report files one "Stale work" issue; without the secrets it sends nothing and still updates');
+ok(signature(r.items) === '1,3,10' && tracking().length === 1 && tracking()[0].title === 'Stale work' && r.alert === 'no topic' && alertIssues().length === 0 && readMarkers(tracking()[0].body).announced.length === 0, 'report files one "Stale work" issue; with no ALERTS_TOPIC it alerts nobody and announces nothing yet');
 const first = tracking()[0];
-ok(first.body.includes('| green-unmerged | 3 |') && first.body.includes('| conflicted | 1 |') && signature(readMarkers(first.body).announced) === '1,3,10', 'the issue lists each item with its kind and days idle');
-Object.assign(process.env, { TELEGRAM_BOT_TOKEN: 'TOKEN', TELEGRAM_CHAT_ID: '42' });
+ok(first.body.includes('| green-unmerged | 3 |') && first.body.includes('| conflicted | 1 |'), 'the issue lists each item with its kind and days idle');
+process.env.ALERTS_TOPIC = 'website';
 r = await report('o/r', NOW);
-ok(tracking().length === 1 && !r.sent && tg.length === 0, 'a second run edits the same issue and stays silent: nothing new');
-issues.push({ number: 11, state: 'open', html_url: 'https://gh.test/o/r/issues/11', title: 'a risk', labels: [{ name: 'risk:data' }], body: '', updated_at: ago(3) });
+ok(r.alert === 'queued' && alertIssues().length === 1 && /"key":"stale:o\/r"/.test(alertIssues()[0].body) && /"topic":"website"/.test(alertIssues()[0].body) && alertIssues()[0].body.includes(first.html_url) && tg.length === 0 && tracking().length === 1,
+  'with the topic but no ALERTS_BOT_TOKEN/ALERTS_CHAT_ID, notify.mjs records the problem stale:o/r as an issue for the next tick, linking "Stale work"');
+Object.assign(process.env, { ALERTS_BOT_TOKEN: 'TOKEN', ALERTS_CHAT_ID: '42' });
+r = await report('o/r', NOW);
+ok(r.alert === 'nothing new' && tg.length === 0 && tracking().length === 1, 'a second run edits the same issue and asks nothing of notify.mjs: nothing new');
+add(11, 'risk:data', 3);
+r = await report('o/r', NOW);
+ok(r.alert === 'repeat' && tg.length === 1 && tg[0].chat_id === '42' && tg[0].message_thread_id === 5 && tg[0].disable_notification === true && /^🔴 PROBLEM · Stale work in o\/r: 3 item\(s\), 3 new: #10 card/.test(tg[0].text) && tg[0].text.includes(first.html_url),
+  'the next new item finds the problem queued and notify.mjs sends it to the project topic, silent, with the issue link');
+add(12, 'card', 6);
+r = await report('o/r', NOW + 3600000);
+ok(r.alert === 'repeat' && tg.length === 1 && alertIssues()[0].comments.some((c) => c.includes(first.html_url)), 'while the problem is open, more new items send nothing more (notify.mjs deduplicates); its issue gets a comment');
+pulls.length = 0; issues.splice(0, issues.length, ...issues.filter((i) => String(i.body).includes(MARKER) || String(i.body).includes('harness-alert')));
+r = await report('o/r', NOW + 2 * DAY);
+ok(tracking()[0].state === 'closed' && /Nothing is stale/.test(tracking()[0].body) && r.alert === 'resolved' && tg.length === 2 && tg[1].reply_parameters.message_id === tg[0].message_id && /RESOLVED/.test(tg[1].text) && alertIssues()[0].state === 'closed',
+  'an empty list closes "Stale work" and resolves stale:o/r: RESOLVED is a reply to the problem\'s message');
+const patches = tracking()[0].patches;
+r = await report('o/r', NOW + 2 * DAY);
+ok(tracking()[0].patches === patches && r.alert === 'none' && tg.length === 2, 'an empty list with everything closed touches nothing and sends nothing');
+add(13, 'card', 10);
 tgFail = true;
 let failed = '';
-try { await report('o/r', NOW); } catch (e) { failed = e.message; }
-ok(/Telegram did not accept/.test(failed) && !failed.includes('TOKEN') && readMarkers(tracking()[0].body).sent === '' && !readMarkers(tracking()[0].body).announced.includes(11), 'a failed alert fails the run without the token in the error, and stays unannounced for the next run');
+try { await report('o/r', NOW + 3 * DAY); } catch (e) { failed = e.message; }
+ok(/Telegram sendMessage: 500/.test(failed) && !failed.includes('TOKEN') && !readMarkers(tracking()[0].body).announced.includes(13) && tracking()[0].state === 'open' && tracking()[0].number === first.number,
+  'a new item reopens the same issue; an undelivered alert fails the run without the token in the error and stays unannounced');
 tgFail = false;
-r = await report('o/r', NOW);
-ok(r.sent && tg.length === 1 && tg[0].chat_id === '42' && /1 new/.test(tg[0].text) && tg[0].text.includes('#11 risk') && tg[0].text.endsWith(first.html_url) && readMarkers(tracking()[0].body).sent === '2026-10-05', 'a newly stale item sends one alert linking the issue, and records the date');
-issues.push({ number: 12, state: 'open', html_url: 'https://gh.test/o/r/issues/12', title: 'another card', labels: [{ name: 'card' }], body: '', updated_at: ago(6) });
-r = await report('o/r', NOW + 3600000);
-ok(!r.sent && tg.length === 1 && !readMarkers(tracking()[0].body).announced.includes(12), 'a second new item the same day waits: one alert a day per repository');
-r = await report('o/r', NOW + DAY);
-ok(r.sent && tg.length === 2 && /#12 card, \d+d \(new\)/.test(tg[1].text), 'the next day it goes out (with whatever else became stale overnight)');
-pulls.length = 0; issues.splice(0, issues.length, ...tracking(), ...issues.filter((i) => i.user?.type === 'User' && String(i.body).includes(MARKER)));
-r = await report('o/r', NOW + 2 * DAY);
-ok(tracking().length === 1 && tracking()[0].state === 'closed' && /Nothing is stale/.test(tracking()[0].body) && tg.length === 2, 'an empty list closes the issue, with no alert');
-const patches = tracking()[0].patches;
-await report('o/r', NOW + 2 * DAY);
-ok(tracking()[0].patches === patches, 'an empty list with the issue already closed touches nothing');
-issues.push({ number: 13, state: 'open', html_url: 'https://gh.test/o/r/issues/13', title: 'card again', labels: [{ name: 'card' }], body: '', updated_at: ago(10) });
 r = await report('o/r', NOW + 3 * DAY);
-ok(tracking().length === 1 && tracking()[0].state === 'open' && tracking()[0].number === first.number && r.sent && tg.length === 3, 'a new stale item reopens the same issue, never a second one');
+ok(r.alert === 'repeat' && tg.length === 3 && tg[2].text.includes('#13 card') && readMarkers(tracking()[0].body).announced.includes(13) && tracking().length === 1, 'the next run delivers it, never a second tracking issue');
 srv.close();
 
 // --- every kit-installed workflow: the RUNNER lane, bounded, and safe on a self-hosted runner ---------
@@ -199,6 +198,7 @@ mkdirSync(join(proj, '.github/workflows'), { recursive: true });
 mkdirSync(join(proj, '.harness/tools'), { recursive: true });
 copyFileSync(join(dir, 'harness-stale.yml'), join(proj, '.github/workflows/harness-stale.yml'));
 copyFileSync(join(kit, '.harness/tools/stale.mjs'), join(proj, '.harness/tools/stale.mjs'));
+copyFileSync(join(kit, '.harness/tools/notify.mjs'), join(proj, '.harness/tools/notify.mjs'));
 writeFileSync(join(proj, 'README.md'), 'x\n');
 const profile = JSON.parse(readFileSync(join(kit, 'examples/profile.example.json'), 'utf8'));
 profile.capabilities = [...new Set([...(profile.capabilities || []), 'recurring-jobs'])];
@@ -208,7 +208,7 @@ g('init', '-q', '-b', 'main'); g('add', '-A'); g('-c', 'user.name=t', '-c', 'use
 spawnSync('node', [join(kit, '.harness/tools/audit.mjs'), proj, '--json', join(proj, 'a.json')], { encoding: 'utf8' });
 const audit = JSON.parse(readFileSync(join(proj, 'a.json'), 'utf8')).results;
 const res = (id) => audit.find((x) => x.id === id);
-ok(res('C15').result === 'PASS' && res('RJ02').result === 'PASS', `audit: C15 ${res('C15').result} (${res('C15').detail || res('C15').evidence || ''}), RJ02 ${res('RJ02').result}`);
+ok(res('C15').result === 'PASS' && res('RJ02').result === 'PASS' && res('O10').result === 'PASS', `audit: C15 ${res('C15').result} (${res('C15').detail || res('C15').evidence || ''}), RJ02 ${res('RJ02').result}, O10 ${res('O10').result}`);
 rmSync(proj, { recursive: true, force: true });
 
 console.log(`test-stale: OK · ${n} checks`);

@@ -232,11 +232,11 @@ const run = (srv, args, env = {}) => new Promise((done) => {
     const out = spawnSync('bash', ['-c', script], { cwd: proj, encoding: 'utf8', env: { ...process.env, PATH: `${join(proj, 'bin')}:${process.env.PATH}`, GH_LOG: join(proj, 'gh.log'), REPO: 'o/r', FAKE_OPEN: '', FAKE_BODY: '', GITHUB_STEP_SUMMARY: '', ...env } });
     return { ...out, gh: readFileSync(join(proj, 'gh.log'), 'utf8') };
   };
-  const withLines = { ...example, kit_updates: { pr_body_lines: [good, ...evil.slice(0, 6), 'Kit-update: standing (K010)'] } };
+  const withLines = { ...example, kit_updates: { pr_body_lines: [good, ...evil.slice(0, 6), 'Kit-update: standing (K011)'] } };
   let out = runBlock(withLines);
   const body = (out.stdout.match(/BODY<<([\s\S]*)>>/) || [])[1] || '';
   const bodyLines = body.split('\n');
-  ok(out.status === 0 && bodyLines.includes(good) && bodyLines.includes('Kit-update: standing (K010)') && bodyLines[0].startsWith('Kit 0.7.0 → 0.8.0'), 'a new PR body carries each valid line verbatim at column 1, after the kit text');
+  ok(out.status === 0 && bodyLines.includes(good) && bodyLines.includes('Kit-update: standing (K011)') && bodyLines[0].startsWith('Kit 0.7.0 → 0.8.0'), 'a new PR body carries each valid line verbatim at column 1, after the kit text');
   const out2 = runBlock({ ...example, kit_updates: { pr_body_lines: [good, ...evil.slice(6)] } });
   const dropped = (out.stderr + out2.stderr).match(/warning: dropped/g) || [];
   ok(!/<img|Injected|bold|here\]/.test(body) && !/Closes|fixes|Resolved|fix #7|issues\/8/.test(out2.stdout) && out2.stdout.includes(good) && dropped.length === evil.length, `markdown, HTML, newlines, a leading space, an over-long line and closing keywords are dropped, each with a warning (${dropped.length})`);

@@ -345,9 +345,12 @@ CI; propose the laptop lane only where measurements show a real benefit."
    lists idle PRs (green-unmerged, red, conflicted, draft; bot PRs too), inbox requests left queued
    or working, and `card` or `risk:*` issues, in one tracking issue updated in place and closed when
    empty (RJ02).
-3. **Telegram within caps (O10).** An alert only for items not announced before, at most one a day
-   per repository, at most 10 items listed, silent when the secrets are absent, never for success or
-   an empty list. A capped alert keeps its new items for the next day; a failed alert fails the run.
+3. **Alerts within the one standard (O10, K010).** The check sends nothing itself: when its list
+   holds items not announced before, it opens the problem `stale:<owner/name>` through `notify.mjs`
+   in the project's topic (the Actions variable `ALERTS_TOPIC`, since a kit-installed workflow cannot
+   hard-code it), linking the "Stale work" issue; an empty list resolves it. Deduplication, caps,
+   quiet hours and escalation are `notify.mjs`'s, not repeated here. An undelivered alert fails the
+   run and its items stay unannounced, so the next run asks again.
 4. **Kit update PRs carry a project's standing authorization lines** (`kit_updates.pr_body_lines` in
    the profile), read by the workflow itself and validated against a plain-text pattern with no
    closing keywords, so a project's guard on `.github/**` or `.claude/**` PRs does not block every

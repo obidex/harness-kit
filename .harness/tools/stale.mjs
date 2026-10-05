@@ -5,7 +5,7 @@
 //   node .harness/tools/stale.mjs report --repo owner/name   in Actions (harness-stale.yml): scan, then
 //                                         bring the one "Stale work" tracking issue up to date
 //                                         (create, edit in place, reopen, or close when the list is
-//                                         empty) and send a Telegram alert within the O10 caps
+//                                         empty) and alert through notify.mjs (O10)
 //
 // Stale means idle (no update) for at least:
 //   HARNESS_STALE_PR_DAYS        2   an open PR, classified draft, conflicted, red, green-unmerged or
@@ -16,15 +16,19 @@
 //
 // The tracking issue is found by the hidden marker `<!-- harness-stale -->`: one issue per
 // repository, never one per run (RJ02), and only one filed by github-actions[bot] counts, so `report`
-// runs in Actions (harness-stale.yml). Its body also carries the item set the owner was last told
-// about and the date of the last alert, both as hidden markers. An alert goes out only when the list
-// holds items not yet announced, at most once a day per repository, lists at most 10 items, and is
-// skipped silently when TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is absent (the issue still updates).
-// Never for an empty list. GH_TOKEN reads the repository and writes the issue.
+// runs in Actions (harness-stale.yml). Its body also carries, as a hidden marker, the item set the
+// owner was last told about. Alerts follow the one standard (O10, .harness/alerts.md) through
+// notify.mjs, never Telegram directly: when the list holds items not announced before, one problem
+// under the key `stale:<owner/name>` in the project's topic (the Actions variable ALERTS_TOPIC), linking
+// the issue; when the list is empty, `resolve` on that key. notify.mjs deduplicates, caps and
+// escalates; its store is github:<owner/name> (ALERTS_STORE), and without ALERTS_BOT_TOKEN and
+// ALERTS_CHAT_ID a problem is recorded as an issue for the next tick to send. GH_TOKEN reads the
+// repository and writes the issues.
 
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse as parseInbox } from './inbox.mjs';
+import { TOPICS, problem, resolveKey, store, telegram } from './notify.mjs';
 
 export const MARKER = '<!-- harness-stale -->';
 export const TITLE = 'Stale work';
@@ -102,7 +106,7 @@ export function select(cands, now = Date.now(), t = DEFAULTS) {
 const clean = (s) => String(s || '').replace(/\s+/g, ' ').replace(/[|[\]`<>]/g, (c) => `\\${c}`).replace(/@/g, '@​').trim().slice(0, 120);
 
 /** The body: the list, then the hidden markers (announced item set, last alert date). */
-export function render(items, { announced = [], sent = '', t = DEFAULTS } = {}) {
+export function render(items, { announced = [], t = DEFAULTS } = {}) {
   const lines = [MARKER, 'Open work idle past its threshold (C15, no silent stall), listed once a day by `harness-stale.yml`.',
     'Resume each item or report it STOPPED. This issue updates in place and closes when the list is empty.', ''];
   if (items.length) {
@@ -110,16 +114,14 @@ export function render(items, { announced = [], sent = '', t = DEFAULTS } = {}) 
     for (const i of items) lines.push(`| [#${i.number}](${i.url}) ${clean(i.title)} | ${i.kind} | ${i.days} |`);
   } else lines.push('Nothing is stale.');
   lines.push('', `Thresholds in days: PRs ${t.prDays}, conflicted PRs ${t.conflictDays}, inbox queued or working ${t.inboxDays}, \`card\` and \`risk:*\` issues ${t.cardDays}.`, '',
-    `<!-- harness-stale-items: ${signature(announced)} -->`, `<!-- harness-stale-sent: ${sent || 'never'} -->`, '');
+    `<!-- harness-stale-items: ${signature(announced)} -->`, '');
   return lines.join('\n');
 }
 
-/** The markers read back from a body: { announced: [numbers], sent: 'YYYY-MM-DD' | '' }. */
+/** The marker read back from a body: { announced: [numbers] }. */
 export function readMarkers(body) {
-  const text = String(body || '');
-  const items = text.match(/<!-- harness-stale-items: ([\d,]*) -->/);
-  const sent = text.match(/<!-- harness-stale-sent: (\d{4}-\d{2}-\d{2}) -->/);
-  return { announced: items && items[1] ? items[1].split(',').map(Number) : [], sent: sent ? sent[1] : '' };
+  const items = String(body || '').match(/<!-- harness-stale-items: ([\d,]*) -->/);
+  return { announced: items && items[1] ? items[1].split(',').map(Number) : [] };
 }
 
 /** The signature of an item set: its numbers, sorted, comma-separated. */
@@ -127,29 +129,21 @@ export function signature(list) {
   return [...new Set(list.map((x) => (typeof x === 'number' ? x : x.number)))].sort((a, b) => a - b).join(',');
 }
 
-/**
- * Whether to alert, and the item set to record as announced.
- * Alert only for items not announced before, not twice on one day, never on an empty list, never
- * without the secrets. A capped alert keeps its new items unannounced, so they go out the next day.
- */
-export function decide(items, { announced = [], sent = '' }, today, canSend) {
-  const before = new Set(announced);
-  const fresh = items.filter((i) => !before.has(i.number));
-  const now = items.map((i) => i.number);
-  if (!fresh.length || !canSend) return { send: false, fresh, announced: now, reason: !fresh.length ? 'nothing new' : 'no Telegram secrets' };
-  if (sent === today) return { send: false, fresh, announced: now.filter((n) => before.has(n)), reason: 'already alerted today' };
-  return { send: true, fresh, announced: now, reason: 'new stale items' };
-}
+/** The items not announced before. Deduplication, caps and escalation are notify.mjs's (O10). */
+export const freshItems = (items, announced = []) => { const before = new Set(announced); return items.filter((i) => !before.has(i.number)); };
 
-/** The alert text: at most MAX_LISTED items, new ones first, then "and N more", then the issue link. */
-export function message(repo, items, fresh, issueUrl) {
+/** The problem text (notify.mjs sends it as one line): at most MAX_LISTED items, new ones first. */
+export function message(repo, items, fresh) {
   const isNew = new Set(fresh.map((i) => i.number));
   const ordered = [...items.filter((i) => isNew.has(i.number)), ...items.filter((i) => !isNew.has(i.number))];
-  const lines = [`Stale work in ${repo}: ${items.length} item(s), ${fresh.length} new.`];
-  for (const i of ordered.slice(0, MAX_LISTED)) lines.push(`- #${i.number} ${i.kind}, ${i.days}d${isNew.has(i.number) ? ' (new)' : ''}: ${String(i.title || '').replace(/\s+/g, ' ').slice(0, 80)}`);
-  if (ordered.length > MAX_LISTED) lines.push(`and ${ordered.length - MAX_LISTED} more`);
-  lines.push(issueUrl);
-  return lines.join('\n');
+  const parts = ordered.slice(0, MAX_LISTED).map((i) => `#${i.number} ${i.kind} ${i.days}d${isNew.has(i.number) ? ' (new)' : ''}`);
+  return `Stale work in ${repo}: ${items.length} item(s), ${fresh.length} new: ${parts.join(', ')}${ordered.length > MAX_LISTED ? `, and ${ordered.length - MAX_LISTED} more` : ''}`;
+}
+
+/** The project's topic from ALERTS_TOPIC: one of notify.mjs's project topics, or null. */
+export function topicOf(v = process.env.ALERTS_TOPIC) {
+  const t = String(v || '').trim();
+  return t && t in TOPICS && !['needs', 'daily'].includes(t) ? t : null;
 }
 
 // --- GitHub ---------------------------------------------------------------------------------------
@@ -214,46 +208,41 @@ async function findTracking(repo) {
   return null;
 }
 
-async function telegram(text) {
-  const base = process.env.HARNESS_TELEGRAM_API || 'https://api.telegram.org';
-  const r = await fetch(`${base}/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
-    method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ chat_id: process.env.TELEGRAM_CHAT_ID, text, disable_web_page_preview: true }),
-  });
-  let ok = r.ok;
-  try { ok = ok && (await r.json()).ok !== false; } catch { /* a non-JSON answer: trust the status */ }
-  if (!ok) throw new Error(`Telegram did not accept the alert (${r.status})`); // never the URL: it holds the token
-}
-
-/** scan, then update the one tracking issue and alert within the caps. */
+/** scan, then update the one tracking issue and alert through notify.mjs. */
 export async function report(repo, now = Date.now()) {
   const t = thresholds();
   const items = await scan(repo, now, t);
-  const today = new Date(now).toISOString().slice(0, 10);
   const issue = await findTracking(repo);
   const prev = readMarkers(issue?.body);
-  const canSend = Boolean(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID);
-  const d = decide(items, prev, today, canSend);
-  const sent = d.send ? today : prev.sent;
-  const body = render(items, { announced: d.announced, sent, t });
-  let target = issue;
+  const fresh = freshItems(items, prev.announced);
+  const key = `stale:${repo}`;
+  const alerts = () => store(process.env.ALERTS_STORE || `github:${repo}`);
+  const topic = topicOf();
+  // with no topic set nothing is announced yet, so the first run that has one alerts for the list
+  const announced = fresh.length && !topic ? prev.announced.filter((n) => items.some((i) => i.number === n)) : items.map((i) => i.number);
+  const body = render(items, { announced, t });
   if (!items.length) {
     if (issue && issue.state === 'open') { await api('PATCH', `/repos/${repo}/issues/${issue.number}`, { body, state: 'closed', state_reason: 'completed' }); console.log(`stale: nothing stale; closed #${issue.number}`); }
     else console.log('stale: nothing stale');
-    return { items, issue: issue?.number ?? null, sent: false };
+    const r = await resolveKey(alerts(), telegram(), { key, text: `nothing stale in ${repo}` });
+    if (r.status !== 'none') console.log(`stale: alert ${key} ${r.status}`);
+    return { items, issue: issue?.number ?? null, alert: r.status };
   }
+  let target = issue;
   if (!issue) target = await api('POST', `/repos/${repo}/issues`, { title: TITLE, body });
   else if (issue.state !== 'open' || issue.body !== body) target = await api('PATCH', `/repos/${repo}/issues/${issue.number}`, { body, ...(issue.state !== 'open' ? { state: 'open' } : {}) });
-  console.log(`stale: ${items.length} item(s) listed in ${target.html_url} (${d.fresh.length} new)`);
-  if (!d.send) { console.log(`stale: no alert (${d.reason})`); return { items, issue: target.number, sent: false }; }
-  try { await telegram(message(repo, items, d.fresh, target.html_url)); }
-  catch (e) {
-    // the alert failed: take back the sent date and the announced set, so the next run tries again
-    await api('PATCH', `/repos/${repo}/issues/${target.number}`, { body: render(items, { announced: prev.announced.filter((n) => items.some((i) => i.number === n)), sent: prev.sent, t }) });
+  console.log(`stale: ${items.length} item(s) listed in ${target.html_url} (${fresh.length} new)`);
+  if (!fresh.length) return { items, issue: target.number, alert: 'nothing new' };
+  if (!topic) { console.log('stale: no alert: set the Actions variable ALERTS_TOPIC to this project\'s topic (.harness/alerts.md)'); return { items, issue: target.number, alert: 'no topic' }; }
+  try {
+    const r = await problem(alerts(), telegram(), { key, topic, title: `Stale work in ${repo}`, text: message(repo, items, fresh), link: target.html_url });
+    console.log(`stale: alert ${key} ${r.status}`);
+    return { items, issue: target.number, alert: r.status };
+  } catch (e) {
+    // not delivered: keep the new items unannounced, so the next run asks notify.mjs again
+    await api('PATCH', `/repos/${repo}/issues/${target.number}`, { body: render(items, { announced: prev.announced.filter((n) => items.some((i) => i.number === n)), t }) });
     throw e;
   }
-  console.log(`stale: alert sent for ${d.fresh.length} new item(s)`);
-  return { items, issue: target.number, sent: true };
 }
 
 // --- commands -------------------------------------------------------------------------------------
