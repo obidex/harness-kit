@@ -12,8 +12,9 @@ Each version is the tag `v<version>` on this repository, never moved (K003). Pro
   a link to the passing run, instead of leaving it open.
 - `hands-settings` (control repository) was an invalid workflow since 0.8.0: one `run:` line held
   ": " in a plain YAML value, so GitHub rejected the file and neither the dispatch nor the daily
-  drift check could run. The line is a block scalar now, and `check-kit` fails on any plain value
-  holding ": ", which GitHub's strict parser refuses.
+  drift check could run. The line is a block scalar now. `check-kit` and the control repository's own
+  `hands-check` (`hands.mjs control-check`) fail on any plain value holding ": ", which GitHub's strict
+  parser refuses and the kit's lenient parser accepted.
 
 ## 0.9.0 · 2026-10-05 · a self-hosted lane for kit workflows; the stale-work check
 

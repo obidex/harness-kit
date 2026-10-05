@@ -26,7 +26,7 @@
 import { readFileSync, existsSync, readdirSync, appendFileSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { validateSchema, parseYaml, triggers } from './lib.mjs';
+import { validateSchema, parseYaml, triggers, plainValueProblems } from './lib.mjs';
 
 export const SETTINGS_PATH = '.github/harness-settings.json';
 /** True when HANDS_PAUSED names the repository or is `*`. */
@@ -139,6 +139,7 @@ export function unsafe(settings) {
 export function controlProblems(files) {
   const problems = [];
   for (const [f, text] of Object.entries(files)) {
+    for (const p of plainValueProblems(text)) problems.push(`${f}: ${p}`); // GitHub would reject the file
     let wf = {};
     try { wf = parseYaml(text) || {}; } catch { problems.push(`${f}: unparsable`); continue; }
     const on = triggers(wf);
