@@ -166,7 +166,7 @@ const serve = (state, { sticky = true } = {}) => new Promise((done) => {
   srv.listen(0, '127.0.0.1', () => done(srv));
 });
 const run = (srv, args, env = {}) => new Promise((done) => {
-  execFile(process.execPath, [join(new URL('..', import.meta.url).pathname, '.harness/tools/hands.mjs'), ...args], { env: { ...process.env, GITHUB_API_URL: `http://127.0.0.1:${srv.address().port}`, GH_TOKEN: 't', GITHUB_STEP_SUMMARY: '', HANDS_PAUSED: '', ...env } }, (err, stdout, stderr) => done({ code: err ? err.code : 0, stdout, stderr }));
+  execFile(process.execPath, [join(new URL('..', import.meta.url).pathname, '.harness/tools/hands.mjs'), ...args], { env: { ...process.env, GITHUB_API_URL: `http://127.0.0.1:${srv.address().port}`, GH_TOKEN: 't', GITHUB_STEP_SUMMARY: '', GITHUB_REPOSITORY: '', HANDS_PAUSED: '', ...env } }, (err, stdout, stderr) => done({ code: err ? err.code : 0, stdout, stderr }));
 });
 {
   const state = world();
