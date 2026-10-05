@@ -78,7 +78,7 @@ repositories and K repositories that pin the kit:
 
 | Workflow | Where | Trigger | Jobs per run | Estimate |
 |---|---|---|---|---|
-| `hands-settings` | control repo | daily drift check (which also ticks the alerts and posts the digest); dispatch after a settings merge | 1, plus 2 when something drifts | ~30, plus ~3 per settings change |
+| `hands-settings` | control repo | daily drift check (which also ticks the alerts, posts the digest and alerts on any scheduled workflow here more than 36 h overdue); dispatch after a settings merge | 1, plus 2 when something drifts | ~30, plus ~3 per settings change |
 | `hands-update` | control repo | weekly; dispatch | 2 + K | ~4.3 × (2 + K) |
 | `hands-report` | control repo | called by the two above | (counted above) | 0 extra |
 | `hands-alerts` | control repo | dispatch; hourly 08:00-22:00 Damascus only with `ALERTS_TICK=on` | 1 | ~1 per dispatch; ~450 with the tick on |

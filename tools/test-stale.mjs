@@ -9,7 +9,7 @@ import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { readFileSync, readdirSync, mkdtempSync, mkdirSync, copyFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { isTracking, checkState, classifyPr, classifyIssue, select, thresholds, render, readMarkers, signature, freshItems, message, topicOf, profileTopic, report, DEFAULTS, MAX_LISTED, MARKER } from '../.harness/tools/stale.mjs';
+import { parseCron, nextRun, scheduleState, overdueHours, schedules, alertSchedules, missedText, isTracking, checkState, classifyPr, classifyIssue, select, thresholds, render, readMarkers, signature, freshItems, message, topicOf, profileTopic, report, DEFAULTS, MAX_LISTED, MARKER } from '../.harness/tools/stale.mjs';
 import { body as inboxBody, setField } from '../.harness/tools/inbox.mjs';
 import { parseYaml } from '../.harness/tools/lib.mjs';
 
@@ -99,6 +99,7 @@ ok(!/api\.telegram\.org|sendMessage/.test(readFileSync(join(kit, '.harness/tools
 const issues = [];
 const pulls = [];
 const tg = [];
+const wfs = [];
 let tgFail = false, nextIssue = 100, nextMsg = 1;
 const srv = createServer((q, res) => {
   let data = '';
@@ -107,6 +108,11 @@ const srv = createServer((q, res) => {
     const u = new URL(q.url, 'http://x');
     const send = (code, j) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(j)); };
     if (u.pathname === '/botTOKEN/sendMessage') { if (tgFail) return send(500, { ok: false, description: 'down' }); const m = { ...JSON.parse(data), message_id: nextMsg++ }; tg.push(m); return send(200, { ok: true, result: m }); }
+    if (u.pathname === '/repos/o/r/actions/workflows') return send(200, { workflows: wfs.map((w) => w.meta) });
+    let w = u.pathname.match(/^\/repos\/o\/r\/actions\/workflows\/(\d+)\/runs$/);
+    if (w) { const x = wfs.find((y) => y.meta.id === Number(w[1])); return send(200, { workflow_runs: x.runs }); }
+    w = u.pathname.match(/^\/repos\/o\/r\/contents\/(.+)$/);
+    if (w) { const x = wfs.find((y) => y.meta.path === w[1]); return x ? send(200, { content: Buffer.from(x.text).toString('base64'), encoding: 'base64' }) : send(404, {}); }
     if (u.pathname === '/repos/o/r/pulls') return send(200, u.searchParams.get('page') === '1' ? pulls.map((p) => p.list) : []);
     let m = u.pathname.match(/^\/repos\/o\/r\/pulls\/(\d+)$/);
     if (m) return send(200, pulls.find((p) => p.list.number === Number(m[1])).full);
@@ -171,6 +177,59 @@ ok(/Telegram sendMessage: 500/.test(failed) && !failed.includes('TOKEN') && !rea
 tgFail = false;
 r = await report('o/r', NOW + 3 * DAY);
 ok(r.alert === 'repeat' && tg.length === 3 && tg[2].text.includes('#13 card') && readMarkers(tracking()[0].body).announced.includes(13) && tracking().length === 1, 'the next run delivers it, never a second tracking issue');
+// --- missed scheduled runs: cron, overdue by more than 36 h, PROBLEM then RESOLVED in the topic ------
+const at = (iso) => Date.parse(iso);
+ok(nextRun('17 5 * * *', at('2026-10-05T05:37:00Z')) === at('2026-10-06T05:17:00Z') && nextRun('41 6 * * 1', at('2026-10-05T05:37:00Z')) === at('2026-10-05T06:41:00Z')
+  && nextRun('41 6 * * 1', at('2026-10-05T06:41:00Z')) === at('2026-10-12T06:41:00Z') && nextRun('23 5-19 * * *', at('2026-10-05T19:30:00Z')) === at('2026-10-06T05:23:00Z')
+  && nextRun('*/15 * * * *', at('2026-10-05T05:37:00Z')) === at('2026-10-05T05:45:00Z') && nextRun('0 12 * JAN,jul *', at('2026-10-05T00:00:00Z')) === at('2027-01-01T12:00:00Z')
+  && nextRun('0 0 1 * MON', at('2026-10-05T05:00:00Z')) === at('2026-10-12T00:00:00Z') && nextRun('0 0 * * 7', at('2026-10-05T05:00:00Z')) === at('2026-10-11T00:00:00Z'),
+  'cron reads as GitHub does, in UTC: daily, weekly, hour ranges, steps, names, Sunday as 7, day-of-month OR day-of-week');
+let bad = 0;
+for (const c of ['17 5 * *', '61 * * * *', '* * * * 8', 'x * * * *', '5-1 * * * *', '*/0 * * * *']) { try { parseCron(c); } catch { bad++; } }
+ok(bad === 6, 'a cron it cannot read is an error, never a silent pass');
+const daily = (last, now) => scheduleState({ crons: ['17 5 * * *'], last, now: at(now), limit: 36 });
+ok(!daily('2026-10-05T05:37:00Z', '2026-10-05T15:00:00Z').overdue && !daily('2026-10-04T05:37:00Z', '2026-10-06T17:16:00Z').overdue && daily('2026-10-04T05:37:00Z', '2026-10-06T17:18:00Z').overdue
+  && daily('2026-10-04T05:37:00Z', '2026-10-06T17:18:00Z').lateHours === 36,
+  'a daily schedule with one run since last night is fine; it counts as missed only once its next run is more than 36 h overdue');
+ok(!scheduleState({ crons: ['41 6 * * 1'], last: '2026-10-04T22:00:00Z', now: at('2026-10-06T18:40:00Z') }).overdue && scheduleState({ crons: ['41 6 * * 1'], last: '2026-10-04T22:00:00Z', now: at('2026-10-06T18:42:00Z') }).overdue
+  && scheduleState({ crons: ['0 0 * * *', '41 6 * * 1'], last: '2026-10-05T00:10:00Z', now: at('2026-10-06T18:42:00Z') }).overdue && !scheduleState({ crons: ['0 0 * * *'], last: '2026-10-05T00:10:00Z', now: at('2026-10-06T18:42:00Z') }).overdue,
+  'a weekly schedule never run since it appeared is missed 36 h after its first due time; with two crons the earlier due time counts');
+ok(overdueHours({}) === 36 && overdueHours({ HARNESS_SCHEDULE_OVERDUE_HOURS: '48' }) === 48 && (() => { try { overdueHours({ HARNESS_SCHEDULE_OVERDUE_HOURS: 'soon' }); return false; } catch { return true; } })(), 'the limit is 36 h unless HARNESS_SCHEDULE_OVERDUE_HOURS sets a number');
+
+const wf = (id, file, crons, state = 'active') => ({ meta: { id, name: file.replace(/\.yml$/, ''), path: `.github/workflows/${file}`, state, created_at: '2026-10-01T00:00:00Z', html_url: `https://gh.test/o/r/blob/main/.github/workflows/${file}` },
+  text: `name: ${file}\non:\n${crons.length ? `  schedule:\n${crons.map((c) => `    - cron: '${c}'`).join('\n')}\n` : ''}  workflow_dispatch:\njobs:\n  a:\n    runs-on: x\n`, runs: [] });
+wfs.push(wf(1, 'hands-settings.yml', ['17 5 * * *']), wf(2, 'hands-update.yml', ['41 6 * * 1']), wf(3, 'hands-check.yml', []), wf(4, 'old.yml', ['0 * * * *'], 'disabled_manually'), wf(5, 'quiet.yml', ['0 3 * * *'], 'disabled_inactivity'));
+wfs[0].runs = [{ event: 'schedule', created_at: '2026-10-05T05:37:00Z' }]; wfs[1].runs = [{ event: 'push', created_at: '2026-10-06T12:00:00Z' }, { event: 'schedule', created_at: '2026-09-28T07:02:00Z' }]; wfs[4].runs = [{ event: 'schedule', created_at: '2026-10-05T03:20:00Z' }];
+for (const k of ['ALERTS_BOT_TOKEN', 'ALERTS_CHAT_ID', 'ALERTS_TOPIC']) delete process.env[k];
+Object.assign(process.env, { ALERTS_TOPICS: '{"needs":1,"website":5,"kit":6}' });
+const T0 = at('2026-10-05T15:00:00Z');
+let sch = await schedules('o/r', T0);
+ok(sch.map((x) => x.file).join(',') === 'hands-settings.yml,hands-update.yml,quiet.yml' && sch.every((x) => !x.overdue) && sch[1].due === '2026-10-05T06:41:00.000Z',
+  'schedules lists every scheduled workflow (never one without a schedule or one turned off by hand); a Monday run due this morning is not yet a fault');
+let failedTopic = '';
+try { await alertSchedules('o/r', T0, null); } catch (e) { failedTopic = e.message; }
+ok(/no topic/.test(failedTopic), 'alerting with no topic is an error, never a silent pass');
+Object.assign(process.env, { ALERTS_BOT_TOKEN: 'TOKEN', ALERTS_CHAT_ID: '42' });
+const tgBefore = tg.length;
+const T1 = at('2026-10-06T18:42:00Z'); // hands-update due 06:41 on the 5th, 36 h 1 min ago; quiet.yml due 03:00 on the 6th
+sch = await alertSchedules('o/r', T1, 'kit');
+const missed = tg.slice(tgBefore);
+ok(sch.find((x) => x.file === 'hands-update.yml').alert === 'sent' && missed.length === 1 && missed[0].message_thread_id === 6 && missed[0].disable_notification === true
+  && /^🔴 PROBLEM · Scheduled run missed: hands-update in o\/r was due 2026-10-05 06:41 UTC and is 36 h overdue/.test(missed[0].text) && missed[0].text.includes('actions/workflows/hands-update.yml')
+  && alertIssues().some((i) => /"key":"schedule:o\/r\/hands-update.yml"/.test(i.body) && i.state === 'open'),
+  'a schedule more than 36 h overdue (a push run does not count as a run) posts one PROBLEM in "Kit & Hands", silent, linking the workflow; its record is kept until it runs');
+ok(sch.find((x) => x.file === 'hands-settings.yml').overdue === false && sch.find((x) => x.file === 'hands-settings.yml').alert === 'none', 'a schedule on time sends nothing');
+ok(missedText('o/r', { workflow: 'quiet', state: 'disabled_inactivity', due: '2026-10-06T03:00:00.000Z', lateHours: 40, lastRun: null }).includes('turned its schedule off for inactivity'), 'a schedule GitHub turned off for inactivity says so');
+sch = await alertSchedules('o/r', T1 + 3600000, 'kit');
+ok(tg.length === tgBefore + 1 && sch.find((x) => x.file === 'hands-update.yml').alert === 'repeat', 'the next check while it is still missing sends nothing more (one open problem per key)');
+wfs[1].runs = [{ event: 'workflow_dispatch', created_at: '2026-10-06T19:05:00Z' }, ...wfs[1].runs];
+sch = await alertSchedules('o/r', at('2026-10-07T05:30:00Z'), 'kit');
+const ranAgain = tg.slice(tgBefore + 1);
+ok(sch.find((x) => x.file === 'hands-update.yml').alert === 'resolved' && ranAgain.length === 1 && ranAgain[0].reply_parameters.message_id === missed[0].message_id && /RESOLVED .*hands-update in o\/r ran again \(2026-10-06 19:05 UTC\)/.test(ranAgain[0].text)
+  && !alertIssues().some((i) => /schedule:o\/r\/hands-update.yml/.test(i.body) && i.state === 'open'),
+  'once it has run again (on schedule, or by hand from Actions), the next check replies RESOLVED to the PROBLEM and closes it');
+for (const k of ['ALERTS_BOT_TOKEN', 'ALERTS_CHAT_ID']) delete process.env[k];
+Object.assign(process.env, { ALERTS_TOPICS: '{"needs":1,"website":5}' });
 srv.close();
 
 // --- every kit-installed workflow: the RUNNER lane, bounded, and safe on a self-hosted runner ---------
@@ -198,6 +257,13 @@ for (const f of readdirSync(dir)) {
 const st = parseYaml(readFileSync(join(dir, 'harness-stale.yml'), 'utf8'));
 ok(st.on.schedule.length === 1 && /^\d+ \d+ \* \* \*$/.test(st.on.schedule[0].cron) && 'workflow_dispatch' in st.on && Object.keys(st.on).length === 2, `harness-stale runs once a day (${st.on.schedule[0].cron}) and on dispatch, nothing else`);
 ok(st.jobs.stale.permissions.issues === 'write' && Object.entries(st.jobs.stale.permissions).every(([k, v]) => k === 'issues' || v === 'read') && Number(st.jobs.stale['timeout-minutes']) <= 3, 'its one job writes only issues and is short');
+
+// --- the hands daily drift check runs the missed-run check with read-only Actions access -------------
+const hs = parseYaml(readFileSync(join(kit, '.harness/templates/hands/hands-settings.yml'), 'utf8'));
+const miss = hs.jobs.discover.steps.find((x) => x.name === 'Missed scheduled runs');
+ok(hs.on.schedule.length === 1 && miss && /stale\.mjs schedules --repo "\$GITHUB_REPOSITORY" --alert/.test(miss.run) && miss.env.ALERTS_TOPIC === 'kit' && miss.env.GH_TOKEN === '${{ github.token }}'
+  && hs.jobs.discover.permissions.actions === 'read' && miss.if === "always() && inputs.repo == ''" && !('continue-on-error' in miss),
+  'hands-settings: its one daily job also checks missed scheduled runs into "Kit & Hands", with actions: read, and a failure of that check is visible');
 
 // --- the audit counts the installed workflow for C15 ---------------------------------------------------
 const proj = mkdtempSync(join(tmpdir(), 'harness-stale-'));

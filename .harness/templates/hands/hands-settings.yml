@@ -10,7 +10,10 @@
 # Emergency stop: the Actions variable HANDS_PAUSED (README "Emergency").
 # The daily run also does the alert standard's daily work (O10, K010): escalations and STILL OPEN
 # replies for this repository's open problems, and the one digest in the "Daily" topic at 08:17
-# Damascus time. No extra job: two steps in the drift check's job.
+# Damascus time, and the missed-run check: a PROBLEM in "Kit & Hands" for any of this repository's
+# scheduled workflows more than 36 hours overdue (GitHub's schedules are best-effort), RESOLVED once
+# it has run again. No extra job: steps in the drift check's job. This run cannot report its own
+# silence; a host's tick runs the same check (stale.mjs schedules) to cover it.
 name: hands-settings
 
 on:
@@ -36,6 +39,7 @@ jobs:
     timeout-minutes: 5
     environment: hands
     permissions:
+      actions: read
       contents: read
       issues: write
     outputs:
@@ -109,6 +113,18 @@ jobs:
           set -euo pipefail
           stores="$(node kit/.harness/tools/hands.mjs discover | node -e 'const a=JSON.parse(require("fs").readFileSync(0,"utf8")).map(r=>r.repo);console.log([...new Set([process.env.SELF,...a])].map(r=>"github:"+r).join(","))')"
           node kit/.harness/tools/notify.mjs digest --stores "$stores"
+      # a full check: a PROBLEM per scheduled workflow here more than 36 h overdue, RESOLVED once it ran
+      - name: Missed scheduled runs
+        if: always() && inputs.repo == ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ALERTS_STORE: github:${{ github.repository }}
+          ALERTS_TOPIC: kit
+          HARNESS_SCHEDULE_OVERDUE_HOURS: ${{ vars.HARNESS_SCHEDULE_OVERDUE_HOURS }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          ALERTS_CHAT_ID_FILE: ALERTS_CHAT_ID
+        run: node kit/.harness/tools/stale.mjs schedules --repo "$GITHUB_REPOSITORY" --alert | tee -a "$GITHUB_STEP_SUMMARY"
 
   apply:
     needs: discover
