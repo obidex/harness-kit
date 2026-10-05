@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { createServer } from 'node:http';
 import { execFile } from 'node:child_process';
 import { tmpdir } from 'node:os';
-import { plan, covers, validate, controlProblems, unsafe, paused } from '../.harness/tools/hands.mjs';
+import { plan, covers, validate, controlProblems, unsafe, paused, keepAction, keepHours, watched } from '../.harness/tools/hands.mjs';
 import { parseYaml, validateSchema } from '../.harness/tools/lib.mjs';
 import { spawnSync } from 'node:child_process';
 
@@ -88,7 +88,7 @@ ok(controlProblems({ 'x.yml': commentOnly }).some((p) => p.includes('main-branch
 const caller = "name: x\non:\n  pull_request:\njobs:\n  r:\n    uses: ./.github/workflows/hands-report.yml\n    secrets: inherit\n";
 ok(controlProblems({ 'x.yml': caller }).some((p) => p.includes('repository event')), 'a PR workflow handing its secrets to a keyed workflow is refused');
 // a called workflow only gets the permissions its caller job grants
-for (const f of ['hands-settings.yml', 'hands-update.yml']) {
+for (const f of ['hands-settings.yml', 'hands-update.yml', 'hands-keep.yml']) {
   // GitHub refuses to start the run (startup_failure) when a caller grants less than the called
   // workflow declares, at its top level or in a job; seen on the first real run of 0.5.0
   const caller = parseYaml(files[f]).jobs.report;
@@ -254,6 +254,116 @@ const run = (srv, args, env = {}) => new Promise((done) => {
   ok(many.status === 0 && /only the first 10/.test(many.stderr) && many.stdout.includes('Line 9') && !many.stdout.includes('Line 10'), 'at most 10 lines are read, with a warning');
   ok(out.status === 0 && /not a list/.test(out.stderr) && !/Closes/.test(out.stdout), 'a malformed field is a warning, never a failed update');
   rmSync(proj, { recursive: true, force: true });
+}
+
+// keeping kit update PRs current (K012): behind ones are brought up to date through the App
+{
+  const now = Date.parse('2026-10-05T18:00:00Z');
+  const pr = (over = {}) => ({ number: 5, draft: false, created_at: '2026-10-05T12:00:00Z', user: { login: 'hands[bot]', type: 'Bot' },
+    head: { ref: 'harness/kit-0.11.0', sha: 'abc', repo: { full_name: 'o/r' } }, base: { ref: 'main', repo: { full_name: 'o/r' } }, mergeable_state: 'behind', ...over });
+  const o = { now, hours: 72, bot: 'hands[bot]' };
+  ok(keepAction(pr(), o) === 'update' && keepAction(pr({ mergeable_state: 'blocked' }), o) === 'current' && keepAction(pr({ mergeable_state: 'clean' }), o) === 'current', 'a behind kit update PR is updated; a current one is only watched');
+  ok(keepAction(pr({ mergeable_state: 'unknown' }), o) === 'wait' && keepAction(pr({ mergeable_state: null }), o) === 'wait' && keepAction(pr({ mergeable_state: 'dirty' }), o) === 'conflicted' && keepAction(pr({ draft: true }), o) === 'draft', 'an unknown state waits; a conflicted or draft PR is watched, never updated');
+  ok(keepAction(pr({ head: { ref: 'feature/x', sha: 'a', repo: { full_name: 'o/r' } } }), o) === 'not a kit update' && keepAction(pr({ head: { ref: 'harness/kit-0.11.0', sha: 'a', repo: { full_name: 'fork/r' } } }), o) === 'not a kit update'
+    && keepAction(pr({ head: { ref: 'harness/kit-0.11.0', sha: 'a', repo: null } }), o) === 'not a kit update', 'another branch, a fork\'s branch or a deleted fork is not a kit update');
+  ok(keepAction(pr({ user: { login: 'someone', type: 'User' } }), o) === "not the App's" && keepAction(pr({ user: { login: 'other[bot]', type: 'Bot' } }), o) === "not the App's" && keepAction(pr({ user: { login: 'x[bot]', type: 'Bot' } }), { now }) === 'update', 'only the App\'s own PRs (any bot when the App\'s slug is unknown)');
+  ok(keepAction(pr({ created_at: '2026-10-02T17:00:00Z' }), o) === 'old' && !watched('old') && watched('conflicted') && keepAction(pr({ created_at: '2026-10-02T19:00:00Z' }), o) === 'update', 'a PR open longer than HANDS_KEEP_HOURS is left to the stale-work check');
+  let bad = '';
+  try { keepHours({ HANDS_KEEP_HOURS: 'soon' }); } catch (e) { bad = e.message; }
+  ok(keepHours({}) === 72 && keepHours({ HANDS_KEEP_HOURS: '' }) === 72 && keepHours({ HANDS_KEEP_HOURS: '24' }) === 24 && /number of hours/.test(bad), 'HANDS_KEEP_HOURS defaults to 72 and must be a number');
+
+  // end to end against a stand-in API: listing, a state GitHub works out on the second read, the update call
+  const created = new Date(Date.now() - 3600000).toISOString();
+  const repos = {
+    'o/proj': { lock: true, pulls: [pr({ number: 7, created_at: created, mergeable_state: 'unknown' }), pr({ number: 8, created_at: created, head: { ref: 'feature/y', sha: 'f', repo: { full_name: 'o/proj' } } })], reads: {} },
+    'o/quiet': { lock: true, pulls: [pr({ number: 3, created_at: created, mergeable_state: 'clean', head: { ref: 'harness/kit-0.11.0', sha: 'q', repo: { full_name: 'o/quiet' } }, base: { ref: 'main', repo: { full_name: 'o/quiet' } } })], reads: {} },
+    'o/none': { lock: false, pulls: [], reads: {} },
+    'o/control': { lock: false, pulls: [], reads: {} },
+  };
+  for (const [name, r] of Object.entries(repos)) for (const p of r.pulls) { p.base = { ref: 'main', repo: { full_name: name } }; p.head = { ...p.head, repo: { full_name: name } }; }
+  const updates = [];
+  const srv = await new Promise((done) => {
+    const s = createServer((req, res) => {
+      let body = '';
+      req.on('data', (c) => { body += c; });
+      req.on('end', () => {
+        const u = new URL(req.url, 'http://x');
+        const send = (code, data) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(data)); };
+        if (u.pathname === '/installation/repositories') return send(200, { repositories: Object.keys(repos).map((full_name) => ({ full_name, archived: false })) });
+        const m = u.pathname.match(/^\/repos\/([^/]+\/[^/]+)(.*)$/);
+        const r = m && repos[m[1]];
+        if (!r) return send(404, {});
+        const rest = m[2];
+        if (rest === '/contents/.harness/kit.lock.json') return r.lock ? send(200, { content: '' }) : send(404, {});
+        if (rest.startsWith('/contents/')) return send(404, {});
+        if (rest === '/pulls') return send(200, u.searchParams.get('page') === '1' ? r.pulls.map(({ mergeable_state, ...x }) => x) : []);
+        const one = rest.match(/^\/pulls\/(\d+)$/);
+        if (one) {
+          const p = r.pulls.find((x) => String(x.number) === one[1]);
+          r.reads[one[1]] = (r.reads[one[1]] || 0) + 1;
+          // GitHub answers unknown until it has worked the state out
+          return send(200, { ...p, mergeable_state: p.mergeable_state === 'unknown' && r.reads[one[1]] > 1 ? 'behind' : p.mergeable_state });
+        }
+        const up = rest.match(/^\/pulls\/(\d+)\/update-branch$/);
+        if (up && req.method === 'PUT') { updates.push({ repo: m[1], n: up[1], body: JSON.parse(body) }); return send(202, { message: 'Updating pull request branch.' }); }
+        return send(404, {});
+      });
+    });
+    s.listen(0, '127.0.0.1', () => done(s));
+  });
+  const k = await run(srv, ['keep'], { SLUG: 'hands', HANDS_KEEP_RETRY_MS: '10', GITHUB_REPOSITORY: 'o/control' });
+  const res = JSON.parse(k.stdout || '{}');
+  ok(k.code === 0 && updates.length === 1 && updates[0].repo === 'o/proj' && updates[0].n === '7' && updates[0].body.expected_head_sha === 'abc', `keep updates the one behind kit PR, pinned to the head it saw (${JSON.stringify(updates)})`);
+  ok(res.watched === 2 && res.updated === 1 && /o\/proj: applied update-branch to #7 \(harness\/kit-0\.11\.0\): it was behind main/.test(k.stderr) && /o\/quiet: #3 .* is current; nothing to do/.test(k.stderr) && !/#8/.test(k.stderr),
+    'the update is logged as a write (the hands log records it); a current PR is watched; other PRs are not touched');
+  repos['o/proj'].pulls = []; repos['o/quiet'].pulls = [];
+  const idle = await run(srv, ['keep'], { SLUG: 'hands' });
+  ok(idle.code === 0 && JSON.parse(idle.stdout).watched === 0 && /0 open kit update PR\(s\) watched/.test(idle.stderr), 'with no kit PR open keep watches none (the workflow then turns itself off)');
+  repos['o/proj'].pulls = [pr({ number: 9, created_at: created })]; repos['o/proj'].pulls[0].base.repo.full_name = 'o/proj'; repos['o/proj'].pulls[0].head.repo.full_name = 'o/proj';
+  srv.removeAllListeners('request');
+  srv.on('request', (req, res) => { res.writeHead(req.url.includes('update-branch') ? 422 : 200, { 'content-type': 'application/json' });
+    const u = new URL(req.url, 'http://x');
+    if (u.pathname === '/installation/repositories') return res.end(JSON.stringify({ repositories: [{ full_name: 'o/proj', archived: false }] }));
+    if (u.pathname.endsWith('/kit.lock.json')) return res.end('{}');
+    if (u.pathname.endsWith('/pulls')) return res.end(JSON.stringify(u.searchParams.get('page') === '1' ? repos['o/proj'].pulls : []));
+    if (u.pathname.endsWith('/pulls/9')) return res.end(JSON.stringify(repos['o/proj'].pulls[0]));
+    res.end(JSON.stringify({ message: 'expected head sha didn\'t match current head ref' })); });
+  const fail = await run(srv, ['keep'], { SLUG: 'hands' });
+  ok(fail.code === 1 && JSON.parse(fail.stdout).watched >= 1 && /o\/proj: FAIL o\/proj: #9 is behind main, but update-branch answered 422/.test(fail.stderr), 'a refused update fails the run (an alert) and keeps the workflow on');
+  srv.close();
+}
+
+// the keep workflow: on only while a kit PR is open, off by itself, and the update run turns it on
+{
+  const hk = parseYaml(files['hands-keep.yml']);
+  ok(hk.on.schedule.length === 1 && /^\d+ \* \* \* \*$/.test(hk.on.schedule[0].cron) && hk.on.workflow_dispatch !== undefined && /75/.test(files['hands-keep.yml']), 'hands-keep is at most hourly, runs on dispatch, and names its estimate');
+  ok(hk.jobs.keep.permissions.actions === 'write' && /needs\.keep\.outputs\.wrote == '1'/.test(hk.jobs.report.if) && /needs\.keep\.outputs\.idle == '1'/.test(hk.jobs.report.if) && /needs\.keep\.result == 'failure'/.test(hk.jobs.report.if),
+    'a quiet run starts no report job; a write, a failure or turning off does');
+  const step = hk.jobs.keep.steps.find((x) => x.id === 'keep');
+  const dir = mkdtempSync(join(tmpdir(), 'hands-keep-'));
+  mkdirSync(join(dir, 'kit/.harness/tools'), { recursive: true }); mkdirSync(join(dir, 'bin'));
+  writeFileSync(join(dir, 'bin/gh'), '#!/bin/sh\necho "$GH_TOKEN $*" >> "$GH_LOG"\n', { mode: 0o755 });
+  writeFileSync(join(dir, 'step.sh'), step.run);
+  const keepRun = (stdout, code) => {
+    writeFileSync(join(dir, 'kit/.harness/tools/hands.mjs'), `console.log(${JSON.stringify(stdout)}); console.error('hands: o/r: applied update-branch to #1'); process.exit(${code});\n`);
+    for (const f of ['out', 'gh.log', 'sum']) writeFileSync(join(dir, f), '');
+    const r = spawnSync('bash', ['-e', join(dir, 'step.sh')], { cwd: dir, encoding: 'utf8', env: { ...process.env, PATH: `${join(dir, 'bin')}:${process.env.PATH}`, GH_LOG: join(dir, 'gh.log'), GITHUB_OUTPUT: join(dir, 'out'), GITHUB_STEP_SUMMARY: join(dir, 'sum'), RUNNER_TEMP: dir, GITHUB_REPOSITORY: 'o/control', GH_TOKEN: 'app', ACTIONS_TOKEN: 'own' } });
+    return { code: r.status, out: readFileSync(join(dir, 'out'), 'utf8'), gh: readFileSync(join(dir, 'gh.log'), 'utf8'), log: readFileSync(join(dir, 'log.txt'), 'utf8') };
+  };
+  let r = keepRun('{"watched":0,"updated":0}', 0);
+  ok(r.code === 0 && /idle=1/.test(r.out) && /^own api -X PUT repos\/o\/control\/actions\/workflows\/hands-keep\.yml\/disable$/m.test(r.gh), 'no kit PR open: the workflow turns itself off with this repository\'s own token');
+  r = keepRun('{"watched":1,"updated":1}', 0);
+  ok(r.code === 0 && /wrote=1/.test(r.out) && !/idle/.test(r.out) && r.gh === '' && /applied update-branch/.test(r.log), 'a PR still open keeps it on; an update is a write for the log');
+  r = keepRun('{"watched":1,"updated":1}', 1);
+  ok(r.code === 1 && /wrote=1/.test(r.out) && !/idle/.test(r.out) && r.gh === '' && /applied update-branch/.test(r.log), 'a failed run still hands on its writes and log, fails the job, and never turns the workflow off');
+  r = keepRun('not json', 1);
+  ok(r.code === 1 && r.gh === '', 'unreadable output is a failure that keeps the workflow on');
+  rmSync(dir, { recursive: true, force: true });
+  const hu = parseYaml(files['hands-update.yml']).jobs.update;
+  const on = hu.steps.find((x) => /hands-keep/.test(x.name || ''));
+  ok(on && on.if === "steps.open.outputs.pr != ''" && /hands-keep\.yml\/enable/.test(on.run) && /hands-keep\.yml\/dispatches/.test(on.run) && on.env.GH_TOKEN === '${{ github.token }}' && hu.permissions.actions === 'write',
+    'hands-update turns hands-keep on and runs it once whenever a kit PR is open, with this repository\'s own token');
+  ok((files['hands-update.yml'].match(/echo "pr=/g) || []).length === 2, 'both paths that leave a PR open (opened now, or found open) say so');
 }
 
 console.log(`test-hands: OK · ${n} checks`);
