@@ -38,3 +38,5 @@ jobs:
         run: node tools/test-inbox.mjs
       - name: Alerts (the notification standard)
         run: node tools/test-notify.mjs
+      - name: Stale-work check and the kit workflows' runner lane
+        run: node tools/test-stale.mjs

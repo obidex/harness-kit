@@ -10,6 +10,9 @@
 //                                                           the live settings are read back and must match
 //   node .harness/tools/hands.mjs export --repo owner/name  the live settings as a settings file (to enroll)
 //   node .harness/tools/hands.mjs control-check [root]      the control repository's workflows keep the App key on main
+//   node .harness/tools/hands.mjs pr-lines [profile.json]   the project's standing lines for kit update PR bodies
+//                                                           (profile kit_updates.pr_body_lines), one per line;
+//                                                           a line that fails the pattern is dropped with a warning
 //
 // Only the control repository's reviewed workflows on its main branch run discover, plan and apply,
 // with a token minted from the App for that job alone (GH_TOKEN). A project changes its settings by
@@ -226,6 +229,28 @@ async function discover() {
   return out;
 }
 
+// --- kit update PR body lines (profile kit_updates.pr_body_lines) ----------------------------------
+// Plain text only, so a profile line can add no markdown, HTML or second line to the PR body; the
+// same pattern as profile.schema.json.
+export const PR_LINE = /^[A-Za-z0-9.,:;#()/_'-][A-Za-z0-9 .,:;#()/_'-]*$/;
+export const PR_LINE_MAX = 200;
+
+/** The valid standing lines of a parsed profile, and the dropped ones with why. */
+export function prBodyLines(profile) {
+  const raw = profile?.kit_updates?.pr_body_lines;
+  const lines = [], dropped = [];
+  if (raw === undefined) return { lines, dropped };
+  if (!Array.isArray(raw)) return { lines, dropped: [{ line: raw, why: 'kit_updates.pr_body_lines is not a list' }] };
+  for (const l of raw.slice(0, 10)) {
+    if (typeof l !== 'string') dropped.push({ line: l, why: 'not a string' });
+    else if (l.length > PR_LINE_MAX) dropped.push({ line: l, why: `longer than ${PR_LINE_MAX} characters` });
+    else if (!PR_LINE.test(l)) dropped.push({ line: l, why: 'characters outside the allowed set (letters, digits, space and . , : ; # ( ) / _ \' -), or a leading space' });
+    else lines.push(l);
+  }
+  if (raw.length > 10) dropped.push({ line: `${raw.length - 10} more`, why: 'at most 10 lines' });
+  return { lines, dropped };
+}
+
 // --- commands -------------------------------------------------------------------------------------
 const argv = process.argv.slice(2);
 const opt = (n) => { const i = argv.indexOf(n); return i >= 0 ? argv[i + 1] : undefined; };
@@ -243,6 +268,16 @@ async function main() {
     for (const e of errors) console.log(`hands: FAIL ${e}`);
     if (errors.length) process.exit(1);
     console.log(`hands: ${SETTINGS_PATH} is valid (${(settings.rulesets || []).length} rulesets, ${(settings.labels || []).length} labels)`);
+    return;
+  }
+  if (cmd === 'pr-lines') {
+    const file = resolve(argv[1] || '.harness/profile.json');
+    if (!existsSync(file)) return; // no profile: no lines
+    let profile;
+    try { profile = JSON.parse(readFileSync(file, 'utf8')); } catch (e) { console.error(`hands: warning: ${file} is not JSON (${e.message}); no PR body lines`); return; }
+    const { lines, dropped } = prBodyLines(profile);
+    for (const d of dropped) note(`hands: warning: dropped a kit_updates.pr_body_lines entry (${d.why}): ${JSON.stringify(String(d.line)).slice(0, 80)}`);
+    if (lines.length) console.log(lines.join('\n'));
     return;
   }
   if (cmd === 'control-check') {
@@ -312,7 +347,7 @@ async function main() {
     }
     return;
   }
-  throw new Error('usage: hands.mjs validate|discover|drift|plan|apply|export  (see the header of this file)');
+  throw new Error('usage: hands.mjs validate|discover|drift|plan|apply|export|control-check|pr-lines  (see the header of this file)');
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {

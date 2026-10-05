@@ -322,4 +322,36 @@ turned on.
    tick across repositories exists but is off until the owner turns it on (O13).
 5. **Quiet escalation waits.** An escalation due in quiet hours is posted at 08:00, so it is heard.
 
+## K011 · 2026-10-05 · STANDING — owner rules for every project; a self-hosted lane; the stale-work check
+
+**Source:** the owner's message in the project chat on 2026-10-05, verbatim fragment: "Bring in the
+owner rules it lacks: models per task (Sonnet for bounded work, Opus for hard decisions and risky
+review), the real-check rule, turn-ending, the stale-work check, Telegram alerts within caps, no
+Claude attribution (with the scrubber), the resource rule, the inbox. Keep the website's existing
+CI; propose the laptop lane only where measurements show a real benefit."
+
+1. **A self-hosted lane for every kit-installed workflow.** Each `harness-*` job runs on
+   `${{ vars.RUNNER || 'ubuntu-latest' }}`, the convention the projects' own CI already uses. The
+   measured benefit: a busy private project gets about 700 issue and PR comments a month, so
+   `harness-scrub` alone would add about 900 GitHub-hosted minutes a month on `ubuntu-latest`, while
+   that project's CI already runs on its self-hosted runner. With `RUNNER` set, the kit's jobs use
+   no hosted minutes; without it, nothing changes. Privileged jobs check out only the default
+   branch's `.harness/tools` with `persist-credentials: false`; `harness-audit`, which runs a PR's
+   code, sends a fork's PR to `ubuntu-latest`. A project's existing CI is not touched.
+2. **The stale-work check runs per project, on that lane** (`harness-stale.yml`, `stale.mjs`, C15),
+   not as one hosted job in the control repository: the project's runner is unmetered, the job needs
+   only the project's own `GITHUB_TOKEN`, and the list belongs next to the work. Once a day it
+   lists idle PRs (green-unmerged, red, conflicted, draft; bot PRs too), inbox requests left queued
+   or working, and `card` or `risk:*` issues, in one tracking issue updated in place and closed when
+   empty (RJ02).
+3. **Telegram within caps (O10).** An alert only for items not announced before, at most one a day
+   per repository, at most 10 items listed, silent when the secrets are absent, never for success or
+   an empty list. A capped alert keeps its new items for the next day; a failed alert fails the run.
+4. **Kit update PRs carry a project's standing authorization lines** (`kit_updates.pr_body_lines` in
+   the profile), validated against a plain-text pattern, so a project's guard on `.github/**` or
+   `.claude/**` PRs does not block every unattended update. The project records the decision that
+   grants the line.
+5. **Order of adoption.** H3 is the kit pilot on the public website (WEB); the web app (ERP) adopts
+   the kit after its verification, as H4.
+
 **Status:** STANDING.

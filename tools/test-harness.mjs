@@ -61,7 +61,7 @@ let r = boot(['init', '--version', v1, '--preset', 'web-app']);
 ok(r.status === 0, `init ${v1}: ${(r.stdout + r.stderr).trim().split('\n')[0]}`);
 const lock1 = JSON.parse(readFileSync(join(proj, '.harness/kit.lock.json'), 'utf8'));
 ok(lock1.version === v1 && lock1.commit === git(kitRepo, 'rev-parse', `v${v1}`), 'the lock records the version and the commit its tag points to');
-ok(['audit', 'scrub'].every((w) => existsSync(join(proj, `.github/workflows/harness-${w}.yml`))), 'workflows installed from templates');
+ok(['audit', 'scrub', 'inbox', 'stale'].every((w) => existsSync(join(proj, `.github/workflows/harness-${w}.yml`))), 'workflows installed from templates');
 ok(!existsSync(join(proj, '.harness/templates')), 'templates are not copied into the project');
 ok(['.harness/tools/notify.mjs', '.harness/alerts.md'].every((f) => f in lock1.files) && /O10 Alerts\.\*\* One bot, one Telegram group/.test(readFileSync(join(proj, '.harness/owner-defaults.md'), 'utf8')), 'the alert standard is installed: notify.mjs, alerts.md and O10 in the loaded owner defaults');
 ok(existsSync(join(proj, '.claude/skills/correct/SKILL.md')) && '.claude/skills/correct/SKILL.md' in lock1.files, 'kit skills installed into .claude/skills and listed in the lock');

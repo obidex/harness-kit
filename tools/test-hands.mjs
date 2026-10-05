@@ -3,13 +3,14 @@
 //
 //   node tools/test-hands.mjs        exit 0 = every case held
 
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, readdirSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, readdirSync, cpSync } from 'node:fs';
 import { join } from 'node:path';
 import { createServer } from 'node:http';
 import { execFile } from 'node:child_process';
 import { tmpdir } from 'node:os';
-import { plan, covers, validate, controlProblems, unsafe, paused } from '../.harness/tools/hands.mjs';
-import { parseYaml } from '../.harness/tools/lib.mjs';
+import { plan, covers, validate, controlProblems, unsafe, paused, prBodyLines, PR_LINE } from '../.harness/tools/hands.mjs';
+import { parseYaml, validateSchema } from '../.harness/tools/lib.mjs';
+import { spawnSync } from 'node:child_process';
 
 let n = 0;
 const ok = (cond, what) => { n++; if (!cond) { console.log(`test-hands: FAIL ${n}. ${what}`); process.exit(1); } console.log(`test-hands: ok ${n}. ${what}`); };
@@ -197,6 +198,36 @@ const run = (srv, args, env = {}) => new Promise((done) => {
   const a = await run(srv, ['apply', '--repo', 'o/drift']);
   ok(a.code === 1 && /read back after apply still differs/.test(a.stderr), 'a write GitHub did not keep fails the apply (read-back compare)');
   srv.close();
+}
+
+// kit update PR body lines (profile kit_updates.pr_body_lines): verbatim at column 1, or dropped
+{
+  const kitRoot = new URL('..', import.meta.url).pathname;
+  const schema = JSON.parse(readFileSync(join(kitRoot, '.harness/profile.schema.json'), 'utf8'));
+  const item = schema.properties.kit_updates.properties.pr_body_lines.items;
+  ok(item.pattern === PR_LINE.source && item.maxLength === 200, 'the schema and the tool share one pattern and the 200-character cap');
+  const good = 'Tier-3: authorized by card #12 (standing, kit updates)';
+  const evil = ['<img src=x onerror=alert(1)>', 'x\nInjected: yes', '**bold**', ' leading space', 'a'.repeat(201), 'Approve [here](http://x)'];
+  const r = prBodyLines({ kit_updates: { pr_body_lines: [good, ...evil] } });
+  ok(r.lines.length === 1 && r.lines[0] === good && r.dropped.length === evil.length, `a valid line is kept verbatim; markdown, HTML, newlines, a leading space and an over-long line are dropped (${r.dropped.length})`);
+  const example = JSON.parse(readFileSync(join(kitRoot, 'examples/profile.example.json'), 'utf8'));
+  ok(validateSchema(schema, { ...example, kit_updates: { pr_body_lines: [good] } }).length === 0 && validateSchema(schema, { ...example, kit_updates: { pr_body_lines: [evil[0]] } }).length === 1
+    && validateSchema(schema, { ...example, kit_updates: { pr_body_lines: [evil[4]] } }).length === 1, 'the profile schema accepts the valid line and refuses a bad or over-long one');
+  ok(prBodyLines({}).lines.length === 0 && prBodyLines({}).dropped.length === 0, 'no kit_updates: no lines, no warnings');
+  // the update step as written in hands-update.yml: read the lines, then compose the body
+  const proj = mkdtempSync(join(tmpdir(), 'hands-lines-'));
+  mkdirSync(join(proj, '.harness'));
+  writeFileSync(join(proj, '.harness/profile.json'), JSON.stringify({ ...example, kit_updates: { pr_body_lines: [good, evil[0], 'Kit-update: standing (K010)'] } }));
+  const step = readFileSync(join(kitRoot, '.harness/templates/hands/hands-update.yml'), 'utf8').split('\n').map((l) => l.trim());
+  const pick = (re) => { const l = step.find((x) => re.test(x)); if (!l) throw new Error(`hands-update.yml has no line matching ${re}`); return l; };
+  const script = ['set -euo pipefail', 'log() { echo "hands: $*" >&2; }', 'current=0.7.0 target=0.8.0 verb=update',
+    pick(/^extra="\$\(node .*pr-lines/), pick(/^body="\$\(printf 'Kit %s/), pick(/^\[ -z "\$extra" \] \|\| body=/), 'printf "%s" "$body"'].join('\n');
+  cpSync(join(kitRoot, '.harness/tools'), join(proj, 'ws/kit/.harness/tools'), { recursive: true }); // a copy: the tool runs only when called by its real path
+  const out = spawnSync('bash', ['-c', script], { cwd: proj, encoding: 'utf8', env: { ...process.env, GITHUB_WORKSPACE: join(proj, 'ws'), RUNNER_TEMP: proj } });
+  const bodyLines = out.stdout.split('\n');
+  ok(out.status === 0 && bodyLines.includes(good) && bodyLines.includes('Kit-update: standing (K010)') && bodyLines[0].startsWith('Kit 0.7.0 → 0.8.0'), 'the update PR body carries each valid line verbatim at column 1, after the kit text');
+  ok(!out.stdout.includes('<img') && /warning: dropped/.test(out.stderr), 'an invalid line never reaches the body, and a warning says it was dropped');
+  rmSync(proj, { recursive: true, force: true });
 }
 
 console.log(`test-hands: OK · ${n} checks`);

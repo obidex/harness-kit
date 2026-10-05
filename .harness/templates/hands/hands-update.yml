@@ -2,7 +2,8 @@
 # Weekly, or on dispatch, moves every enrolled project's pinned kit (and this repository's own
 # HANDS_KIT_VERSION) to the newest release, or to the version given (a rollback), through a PR the
 # hands App opens and sets to auto-merge; the project's required checks decide. Replaces the
-# per-project harness-update workflow and its token (K007).
+# per-project harness-update workflow and its token (K007). A project whose CI requires a body line
+# on such PRs names it in its profile (kit_updates.pr_body_lines); the PR body carries it verbatim.
 name: hands-update
 
 on:
@@ -123,6 +124,9 @@ jobs:
           [ -n "$HARNESS_KIT_REPO" ] || unset HARNESS_KIT_REPO
           log() { echo "hands: $REPO: $*" | tee -a "$RUNNER_TEMP/log.txt"; }
           kit=0; [ -f .harness/kit.lock.json ] && kit=1
+          # standing authorization lines the project's own PR guards expect (profile kit_updates.pr_body_lines),
+          # read from its default branch before anything changes; a line that fails the pattern is dropped
+          extra="$(node "$GITHUB_WORKSPACE/kit/.harness/tools/hands.mjs" pr-lines .harness/profile.json)" || { log "warning: the pinned kit cannot read PR body lines (older than 0.8.0?)"; extra=""; }
           if [ "$kit" = 1 ]; then current="$(tr -d '[:space:]' < .harness/VERSION)"; else current="$(tr -d '[:space:]' < HANDS_KIT_VERSION)"; fi
           if [ -n "$WANT" ]; then
             printf '%s' "$WANT" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || { echo "FAIL: version '$WANT' is not X.Y.Z"; exit 1; }
@@ -151,6 +155,7 @@ jobs:
           git commit -q -m "chore(harness): $verb kit $current to $target"
           git push -q --force origin "$branch"   # harness/* branches belong to this workflow
           body="$(printf 'Kit %s → %s (%s), opened by hands-update.\n\nOnly kit-managed files change; project-owned files are untouched.\n\nRoll back: run hands-update with version %s.' "$current" "$target" "$verb" "$current")"
+          [ -z "$extra" ] || body="$(printf '%s\n\n%s' "$body" "$extra")"
           url="$(gh pr create --repo "$REPO" --head "$branch" --title "chore(harness): $verb kit $current to $target" --body "$body")"
           gh pr merge "$url" --auto --squash
           log "opened $url ($verb kit $current to $target) with auto-merge on"
