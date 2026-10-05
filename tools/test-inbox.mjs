@@ -1,0 +1,96 @@
+#!/usr/bin/env node
+// test-inbox — cross-project requests (O14, K009), offline against a stand-in GitHub API and routine.
+//
+//   node tools/test-inbox.mjs        exit 0 = every case held
+
+import { createServer } from 'node:http';
+import { execFile } from 'node:child_process';
+import { join } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { body, parse, setField } from '../.harness/tools/inbox.mjs';
+import { parseYaml } from '../.harness/tools/lib.mjs';
+
+let n = 0;
+const ok = (cond, what) => { n++; if (!cond) { console.log(`test-inbox: FAIL ${n}. ${what}`); process.exit(1); } console.log(`test-inbox: ok ${n}. ${what}`); };
+
+const req = { id: 'kit/proof-1', source: 'https://example.test/msg/1', outcome: 'Add one line to README', coordinator: 'sandbox coordinator', coveredBy: 'owner decision K009' };
+const b = body(req);
+ok(parse(b).id === 'kit/proof-1' && parse(b).State === 'queued' && parse(b)['Covered by'] === 'owner decision K009', 'a new request body parses back to its fields, queued');
+ok(parse(setField(b, 'State', 'done')).State === 'done' && parse('no marker') === null, 'one field changes alone; a body without the marker is not a request');
+let threw = 0;
+try { body({ ...req, coveredBy: ' ' }); } catch { threw++; }
+try { body({ ...req, id: 'bad id!' }); } catch { threw++; }
+ok(threw === 2, 'a request needs a cover and a clean stable id');
+
+// stand-in GitHub (issues) and routine (/fire)
+const issues = [];
+let lag = false;
+const fires = [];
+const srv = createServer((q, res) => {
+  let data = '';
+  q.on('data', (c) => { data += c; });
+  q.on('end', () => {
+    const u = new URL(q.url, 'http://x');
+    const send = (code, j) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(j)); };
+    if (u.pathname.endsWith('/fire')) { fires.push({ auth: q.headers.authorization, body: JSON.parse(data) }); return send(200, { type: 'routine_fire' }); }
+    if (u.pathname === '/repos/o/r/issues' && q.method === 'GET') {
+      // like GitHub, the label listing lags a new issue: with lag on, it misses it on the next four listings
+      const seen = issues.filter((i) => i.labels.some((l) => l.name === u.searchParams.get('labels')) && !(i.hidden-- > 0));
+      return send(200, u.searchParams.get('page') === '1' ? seen : []);
+    }
+    if (u.pathname === '/repos/o/r/issues' && q.method === 'POST') { const j = JSON.parse(data); const i = { hidden: lag ? 4 : 0, number: issues.length + 1, state: 'open', html_url: `https://gh.test/o/r/issues/${issues.length + 1}`, body: j.body, labels: j.labels.map((name) => ({ name })), comments: [] }; issues.push(i); return send(201, i); }
+    const m = u.pathname.match(/^\/repos\/o\/r\/issues\/(\d+)(\/comments)?$/);
+    const i = m && issues[Number(m[1]) - 1];
+    if (!i) return send(404, {});
+    if (m[2]) { i.comments.push(JSON.parse(data).body); return send(201, {}); }
+    if (q.method === 'PATCH') { Object.assign(i, JSON.parse(data)); return send(200, i); }
+    return send(200, i);
+  });
+});
+await new Promise((d) => srv.listen(0, '127.0.0.1', d));
+const base = `http://127.0.0.1:${srv.address().port}`;
+const tool = join(new URL('..', import.meta.url).pathname, '.harness/tools/inbox.mjs');
+const run = (args, env = {}) => new Promise((d) => execFile(process.execPath, [tool, ...args], { env: { ...process.env, GITHUB_API_URL: base, GH_TOKEN: 't', INBOX_FIRE_BASE: base, INBOX_RECHECK_MS: '0', INBOX_ROUTINE_URL: '', INBOX_ROUTINE_TOKEN: '', ...env } }, (e, stdout, stderr) => d({ code: e ? e.code : 0, out: stdout + stderr })));
+const send = ['send', '--repo', 'o/r', '--id', req.id, '--title', 'Proof', '--outcome', req.outcome, '--source', req.source, '--coordinator', req.coordinator, '--covered-by', req.coveredBy];
+const wired = { INBOX_ROUTINE_URL: `${base}/v1/claude_code/routines/trig_01ABC/fire`, INBOX_ROUTINE_TOKEN: 'sk-test' };
+
+const s1 = await run(send);
+ok(s1.code === 0 && /filed kit\/proof-1/.test(s1.out) && issues.length === 1 && issues[0].labels[0].name === 'inbox', 'send files one issue labelled inbox');
+const s2 = await run(send);
+ok(s2.code === 0 && /already/.test(s2.out) && issues.length === 1, 'sending the same id again files nothing (a redelivery makes no duplicate)');
+ok(JSON.parse((await run(['pending', '--repo', 'o/r'])).out)[0].id === 'kit/proof-1', 'pending lists the queued request');
+{
+  // two quick sends while GitHub's listing lags: the second files, sees the first, closes itself
+  lag = true;
+  const raced = ['send', '--repo', 'o/r', '--id', 'kit/race', '--title', 'Race', '--outcome', 'x', '--source', 's', '--coordinator', 'c', '--covered-by', 'K009'];
+  const a = await run(raced), b2 = await run(raced);
+  lag = false;
+  const copies = issues.filter((i) => parse(i.body).id === 'kit/race');
+  ok(/filed/.test(a.out) && /closed as its duplicate/.test(b2.out) && copies.length === 2 && copies[1].state === 'closed' && copies[1].state_reason === 'duplicate', 'a send racing GitHub\'s listing lag closes its own copy as a duplicate');
+  const pend = JSON.parse((await run(['pending', '--repo', 'o/r'])).out).filter((x) => x.id === 'kit/race');
+  ok(pend.length === 1 && pend[0].number === copies[0].number, 'only the first issue for an id is ever pending');
+  issues.splice(issues.indexOf(copies[0]), 1, { ...copies[0], labels: [] }); // keep the rest of the test about kit/proof-1
+}
+
+const unwired = await run(['wake', '--repo', 'o/r', '--issue', '1']);
+ok(unwired.code === 1 && /not wired/.test(unwired.out) && fires.length === 0, 'a queued request with no routine secrets fails loudly');
+const w1 = await run(['wake', '--repo', 'o/r', '--issue', '1'], wired);
+ok(w1.code === 0 && fires.length === 1 && fires[0].auth === 'Bearer sk-test' && /kit\/proof-1 is queued/.test(fires[0].body.text), 'wake fires the routine once, with the issue in the fire text');
+const bad = await run(['wake', '--repo', 'o/r', '--issue', '1'], { ...wired, INBOX_ROUTINE_URL: 'https://evil.test/fire' });
+ok(bad.code === 1 && fires.length === 1, 'wake refuses a URL that is not a routine fire endpoint (the token goes nowhere else)');
+
+ok((await run(['state', '--repo', 'o/r', '--issue', '1', '--to', 'done'])).code === 1, 'done without evidence is refused');
+ok((await run(['state', '--repo', 'o/r', '--issue', '1', '--to', 'working'])).code === 0 && parse(issues[0].body).State === 'working', 'the coordinator marks it working');
+const w2 = await run(['wake', '--repo', 'o/r', '--issue', '1'], wired);
+ok(w2.code === 0 && /nobody woken/.test(w2.out) && fires.length === 1, 'a request already picked up never wakes the AI again');
+const d = await run(['state', '--repo', 'o/r', '--issue', '1', '--to', 'done', '--note', 'PR #9 merged, ci green']);
+ok(d.code === 0 && issues[0].state === 'closed' && parse(issues[0].body).Evidence === 'PR #9 merged, ci green' && issues[0].comments.at(-1).includes('PR #9'), 'done records the evidence on the issue and closes it');
+ok(JSON.parse((await run(['pending', '--repo', 'o/r'])).out).length === 0 && /already .*closed, done/.test((await run(send)).out), 'after done nothing is pending, and a resend points at the finished issue');
+srv.close();
+
+// the installed workflow: one short job, only for the inbox label, never with write access
+const wf = parseYaml(readFileSync(join(new URL('..', import.meta.url).pathname, '.harness/templates/workflows/harness-inbox.yml'), 'utf8'));
+ok(Object.keys(wf.on.issues ? wf.on : {}).join() === 'issues' && String(wf.on.issues.types).replace(/[\[\] ]/g, '') === 'labeled,reopened', 'harness-inbox runs only on an issue labelled or reopened');
+ok(/label\.name == 'inbox'/.test(wf.jobs.wake.if) && wf.jobs.wake['timeout-minutes'] <= 3 && !Object.values(wf.jobs.wake.permissions).includes('write'), 'its one job runs only for the inbox label, is short, and cannot write');
+
+console.log(`test-inbox: OK · ${n} checks`);

@@ -34,3 +34,5 @@ jobs:
         run: node tools/test-scrub.mjs
       - name: Settings as code and the hands workflows
         run: node tools/test-hands.mjs
+      - name: Inbox (cross-project requests)
+        run: node tools/test-inbox.mjs

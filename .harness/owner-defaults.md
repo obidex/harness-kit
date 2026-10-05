@@ -43,3 +43,8 @@
   what and an estimate (e.g. "about 30 min/month"). Schedules run no more often than the work needs;
   an event or a cheap daily check beats an hourly poll; a public repo's or a self-hosted runner's
   minutes are not metered, but say which.
+- **O14 Cross-project requests go through the inbox.** Work for another project is an issue
+  labelled `inbox` in the repository that does it, filed with a stable ID, the source link, the
+  outcome, the responsible coordinator and the owner decision or standing delegation that covers it
+  (`inbox` skill). It proceeds only if that cover is verified and its scope holds; citing a decision
+  never expands it. State, replies and completion evidence stay on that issue.

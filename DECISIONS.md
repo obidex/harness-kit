@@ -272,3 +272,29 @@ every project inherits it."
 
 **Status:** STANDING.
 
+## K009 · 2026-10-05 · STANDING — the inbox for cross-project requests
+
+**Source:** the owner's message in the project chat on 2026-10-05 (item 4), verbatim: "INBOX: a
+cross-project request is an issue labelled `inbox` in the repo that does the work, with the source
+link and a stable ID (no duplicates), the requested outcome, the responsible coordinator, the
+covering owner decision or delegation, a state (queued / working / blocked / done) and completion
+evidence. Replies and progress stay on that issue; the sender reads the result there. A request
+proceeds only if an existing, verified owner decision or standing delegation covers its scope;
+citing a decision never expands it. Prove pickup without the owner: an idle receiving coordinator is
+woken through supported tooling (scripts detect pending work, the AI runs only when there is some),
+does the work, posts evidence, and the sender sees it done; a redelivered request creates no
+duplicate. Then put the inbox rules and pickup wiring into the installer so new projects inherit
+them."
+
+1. **The issue is the record.** Fields live in the body, edited only by `inbox.mjs`; the hidden
+   `inbox-id` marker makes `send` idempotent.
+2. **Pickup is event-driven.** GitHub's `issues: labeled` starts one short job; it fires the
+   receiving coordinator's routine through the routine's API trigger only for a queued request.
+   Routines' own GitHub triggers cover pull requests and releases, not issues, hence the job.
+3. **The token is the owner's.** A routine's API token is created only in claude.ai by the owner and
+   lives as the repository's Actions secrets; the job sends it only to a routine fire URL.
+4. **Verified cover.** The receiving coordinator opens the cited decision and checks the outcome
+   is inside its words before any work; otherwise the request is `blocked` and goes to the batch.
+
+**Status:** STANDING.
+

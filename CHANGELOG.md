@@ -3,6 +3,20 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.7.0 · 2026-10-05 · the inbox: cross-project requests as issues, picked up without the owner
+
+- Owner default O14 and the `inbox` skill: work for another project is an issue labelled `inbox` in
+  the repository that does it, with a stable ID, source, outcome, responsible coordinator, the
+  covering owner decision or delegation, a state and completion evidence. It proceeds only on a
+  verified cover; citing a decision never expands it (K009).
+- `.harness/tools/inbox.mjs` (`send`, `pending`, `state`, `wake`): a resend with the same ID files
+  nothing; `done` needs evidence and closes the issue.
+- Installed workflow `harness-inbox.yml`: when an issue gets the `inbox` label or is reopened, one
+  short job wakes the receiving coordinator's routine, only if that issue is a queued request, so the
+  AI runs only when there is work and never twice for one request. Setup and cost: `.harness/inbox.md`.
+- Audit O13 (a schedule more often than daily names its minute estimate) and O14 (inbox installed
+  and the label declared).
+
 ## 0.6.0 · 2026-10-05 · settings applied on change, not hourly; metered resources need notice
 
 - `hands-settings` no longer runs hourly with a job per repository. It runs on a dispatch right
