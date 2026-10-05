@@ -24,6 +24,7 @@ ok(threw === 2, 'a request needs a cover and a clean stable id');
 
 // stand-in GitHub (issues) and routine (/fire)
 const issues = [];
+let lag = false;
 const fires = [];
 const srv = createServer((q, res) => {
   let data = '';
@@ -32,8 +33,12 @@ const srv = createServer((q, res) => {
     const u = new URL(q.url, 'http://x');
     const send = (code, j) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(j)); };
     if (u.pathname.endsWith('/fire')) { fires.push({ auth: q.headers.authorization, body: JSON.parse(data) }); return send(200, { type: 'routine_fire' }); }
-    if (u.pathname === '/repos/o/r/issues' && q.method === 'GET') return send(200, u.searchParams.get('page') === '1' ? issues.filter((i) => i.labels.some((l) => l.name === u.searchParams.get('labels'))) : []);
-    if (u.pathname === '/repos/o/r/issues' && q.method === 'POST') { const j = JSON.parse(data); const i = { number: issues.length + 1, state: 'open', html_url: `https://gh.test/o/r/issues/${issues.length + 1}`, body: j.body, labels: j.labels.map((name) => ({ name })), comments: [] }; issues.push(i); return send(201, i); }
+    if (u.pathname === '/repos/o/r/issues' && q.method === 'GET') {
+      // like GitHub, the label listing lags a new issue: with lag on, it misses it on the next four listings
+      const seen = issues.filter((i) => i.labels.some((l) => l.name === u.searchParams.get('labels')) && !(i.hidden-- > 0));
+      return send(200, u.searchParams.get('page') === '1' ? seen : []);
+    }
+    if (u.pathname === '/repos/o/r/issues' && q.method === 'POST') { const j = JSON.parse(data); const i = { hidden: lag ? 4 : 0, number: issues.length + 1, state: 'open', html_url: `https://gh.test/o/r/issues/${issues.length + 1}`, body: j.body, labels: j.labels.map((name) => ({ name })), comments: [] }; issues.push(i); return send(201, i); }
     const m = u.pathname.match(/^\/repos\/o\/r\/issues\/(\d+)(\/comments)?$/);
     const i = m && issues[Number(m[1]) - 1];
     if (!i) return send(404, {});
@@ -45,7 +50,7 @@ const srv = createServer((q, res) => {
 await new Promise((d) => srv.listen(0, '127.0.0.1', d));
 const base = `http://127.0.0.1:${srv.address().port}`;
 const tool = join(new URL('..', import.meta.url).pathname, '.harness/tools/inbox.mjs');
-const run = (args, env = {}) => new Promise((d) => execFile(process.execPath, [tool, ...args], { env: { ...process.env, GITHUB_API_URL: base, GH_TOKEN: 't', INBOX_FIRE_BASE: base, INBOX_ROUTINE_URL: '', INBOX_ROUTINE_TOKEN: '', ...env } }, (e, stdout, stderr) => d({ code: e ? e.code : 0, out: stdout + stderr })));
+const run = (args, env = {}) => new Promise((d) => execFile(process.execPath, [tool, ...args], { env: { ...process.env, GITHUB_API_URL: base, GH_TOKEN: 't', INBOX_FIRE_BASE: base, INBOX_RECHECK_MS: '0', INBOX_ROUTINE_URL: '', INBOX_ROUTINE_TOKEN: '', ...env } }, (e, stdout, stderr) => d({ code: e ? e.code : 0, out: stdout + stderr })));
 const send = ['send', '--repo', 'o/r', '--id', req.id, '--title', 'Proof', '--outcome', req.outcome, '--source', req.source, '--coordinator', req.coordinator, '--covered-by', req.coveredBy];
 const wired = { INBOX_ROUTINE_URL: `${base}/v1/claude_code/routines/trig_01ABC/fire`, INBOX_ROUTINE_TOKEN: 'sk-test' };
 
@@ -54,6 +59,18 @@ ok(s1.code === 0 && /filed kit\/proof-1/.test(s1.out) && issues.length === 1 && 
 const s2 = await run(send);
 ok(s2.code === 0 && /already/.test(s2.out) && issues.length === 1, 'sending the same id again files nothing (a redelivery makes no duplicate)');
 ok(JSON.parse((await run(['pending', '--repo', 'o/r'])).out)[0].id === 'kit/proof-1', 'pending lists the queued request');
+{
+  // two quick sends while GitHub's listing lags: the second files, sees the first, closes itself
+  lag = true;
+  const raced = ['send', '--repo', 'o/r', '--id', 'kit/race', '--title', 'Race', '--outcome', 'x', '--source', 's', '--coordinator', 'c', '--covered-by', 'K009'];
+  const a = await run(raced), b2 = await run(raced);
+  lag = false;
+  const copies = issues.filter((i) => parse(i.body).id === 'kit/race');
+  ok(/filed/.test(a.out) && /closed as its duplicate/.test(b2.out) && copies.length === 2 && copies[1].state === 'closed' && copies[1].state_reason === 'duplicate', 'a send racing GitHub\'s listing lag closes its own copy as a duplicate');
+  const pend = JSON.parse((await run(['pending', '--repo', 'o/r'])).out).filter((x) => x.id === 'kit/race');
+  ok(pend.length === 1 && pend[0].number === copies[0].number, 'only the first issue for an id is ever pending');
+  issues.splice(issues.indexOf(copies[0]), 1, { ...copies[0], labels: [] }); // keep the rest of the test about kit/proof-1
+}
 
 const unwired = await run(['wake', '--repo', 'o/r', '--issue', '1']);
 ok(unwired.code === 1 && /not wired/.test(unwired.out) && fires.length === 0, 'a queued request with no routine secrets fails loudly');

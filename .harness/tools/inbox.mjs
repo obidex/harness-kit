@@ -4,7 +4,8 @@
 //   node .harness/tools/inbox.mjs send --repo owner/name --id <stable id> --title <t> --outcome <text>
 //        --source <link> --coordinator <who> --covered-by <owner decision or delegation>
 //                                         file one request in the repository that does the work; the
-//                                         same id twice never makes a second issue (prints the first)
+//                                         same id twice never makes a second open issue (prints the
+//                                         first; a copy filed in a race closes as its duplicate)
 //   node .harness/tools/inbox.mjs pending --repo owner/name     the queued requests (JSON)
 //   node .harness/tools/inbox.mjs state --repo owner/name --issue <n> --to working|blocked|done
 //        [--note <text>]                  move a request; `done` needs --note with the evidence and
@@ -80,7 +81,15 @@ export async function requests(repo) {
   return out;
 }
 
+/** The first issue filed for each ID; later ones for the same ID are duplicates and never count. */
+export function canonical(list) {
+  const first = new Map();
+  for (const r of [...list].sort((a, b) => a.number - b.number)) if (!first.has(r.fields.id)) first.set(r.fields.id, r);
+  return [...first.values()];
+}
+
 const queued = (r) => r.state === 'open' && r.fields.State === 'queued';
+const pause = (ms) => new Promise((d) => setTimeout(d, ms));
 
 // --- commands -------------------------------------------------------------------------------------
 const argv = process.argv.slice(2);
@@ -93,14 +102,27 @@ async function main() {
   if (cmd === 'send') {
     const r = { id: opt('--id'), source: opt('--source'), outcome: opt('--outcome'), coordinator: opt('--coordinator'), coveredBy: opt('--covered-by') };
     const text = body(r); // validates before any read
-    const have = (await requests(repo)).find((x) => x.fields.id === r.id);
+    const have = canonical(await requests(repo)).find((x) => x.fields.id === r.id);
     if (have) { console.log(`inbox: ${r.id} is already ${have.url} (${have.state}, ${have.fields.State}); nothing filed`); return; }
     const i = await api('POST', `/repos/${repo}/issues`, { title: opt('--title') || r.outcome.slice(0, 80), body: text, labels: [LABEL] });
+    // GitHub's label listing lags a new issue by seconds, so two quick sends can both file. Look again
+    // after filing: if an earlier issue carries the same ID, this one closes as its duplicate.
+    for (let t = 0; t < 3; t++) {
+      await pause(Number(process.env.INBOX_RECHECK_MS ?? 3000));
+      const first = canonical(await requests(repo)).find((x) => x.fields.id === r.id);
+      if (first && first.number < i.number) {
+        await api('POST', `/repos/${repo}/issues/${i.number}/comments`, { body: `Duplicate of #${first.number} (same inbox ID ${r.id}).` });
+        await api('PATCH', `/repos/${repo}/issues/${i.number}`, { state: 'closed', state_reason: 'duplicate' });
+        console.log(`inbox: ${r.id} is already ${first.url}; the copy just filed (#${i.number}) is closed as its duplicate`);
+        return;
+      }
+      if (first) break;
+    }
     console.log(`inbox: filed ${r.id} as ${i.html_url}`);
     return;
   }
   if (cmd === 'pending') {
-    console.log(JSON.stringify((await requests(repo)).filter(queued).map((x) => ({ number: x.number, url: x.url, id: x.fields.id, outcome: x.fields.Outcome }))));
+    console.log(JSON.stringify(canonical(await requests(repo)).filter(queued).map((x) => ({ number: x.number, url: x.url, id: x.fields.id, outcome: x.fields.Outcome }))));
     return;
   }
   if (cmd === 'state') {
@@ -119,7 +141,7 @@ async function main() {
   }
   if (cmd === 'wake') {
     const n = Number(opt('--issue'));
-    const mine = (await requests(repo)).find((x) => x.number === n);
+    const mine = canonical(await requests(repo)).find((x) => x.number === n);
     // only a queued request wakes anyone: a request already picked up or done never re-runs the AI
     if (!mine || !queued(mine)) { console.log(`inbox: #${n} is not a queued request; nobody woken`); return; }
     const url = process.env.INBOX_ROUTINE_URL, token = process.env.INBOX_ROUTINE_TOKEN;
