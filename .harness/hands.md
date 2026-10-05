@@ -58,6 +58,7 @@ repositories and K repositories that pin the kit:
 | `hands-report` | control repo | called by the two above | (counted above) | 0 extra |
 | `hands-check` | control repo | each PR push there | 1 | ~1 per PR push |
 | `harness-audit` | each project | PR opened, pushed, reopened or edited; weekly | 1 | ~1 per PR event + 4 |
+| `harness-inbox` | each project | an issue labelled `inbox` or reopened | 1, only for a queued request | ~1 per request |
 | `harness-scrub` | each project | every issue, PR, comment and review posted or edited | 1 | ~1 per event: the largest cost on a busy private repo |
 
 Before 0.6.0, `hands-settings` ran hourly with one job per enrolled repository:
