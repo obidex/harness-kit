@@ -188,6 +188,9 @@ ok(c.code === 0 && /PROBLEM \d+ sent and RESOLVED as a reply/.test(c.out), 'noti
   at('2026-10-09T09:00:00Z');
   const p = await problem(store(`file:${join(dir, 'flat.json')}`), flat, { key: 'flat/x', topic: 'kit', text: 'before setup' });
   ok(p.status === 'sent' && last().message_thread_id === undefined && last().text.startsWith('[Kit & Hands] 🔴 PROBLEM'), 'a chat without the pinned config gets the message unthreaded, its topic named');
+  const before = mark();
+  const d = await cli(['digest', '--stores', `file:${join(dir, 'flat.json')}`]);
+  ok(d.code === 0 && /digest not posted/.test(d.out) && since(before).length === 0, 'no digest goes to a chat that is not the set-up group');
   tgState.pinned = saved;
 }
 // the group id can come from a file (the control repository keeps it there)

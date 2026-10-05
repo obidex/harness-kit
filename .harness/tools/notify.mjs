@@ -325,7 +325,9 @@ async function main(argv) {
     case 'tick': { for (const st of storesOf()) for (const l of await tick(st, tg)) say(`${st.name}: ${l}`); break; }
     case 'digest': {
       const text = await digestText(storesOf());
-      if (flag('--dry-run')) console.log(text); else { await tg.send('daily', text); say('digest posted'); }
+      if (flag('--dry-run')) console.log(text);
+      else if (!Object.keys(await tg.topics()).length) say('no alerts group set up yet (no pinned config): digest not posted');
+      else { await tg.send('daily', text); say('digest posted'); }
       break;
     }
     case 'send': { if (!opt('--topic') || !opt('--text')) throw new Error('--topic and --text are required'); await tg.send(opt('--topic'), opt('--text')); say(`sent to ${opt('--topic')}`); break; }
