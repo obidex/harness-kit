@@ -9,8 +9,9 @@ Each version is the tag `v<version>` on this repository, never moved (K003). Pro
   runs on `${{ vars.RUNNER || 'ubuntu-latest' }}`: with the project's Actions variable `RUNNER` set
   to a self-hosted label, they use no GitHub-hosted minutes (K011). Privileged jobs still check out
   only the default branch's `.harness/tools` with `persist-credentials: false` and set up Node 22
-  themselves; `harness-audit` sends a fork's PR to `ubuntu-latest`. `.harness/hands.md` minutes table
-  and the inbox cost updated.
+  themselves; `harness-audit` takes the self-hosted lane only for a PR from the same repository (a
+  fork's PR, or one whose fork was deleted, runs on `ubuntu-latest`). `.harness/hands.md` minutes
+  table and the inbox cost updated.
 - C15 stale-work check: installed workflow `harness-stale.yml` (daily and on dispatch, one 3-minute
   job) and `.harness/tools/stale.mjs` (`scan`, `report`). Lists open PRs idle 2 days (draft,
   conflicted, red, green-unmerged, waiting; bot PRs too), conflicted PRs idle 1 day, inbox requests
@@ -21,8 +22,11 @@ Each version is the tag `v<version>` on this repository, never moved (K003). Pro
   `RUNNER`, none with one.
 - Profile field `kit_updates.pr_body_lines`: standing authorization lines `hands-update` appends,
   each verbatim at column 1, to a project's kit update or rollback PR body, read from the project's
-  default branch; a line outside the plain-text pattern is dropped with a warning. The schema
-  validator gains `maxLength` and `maxItems`; `hands.mjs pr-lines`.
+  default branch by the workflow itself (not the pinned kit's tool); a line outside the plain-text
+  pattern or with a closing keyword is dropped with a warning; an already open update PR without
+  the lines gets its body edited. The schema validator gains `maxLength` and `maxItems`.
+- The "Stale work" issue counts only when filed by `github-actions[bot]`, so a planted marker issue
+  cannot silence alerts.
 - Audit C15 counts the installed `harness-stale.yml`; `tools/test-stale.mjs` joins the kit's checks.
 ## 0.8.0 · 2026-10-05 · one notification standard for every sender
 

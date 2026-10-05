@@ -9,7 +9,7 @@ import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { readFileSync, readdirSync, mkdtempSync, mkdirSync, copyFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { checkState, classifyPr, classifyIssue, select, thresholds, render, readMarkers, signature, decide, message, report, DEFAULTS, MAX_LISTED, MARKER } from '../.harness/tools/stale.mjs';
+import { isTracking, checkState, classifyPr, classifyIssue, select, thresholds, render, readMarkers, signature, decide, message, report, DEFAULTS, MAX_LISTED, MARKER } from '../.harness/tools/stale.mjs';
 import { body as inboxBody, setField } from '../.harness/tools/inbox.mjs';
 import { parseYaml } from '../.harness/tools/lib.mjs';
 
@@ -19,6 +19,26 @@ const kit = new URL('..', import.meta.url).pathname;
 const DAY = 86400000;
 const NOW = Date.parse('2026-10-05T06:41:00Z');
 const ago = (d) => new Date(NOW - d * DAY - 60000).toISOString();
+
+// A GitHub Actions expression `${{ … }}` evaluated the way Actions does for this subset: property
+// paths (null-safe), '…' strings, ==, !=, &&, || and parentheses; && and || return an operand.
+function evalExpr(text, ctx) {
+  const m = String(text).match(/^\$\{\{\s*([\s\S]*?)\s*\}\}$/);
+  if (!m) return text;
+  const toks = m[1].match(/'(?:[^']|'')*'|==|!=|&&|\|\||\(|\)|[A-Za-z_][\w.-]*/g);
+  let i = 0;
+  const peek = () => toks[i];
+  const prim = () => {
+    const t = toks[i++];
+    if (t === '(') { const v = or(); i++; return v; }
+    if (t.startsWith("'")) return t.slice(1, -1).replace(/''/g, "'");
+    return t.split('.').reduce((o, k) => (o == null ? null : o[k] ?? null), ctx);
+  };
+  const eq = () => { let a = prim(); while (peek() === '==' || peek() === '!=') { const op = toks[i++]; const b = prim(); const same = String(a ?? '').toLowerCase() === String(b ?? '').toLowerCase() && (a == null) === (b == null); a = op === '==' ? same : !same; } return a; };
+  const and = () => { let a = eq(); while (peek() === '&&') { i++; const b = eq(); a = a ? b : a; } return a; };
+  const or = () => { let a = and(); while (peek() === '||') { i++; const b = and(); a = a || b; } return a; };
+  return or();
+}
 
 // --- classification -------------------------------------------------------------------------------
 const run = (conclusion, status = 'completed') => ({ status, conclusion });
@@ -93,7 +113,7 @@ const srv = createServer((q, res) => {
     m = u.pathname.match(/^\/repos\/o\/r\/commits\/(\w+)\/(check-runs|status)$/);
     if (m) { const p = pulls.find((x) => x.full.head.sha === m[1]); return send(200, m[2] === 'status' ? { state: 'pending', total_count: 0 } : { check_runs: p.runs }); }
     if (u.pathname === '/repos/o/r/issues' && q.method === 'GET') return send(200, u.searchParams.get('page') === '1' ? issues.filter((i) => i.state === u.searchParams.get('state')) : []);
-    if (u.pathname === '/repos/o/r/issues' && q.method === 'POST') { const j = JSON.parse(data); const i = { number: 100 + issues.length, state: 'open', html_url: `https://gh.test/o/r/issues/${100 + issues.length}`, labels: [], updated_at: new Date(NOW).toISOString(), ...j }; issues.push(i); return send(201, i); }
+    if (u.pathname === '/repos/o/r/issues' && q.method === 'POST') { const j = JSON.parse(data); const i = { number: 100 + issues.length, state: 'open', html_url: `https://gh.test/o/r/issues/${100 + issues.length}`, labels: [], updated_at: new Date(NOW).toISOString(), user: { login: 'github-actions[bot]', type: 'Bot' }, ...j }; issues.push(i); return send(201, i); }
     m = u.pathname.match(/^\/repos\/o\/r\/issues\/(\d+)$/);
     const i = m && issues.find((x) => x.number === Number(m[1]));
     if (!i) return send(404, {});
@@ -108,10 +128,16 @@ for (const k of ['HARNESS_STALE_PR_DAYS', 'HARNESS_STALE_CONFLICT_DAYS', 'HARNES
 const pr = (number, days, full, runs) => ({ list: { number, title: `PR ${number}`, html_url: `https://gh.test/o/r/pull/${number}`, updated_at: ago(days) }, full: { number, head: { sha: `sha${number}` }, ...full }, runs });
 pulls.push(pr(1, 3, { mergeable: true }, [run('success')]), pr(2, 0, { mergeable: false }, []), pr(3, 1, { mergeable: false }, []));
 issues.push({ number: 10, state: 'open', html_url: 'https://gh.test/o/r/issues/10', title: 'a card', labels: [{ name: 'card' }], body: '', updated_at: ago(4) });
-const tracking = () => issues.filter((i) => String(i.body).includes(MARKER));
+// someone plants a marker issue claiming everything was announced and alerted today: it must not count
+issues.push({ number: 50, state: 'open', html_url: 'https://gh.test/o/r/issues/50', title: 'Stale work', labels: [], updated_at: ago(0), user: { login: 'mallory', type: 'User' },
+  body: render([], { announced: [1, 2, 3, 10, 11, 12, 13], sent: '2026-10-05' }) });
+issues.push({ number: 51, state: 'open', html_url: 'https://gh.test/o/r/issues/51', title: 'Stale work', labels: [], updated_at: ago(0), user: { login: 'github-actions', type: 'User' },
+  body: render([], { announced: [1, 2, 3, 10, 11, 12, 13], sent: '2026-10-05' }) });
+const tracking = () => issues.filter((i) => String(i.body).includes(MARKER) && i.user.type === 'Bot');
 
+ok(!isTracking(issues[1]) && !isTracking(issues[2]) && isTracking({ body: MARKER, user: { login: 'github-actions[bot]', type: 'Bot' } }), 'only an issue filed by github-actions[bot] can be the tracking issue; a planted marker issue never counts');
 let r = await report('o/r', NOW);
-ok(signature(r.items) === '1,3,10' && tracking().length === 1 && tracking()[0].title === 'Stale work' && !r.sent && tg.length === 0, 'report files one "Stale work" issue; without the secrets it sends nothing and still updates');
+ok(signature(r.items) === '1,3,10' && tracking().length === 1 && tracking()[0].number !== 50 && tracking()[0].title === 'Stale work' && !r.sent && tg.length === 0, 'report files one "Stale work" issue; without the secrets it sends nothing and still updates');
 const first = tracking()[0];
 ok(first.body.includes('| green-unmerged | 3 |') && first.body.includes('| conflicted | 1 |') && signature(readMarkers(first.body).announced) === '1,3,10', 'the issue lists each item with its kind and days idle');
 Object.assign(process.env, { TELEGRAM_BOT_TOKEN: 'TOKEN', TELEGRAM_CHAT_ID: '42' });
@@ -130,7 +156,7 @@ r = await report('o/r', NOW + 3600000);
 ok(!r.sent && tg.length === 1 && !readMarkers(tracking()[0].body).announced.includes(12), 'a second new item the same day waits: one alert a day per repository');
 r = await report('o/r', NOW + DAY);
 ok(r.sent && tg.length === 2 && /#12 card, \d+d \(new\)/.test(tg[1].text), 'the next day it goes out (with whatever else became stale overnight)');
-pulls.length = 0; issues.splice(0, issues.length, ...tracking());
+pulls.length = 0; issues.splice(0, issues.length, ...tracking(), ...issues.filter((i) => i.user?.type === 'User' && String(i.body).includes(MARKER)));
 r = await report('o/r', NOW + 2 * DAY);
 ok(tracking().length === 1 && tracking()[0].state === 'closed' && /Nothing is stale/.test(tracking()[0].body) && tg.length === 2, 'an empty list closes the issue, with no alert');
 const patches = tracking()[0].patches;
@@ -149,7 +175,17 @@ for (const f of readdirSync(dir)) {
   const jobs = Object.entries(wf.jobs || {});
   ok(jobs.length && jobs.every(([, j]) => String(j['runs-on']).includes("vars.RUNNER || 'ubuntu-latest'") && Number(j['timeout-minutes']) > 0), `${f}: every job runs on \${{ vars.RUNNER || 'ubuntu-latest' }} and declares timeout-minutes`);
   const prCode = text.includes('pull_request:') && /uses: actions\/checkout@v4\n(?!\s+with:\n(\s+\w[\w-]*:.*\n)*?\s+ref: \$\{\{ github\.event\.repository\.default_branch \}\})/.test(text);
-  if (prCode) ok(jobs.every(([, j]) => /^\$\{\{ github\.event\.pull_request\.head\.repo\.fork && 'ubuntu-latest' \|\|/.test(j['runs-on'])), `${f}: it runs a PR's code, so a fork's PR never reaches the self-hosted runner`);
+  if (prCode) {
+    const lane = (ctx) => jobs.map(([, j]) => evalExpr(j['runs-on'], ctx));
+    const pr = (head) => ({ event_name: 'pull_request', repository: 'o/r', event: { pull_request: { head: { repo: head } } } });
+    const self = { RUNNER: 'self-hosted-vps' };
+    ok(lane({ github: pr({ full_name: 'o/r', fork: false }), vars: self }).every((x) => x === 'self-hosted-vps')
+      && lane({ github: { event_name: 'schedule', repository: 'o/r', event: {} }, vars: self }).every((x) => x === 'self-hosted-vps')
+      && lane({ github: pr({ full_name: 'o/r' }), vars: {} }).every((x) => x === 'ubuntu-latest'), `${f}: a PR from this repository and a scheduled run take the RUNNER lane; without RUNNER, ubuntu-latest`);
+    ok(lane({ github: pr({ full_name: 'fork/r', fork: true }), vars: self }).every((x) => x === 'ubuntu-latest')
+      && lane({ github: pr(null), vars: self }).every((x) => x === 'ubuntu-latest')
+      && lane({ github: pr({ full_name: 'fork/r', fork: null }), vars: self }).every((x) => x === 'ubuntu-latest'), `${f}: it runs a PR's code, so a fork's PR, or one whose fork was deleted (head.repo null), never reaches the self-hosted runner`);
+  }
   else ok(/ref: \$\{\{ github\.event\.repository\.default_branch \}\}\n\s+sparse-checkout: \.harness\/tools\n\s+persist-credentials: false/.test(text), `${f}: checks out only the default branch's .harness/tools, without persisted credentials`);
   ok(/persist-credentials: false/.test(text), `${f}: no persisted git credentials`);
 }

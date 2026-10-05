@@ -51,10 +51,12 @@ Never resume before step 3: the next run would restore the broken setting.
 A project whose CI requires a body line on PRs that touch `.github/**` or `.claude/**` (for example
 `Tier-3: authorized by card #12`) would block every unattended kit update. It names the standing
 authorization lines in its profile, `kit_updates.pr_body_lines` (at most 10, each at most 200
-characters of letters, digits, space and `. , : ; # ( ) / _ ' -`, no leading space). `hands-update`
-reads `.harness/profile.json` from the project's default branch before changing anything, drops any
-line that fails that pattern with a warning in the run summary, and appends the rest, each on its
-own line at column 1, to the update or rollback PR's body. The line is the project's standing
+characters of letters, digits, space and `. , : ; # ( ) / _ ' -`, no leading space, no closing
+keyword such as `closes #1`). `hands-update` reads `.harness/profile.json` from the project's
+default branch before changing anything, with its own inline reader (so the lines work whatever kit
+version the control repository pins), drops any line that fails with a warning in the run summary,
+and appends the rest, each on its own line at column 1, to the update or rollback PR's body. If a
+PR for that version is already open without them, it edits that PR's body, so the guard re-runs. The line is the project's standing
 authorization: record the decision that grants it in the project, not in the kit.
 
 ## GitHub-hosted minutes (O13)
@@ -66,7 +68,10 @@ for their own CI: with the project's Actions variable `RUNNER` set to a self-hos
 these jobs use **no** GitHub-hosted minutes; without it they run on `ubuntu-latest` and cost what
 the table says. Every such job stays safe on a self-hosted runner: the privileged ones check out
 only the default branch's `.harness/tools`, never PR code, with `persist-credentials: false`, and
-`harness-audit`, which runs a PR's own code, sends a fork's PR to `ubuntu-latest`. The control
+`harness-audit`, which runs a PR's own code, takes the self-hosted lane only for a PR from the same
+repository (a fork's PR, or one whose fork was deleted, runs on `ubuntu-latest`). On a public
+repository anyone can queue `harness-scrub` jobs on a self-hosted runner by posting comments, so a
+public project may prefer to leave `RUNNER` unset for it; hosted minutes are free there. The control
 repository's `hands-*` jobs stay on GitHub-hosted runners (the App key never moves to a general
 worker, K008). Estimates per month without a self-hosted `RUNNER`, with N enrolled settings
 repositories and K repositories that pin the kit:

@@ -334,10 +334,11 @@ CI; propose the laptop lane only where measurements show a real benefit."
    `${{ vars.RUNNER || 'ubuntu-latest' }}`, the convention the projects' own CI already uses. The
    measured benefit: a busy private project gets about 700 issue and PR comments a month, so
    `harness-scrub` alone would add about 900 GitHub-hosted minutes a month on `ubuntu-latest`, while
-   that project's CI already runs on its self-hosted runner. With `RUNNER` set, the kit's jobs use
+   that project's CI already runs on its self-hosted VPS runner. With `RUNNER` set, the kit's jobs use
    no hosted minutes; without it, nothing changes. Privileged jobs check out only the default
    branch's `.harness/tools` with `persist-credentials: false`; `harness-audit`, which runs a PR's
-   code, sends a fork's PR to `ubuntu-latest`. A project's existing CI is not touched.
+   code, takes the self-hosted lane only for a PR from the same repository. A project's existing CI
+   is not touched.
 2. **The stale-work check runs per project, on that lane** (`harness-stale.yml`, `stale.mjs`, C15),
    not as one hosted job in the control repository: the project's runner is unmetered, the job needs
    only the project's own `GITHUB_TOKEN`, and the list belongs next to the work. Once a day it
@@ -348,10 +349,12 @@ CI; propose the laptop lane only where measurements show a real benefit."
    per repository, at most 10 items listed, silent when the secrets are absent, never for success or
    an empty list. A capped alert keeps its new items for the next day; a failed alert fails the run.
 4. **Kit update PRs carry a project's standing authorization lines** (`kit_updates.pr_body_lines` in
-   the profile), validated against a plain-text pattern, so a project's guard on `.github/**` or
-   `.claude/**` PRs does not block every unattended update. The project records the decision that
-   grants the line.
-5. **Order of adoption.** H3 is the kit pilot on the public website (WEB); the web app (ERP) adopts
-   the kit after its verification, as H4.
+   the profile), read by the workflow itself and validated against a plain-text pattern with no
+   closing keywords, so a project's guard on `.github/**` or `.claude/**` PRs does not block every
+   unattended update. The project records the decision that grants the line.
+5. **Order of adoption.** H3 is the kit pilot on the website (WEB), a private repository whose CI
+   runs on a self-hosted VPS runner; the web app (ERP) adopts the kit after its verification, as H4.
+   The "laptop lane" in the source is proposed only where measurements show a real benefit; the
+   `RUNNER` lane here is the project's existing self-hosted runner, not a new one.
 
 **Status:** STANDING.

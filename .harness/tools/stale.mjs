@@ -15,7 +15,8 @@
 //   HARNESS_STALE_CARD_DAYS      3   an open issue labelled `card` or any `risk:*` label
 //
 // The tracking issue is found by the hidden marker `<!-- harness-stale -->`: one issue per
-// repository, never one per run (RJ02). Its body also carries the item set the owner was last told
+// repository, never one per run (RJ02), and only one filed by github-actions[bot] counts, so `report`
+// runs in Actions (harness-stale.yml). Its body also carries the item set the owner was last told
 // about and the date of the last alert, both as hidden markers. An alert goes out only when the list
 // holds items not yet announced, at most once a day per repository, lists at most 10 items, and is
 // skipped silently when TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is absent (the issue still updates).
@@ -195,12 +196,17 @@ export async function scan(repo, now = Date.now(), t = thresholds()) {
   return select(cands, now, t);
 }
 
+export const AUTHOR = 'github-actions[bot]';
+/** Whether an issue is the tracking issue: the marker, filed by Actions' own token. Anyone can type the
+ * marker, so an issue by anyone else never counts (it could otherwise claim every item was announced). */
+export const isTracking = (i) => !i.pull_request && String(i.body || '').includes(MARKER) && i.user?.login === AUTHOR && i.user?.type === 'Bot';
+
 /** The tracking issue (open first, then the most recently updated closed one), or null. */
 async function findTracking(repo) {
   for (const state of ['open', 'closed']) {
     for (let page = 1; page <= (state === 'open' ? 30 : 10); page++) {
       const l = await api('GET', `/repos/${repo}/issues?state=${state}&sort=updated&direction=desc&per_page=100&page=${page}`);
-      const hit = l.find((i) => !i.pull_request && String(i.body || '').includes(MARKER));
+      const hit = l.find(isTracking);
       if (hit) return hit;
       if (l.length < 100) break;
     }

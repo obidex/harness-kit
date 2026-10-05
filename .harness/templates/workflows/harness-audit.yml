@@ -21,8 +21,9 @@ concurrency:
 jobs:
   harness-audit:
     name: harness-audit
-    # a fork's PR runs its own code here, so it never gets the self-hosted runner
-    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || vars.RUNNER || 'ubuntu-latest' }}
+    # a PR's own code runs here, so only a PR from this repository may reach the self-hosted runner;
+    # a fork's PR, or one whose fork was deleted (head.repo is null), runs on ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (vars.RUNNER || 'ubuntu-latest') || 'ubuntu-latest' }}
     timeout-minutes: 5
     permissions:
       contents: read
