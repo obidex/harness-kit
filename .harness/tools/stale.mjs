@@ -6,6 +6,16 @@
 //                                         bring the one "Stale work" tracking issue up to date
 //                                         (create, edit in place, reopen, or close when the list is
 //                                         empty) and alert through notify.mjs (O10)
+//   node .harness/tools/stale.mjs schedules --repo owner/name [--alert]
+//                                         missed scheduled runs: every scheduled workflow whose next
+//                                         run (by its cron, after its last scheduled or by-hand run) is more than
+//                                         HARNESS_SCHEDULE_OVERDUE_HOURS (36) overdue. GitHub's schedules
+//                                         are best-effort, so none is trusted silently. With --alert, a
+//                                         problem `schedule:<owner/name>/<file>` in the project's topic
+//                                         for each overdue one, and `resolve` once it has run again
+//                                         (on schedule or by hand).
+//                                         GH_TOKEN needs actions: read and contents: read. Any sender can
+//                                         run it (the hands daily check, a host's tick).
 //
 // Stale means idle (no update) for at least:
 //   HARNESS_STALE_PR_DAYS        2   an open PR, classified draft, conflicted, red, green-unmerged or
@@ -29,6 +39,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse as parseInbox } from './inbox.mjs';
+import { parseYaml } from './lib.mjs';
 import { TOPICS, problem, resolveKey, store, telegram } from './notify.mjs';
 
 export const MARKER = '<!-- harness-stale -->';
@@ -251,6 +262,113 @@ export async function report(repo, now = Date.now()) {
   }
 }
 
+// --- missed scheduled runs ----------------------------------------------------------------------------
+const NAMES = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12, sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
+const BOUNDS = [[0, 59], [0, 23], [1, 31], [1, 12], [0, 7]];
+const HOUR_MS = 3600e3;
+const RAN = ['schedule', 'workflow_dispatch'];
+
+/** A five-field cron (GitHub's, UTC) as sets of allowed values; throws on what it cannot read. */
+export function parseCron(expr) {
+  const f = String(expr || '').trim().split(/\s+/);
+  if (f.length !== 5) throw new Error(`cron "${expr}" does not have five fields`);
+  const sets = f.map((field, k) => {
+    const [lo, hi] = BOUNDS[k]; const out = new Set();
+    for (const part of field.split(',')) {
+      const m = part.toLowerCase().match(/^(\*|[a-z0-9]+(?:-[a-z0-9]+)?)(?:\/(\d+))?$/);
+      if (!m) throw new Error(`cron "${expr}": cannot read "${part}"`);
+      const num = (v) => { const n = /^\d+$/.test(v) ? Number(v) : NAMES[v]; if (n === undefined || n < lo || n > hi) throw new Error(`cron "${expr}": "${v}" is out of range`); return n; };
+      let [a, b] = m[1] === '*' ? [lo, hi] : m[1].split('-').map(num);
+      if (b === undefined) b = m[2] ? hi : a;
+      const step = m[2] ? Number(m[2]) : 1;
+      if (!step || a > b) throw new Error(`cron "${expr}": cannot read "${part}"`);
+      for (let v = a; v <= b; v += step) out.add(k === 4 && v === 7 ? 0 : v);
+    }
+    return out;
+  });
+  return { min: sets[0], hour: sets[1], dom: sets[2], month: sets[3], dow: sets[4], domAny: f[2] === '*', dowAny: f[4] === '*' };
+}
+
+/** The first time (ms) strictly after t that the cron fires, in UTC. Day of month and day of week
+ * combine with OR when both are restricted, as cron does. */
+export function nextRun(expr, t) {
+  const c = typeof expr === 'string' ? parseCron(expr) : expr;
+  const d = new Date(Math.floor(t / 60000) * 60000 + 60000);
+  for (let guard = 0; guard < 200000; guard++) {
+    const dayOk = c.domAny && c.dowAny ? true : c.domAny ? c.dow.has(d.getUTCDay()) : c.dowAny ? c.dom.has(d.getUTCDate()) : c.dom.has(d.getUTCDate()) || c.dow.has(d.getUTCDay());
+    if (!c.month.has(d.getUTCMonth() + 1)) { d.setUTCMonth(d.getUTCMonth() + 1, 1); d.setUTCHours(0, 0, 0, 0); continue; }
+    if (!dayOk) { d.setUTCDate(d.getUTCDate() + 1); d.setUTCHours(0, 0, 0, 0); continue; }
+    if (!c.hour.has(d.getUTCHours())) { d.setUTCHours(d.getUTCHours() + 1, 0, 0, 0); continue; }
+    if (!c.min.has(d.getUTCMinutes())) { d.setUTCMinutes(d.getUTCMinutes() + 1, 0, 0); continue; }
+    return d.getTime();
+  }
+  throw new Error(`cron "${expr}" never fires`);
+}
+
+/** Hours a schedule may be late before it counts as missed (HARNESS_SCHEDULE_OVERDUE_HOURS, default 36). */
+export function overdueHours(env = process.env) {
+  const v = env.HARNESS_SCHEDULE_OVERDUE_HOURS;
+  if (v === undefined || String(v).trim() === '') return 36;
+  if (!/^\d+(\.\d+)?$/.test(String(v).trim())) throw new Error(`HARNESS_SCHEDULE_OVERDUE_HOURS must be a number of hours, not "${v}"`);
+  return Number(v);
+}
+
+/** One workflow's schedule state: the next run due after `last` (its last scheduled or by-hand run, or when the
+ * workflow appeared), and whether that is more than `limit` hours ago. */
+export function scheduleState({ crons, last, now = Date.now(), limit = 36 }) {
+  const due = Math.min(...crons.map((c) => nextRun(c, Date.parse(last))));
+  const late = (now - due) / HOUR_MS;
+  return { due: new Date(due).toISOString(), lateHours: Math.max(0, Math.floor(late)), overdue: late > limit };
+}
+
+/** Every scheduled workflow of the repository with its state. A workflow turned off by hand is left
+ * out; one GitHub turned off for inactivity is kept, since it will never run again by itself. */
+export async function schedules(repo, now = Date.now(), limit = overdueHours()) {
+  const out = [];
+  const list = (await api('GET', `/repos/${repo}/actions/workflows?per_page=100`)).workflows || [];
+  for (const w of list) {
+    if (w.state === 'disabled_manually' || !/^\.github\/workflows\/[^/]+\.ya?ml$/.test(w.path || '')) continue;
+    let crons = [];
+    try {
+      const file = await api('GET', `/repos/${repo}/contents/${w.path}`);
+      crons = (parseYaml(Buffer.from(file.content || '', 'base64').toString('utf8'))?.on?.schedule || []).map((x) => x?.cron).filter(Boolean);
+    } catch (e) { if (!/answered 404/.test(e.message)) throw e; }
+    if (!crons.length) continue;
+    // a run by hand (the remedy for a missed one) counts as a run; a push or PR run does not
+    const runs = [];
+    for (const ev of RAN) runs.push(...((await api('GET', `/repos/${repo}/actions/workflows/${w.id}/runs?event=${ev}&per_page=1`)).workflow_runs || []));
+    runs.sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+    const last = runs[0]?.created_at || w.created_at;
+    const file = w.path.split('/').pop();
+    out.push({ workflow: w.name || file, file, url: `${w.html_url ? w.html_url.replace(/\/blob\/.*$/, '') : `https://github.com/${repo}`}/actions/workflows/${file}`,
+      state: w.state, crons, lastRun: runs[0]?.created_at || null, ...scheduleState({ crons, last, now, limit }) });
+  }
+  return out;
+}
+
+/** The problem text for one missed schedule (notify.mjs sends it as one line). */
+export function missedText(repo, s, limit = 36) {
+  const why = s.state === 'disabled_inactivity' ? 'GitHub turned its schedule off for inactivity; turn it back on in Actions' : 'GitHub\'s scheduled runs are best-effort; run it by hand from Actions if it stays missing';
+  return `Scheduled run missed: ${s.workflow} in ${repo} was due ${s.due.slice(0, 16).replace('T', ' ')} UTC and is ${s.lateHours} h overdue (more than ${limit} h); last run ${s.lastRun ? s.lastRun.slice(0, 16).replace('T', ' ') + ' UTC' : 'never'}. ${why}.`;
+}
+
+/** schedules, then a problem per overdue workflow and a resolve for each that ran again. */
+export async function alertSchedules(repo, now = Date.now(), topic = topicOf()) {
+  if (!topic) throw new Error('no topic: set ALERTS_TOPIC (or alerts.topic in .harness/profile.json) to the topic for missed runs');
+  const limit = overdueHours();
+  const list = await schedules(repo, now, limit);
+  const st = store(process.env.ALERTS_STORE || `github:${repo}`), tg = telegram();
+  const done = [];
+  for (const s of list) {
+    const key = `schedule:${repo}/${s.file}`;
+    const r = s.overdue
+      ? await problem(st, tg, { key, topic, title: `Scheduled run missed: ${s.workflow}`, text: missedText(repo, s, limit), link: s.url })
+      : await resolveKey(st, tg, { key, text: `${s.workflow} in ${repo} ran again (${s.lastRun ? s.lastRun.slice(0, 16).replace('T', ' ') + ' UTC' : 'its next run is not due yet'})` });
+    done.push({ ...s, alert: r.status });
+  }
+  return done;
+}
+
 // --- commands -------------------------------------------------------------------------------------
 const argv = process.argv.slice(2);
 const opt = (n) => { const i = argv.indexOf(n); return i >= 0 ? argv[i + 1] : undefined; };
@@ -261,7 +379,13 @@ async function main() {
   if (!repo || !/^[\w.-]+\/[\w.-]+$/.test(repo)) throw new Error('--repo owner/name is required');
   if (cmd === 'scan') { console.log(JSON.stringify(await scan(repo), null, 2)); return; }
   if (cmd === 'report') { await report(repo); return; }
-  throw new Error('usage: stale.mjs scan|report --repo owner/name  (see the header of this file)');
+  if (cmd === 'schedules') {
+    const list = argv.includes('--alert') ? await alertSchedules(repo) : await schedules(repo);
+    for (const s of list) console.log(`schedules: ${s.overdue ? 'MISSED' : 'ok'} ${s.file} (${s.crons.join(' | ')}) last ${s.lastRun || 'never'}, due ${s.due}${s.overdue ? `, ${s.lateHours} h overdue` : ''}${s.alert ? `; alert ${s.alert}` : ''}`);
+    if (!list.length) console.log(`schedules: no scheduled workflow in ${repo}`);
+    return;
+  }
+  throw new Error('usage: stale.mjs scan|report|schedules --repo owner/name  (see the header of this file)');
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {

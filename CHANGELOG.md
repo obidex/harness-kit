@@ -3,6 +3,18 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.10.0 · 2026-10-05 · missed scheduled runs alert
+
+- GitHub's scheduled runs are best-effort, so none is trusted silently. `stale.mjs schedules --repo
+  <owner/name> [--alert]` reads every scheduled workflow (its cron, in UTC) and its last run on schedule or by hand (a push or PR run does not count);
+  one whose next run is more than 36 hours overdue (`HARNESS_SCHEDULE_OVERDUE_HOURS`) is missed. With
+  `--alert` it opens the problem `schedule:<owner/name>/<file>` in the project's topic through
+  `notify.mjs`, and replies RESOLVED once the workflow has run again. A schedule GitHub
+  turned off for inactivity counts; one turned off by hand does not.
+- `hands-settings` (control repository): the daily drift check's job runs it for the control
+  repository into "Kit & Hands" (`actions: read` added to that job). No new job and no new minutes.
+  That run cannot report its own silence: a host's tick running the same command covers it.
+
 ## 0.9.1 · 2026-10-05 · pinned actions; hands-settings runs again; the audit issue closes
 
 - Every action in the kit's templates and its own workflows is pinned to a full commit SHA (the same
