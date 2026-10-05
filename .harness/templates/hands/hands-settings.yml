@@ -85,7 +85,8 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           ALERTS_CHAT_ID_FILE: ALERTS_CHAT_ID
-        run: node kit/.harness/tools/notify.mjs resolve --key hands/hands-settings --text "hands-settings green again: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        run: |
+          node kit/.harness/tools/notify.mjs resolve --key hands/hands-settings --text "hands-settings green again: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
       - name: Escalate and remind this repository's open problems
         if: always() && github.event_name == 'schedule'
         continue-on-error: true

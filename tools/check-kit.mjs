@@ -113,6 +113,11 @@ for (const f of wfFiles) {
   for (const [k, j] of jobs) if (!j['timeout-minutes'] && !j.uses) fail(`${f}#${k} has no timeout-minutes`);
   if (!wf.concurrency && !called) fail(`${f} has no concurrency group`);
   if (!wf.permissions) fail(`${f} does not declare permissions`);
+  // GitHub's parser is strict YAML: a plain value holding ": " is an invalid workflow that never runs
+  for (const [n, line] of text.split('\n').entries()) {
+    const m = line.match(/^\s*(?:-\s+)?[\w.-]+:\s+([^|>'"\s].*)$/);
+    if (m && /:\s/.test(m[1].replace(/\s+#.*$/, ''))) fail(`${f}:${n + 1}: a plain value contains ": " (quote it or use a block scalar)`);
+  }
   // a mutable tag hands the job's token (and a self-hosted runner) to whoever moves it: pin full SHAs
   for (const m of text.matchAll(/^\s*(?:-\s+)?uses:\s*([^\s#]+)/gm)) if (!m[1].startsWith('./') && !/@[0-9a-f]{40}$/.test(m[1])) fail(`${f}: ${m[1]} is not pinned to a full commit SHA`);
   if (f.startsWith('.harness/templates/workflows/') && !/\/harness-[a-z0-9-]+\.yml$/.test(f)) fail(`${f}: installed workflows are named harness-*.yml`);
