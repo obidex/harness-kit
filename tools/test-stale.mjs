@@ -180,7 +180,7 @@ for (const f of readdirSync(dir)) {
   const wf = parseYaml(text);
   const jobs = Object.entries(wf.jobs || {});
   ok(jobs.length && jobs.every(([, j]) => String(j['runs-on']).includes("vars.RUNNER || 'ubuntu-latest'") && Number(j['timeout-minutes']) > 0), `${f}: every job runs on \${{ vars.RUNNER || 'ubuntu-latest' }} and declares timeout-minutes`);
-  const prCode = text.includes('pull_request:') && /uses: actions\/checkout@v4\n(?!\s+with:\n(\s+\w[\w-]*:.*\n)*?\s+ref: \$\{\{ github\.event\.repository\.default_branch \}\})/.test(text);
+  const prCode = text.includes('pull_request:') && /uses: actions\/checkout@[0-9a-f]{40}[^\n]*\n(?!\s+with:\n(\s+\w[\w-]*:.*\n)*?\s+ref: \$\{\{ github\.event\.repository\.default_branch \}\})/.test(text);
   if (prCode) {
     const lane = (ctx) => jobs.map(([, j]) => evalExpr(j['runs-on'], ctx));
     const pr = (head) => ({ event_name: 'pull_request', repository: 'o/r', event: { pull_request: { head: { repo: head } } } });

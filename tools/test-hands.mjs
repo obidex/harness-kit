@@ -77,6 +77,7 @@ const files = Object.fromEntries(readdirSync(tpl).map((f) => [f, readFileSync(jo
 ok(controlProblems(files).length === 0, `the shipped control workflows pass (${Object.keys(files).join(', ')})`);
 const onPr = files['hands-settings.yml'].replace('on:\n  schedule:', 'on:\n  pull_request:\n  schedule:');
 ok(controlProblems({ 'x.yml': onPr }).some((p) => p.includes('repository event')), 'a keyed workflow on pull_request is refused');
+ok(controlProblems({ 'y.yml': 'on: workflow_dispatch\njobs:\n  a:\n    steps:\n      - run: echo "green again: done"\n      - run: |\n          echo "fine: here"\n      - name: \'quoted: ok\'\n' }).filter((p) => p.includes('plain value')).length === 1, 'control-check refuses a plain YAML value holding ": " (GitHub would reject the file); block and quoted values pass');
 const unguarded = files['hands-settings.yml'].replaceAll("github.ref == 'refs/heads/main'", 'true');
 ok(controlProblems({ 'x.yml': unguarded }).some((p) => p.includes('main-branch guard')), 'a keyed workflow without the main guard is refused');
 

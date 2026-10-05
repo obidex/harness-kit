@@ -3,6 +3,19 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.9.1 · 2026-10-05 · pinned actions; hands-settings runs again; the audit issue closes
+
+- Every action in the kit's templates and its own workflows is pinned to a full commit SHA (the same
+  v4/v1 releases as before, so no behaviour changes): a moved tag can no longer reach a job's write
+  token or a self-hosted runner. `check-kit` fails on any unpinned `uses:`.
+- `harness-audit`: a scheduled run that passes again closes the "scheduled audit failing" issue with
+  a link to the passing run, instead of leaving it open.
+- `hands-settings` (control repository) was an invalid workflow since 0.8.0: one `run:` line held
+  ": " in a plain YAML value, so GitHub rejected the file and neither the dispatch nor the daily
+  drift check could run. The line is a block scalar now. `check-kit` and the control repository's own
+  `hands-check` (`hands.mjs control-check`) fail on any plain value holding ": ", which GitHub's strict
+  parser refuses and the kit's lenient parser accepted.
+
 ## 0.9.0 · 2026-10-05 · a self-hosted lane for kit workflows; the stale-work check
 
 - Every kit-installed workflow (`harness-audit`, `harness-inbox`, `harness-scrub`, `harness-stale`)

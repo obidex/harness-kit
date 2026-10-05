@@ -13,7 +13,7 @@
 
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { validateSchema, parseYaml } from '../.harness/tools/lib.mjs';
+import { validateSchema, parseYaml, plainValueProblems } from '../.harness/tools/lib.mjs';
 import { controlProblems } from '../.harness/tools/hands.mjs';
 
 const root = process.argv[2] || new URL('..', import.meta.url).pathname;
@@ -113,6 +113,9 @@ for (const f of wfFiles) {
   for (const [k, j] of jobs) if (!j['timeout-minutes'] && !j.uses) fail(`${f}#${k} has no timeout-minutes`);
   if (!wf.concurrency && !called) fail(`${f} has no concurrency group`);
   if (!wf.permissions) fail(`${f} does not declare permissions`);
+  if (!f.startsWith('.harness/templates/hands/')) for (const p of plainValueProblems(text)) fail(`${f}: ${p}`); // GitHub's strict YAML (control workflows: controlProblems)
+  // a mutable tag hands the job's token (and a self-hosted runner) to whoever moves it: pin full SHAs
+  for (const m of text.matchAll(/^\s*(?:-\s+)?uses:\s*([^\s#]+)/gm)) if (!m[1].startsWith('./') && !/@[0-9a-f]{40}$/.test(m[1])) fail(`${f}: ${m[1]} is not pinned to a full commit SHA`);
   if (f.startsWith('.harness/templates/workflows/') && !/\/harness-[a-z0-9-]+\.yml$/.test(f)) fail(`${f}: installed workflows are named harness-*.yml`);
   if (f.startsWith('.harness/templates/hands/')) {
     if (!/\/hands-[a-z0-9-]+\.yml$/.test(f)) fail(`${f}: control workflows are named hands-*.yml`);

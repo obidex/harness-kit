@@ -141,3 +141,14 @@ export async function gh(path) {
     return { status: 0, data: String(e) };
   }
 }
+
+/** GitHub's parser is strict YAML and parseYaml is not: a plain value holding ": " makes the whole
+ *  workflow invalid (it never runs, so it cannot alert). One message per offending line. */
+export function plainValueProblems(text) {
+  const out = [];
+  for (const [n, line] of String(text).split('\n').entries()) {
+    const m = line.match(/^\s*(?:-\s+)?[\w.-]+:\s+([^|>'"\s].*)$/);
+    if (m && /:\s/.test(m[1].replace(/\s+#.*$/, ''))) out.push(`line ${n + 1}: a plain value contains ": " (quote it or use a block scalar)`);
+  }
+  return out;
+}
