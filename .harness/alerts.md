@@ -46,7 +46,7 @@ A new project gets its own topic: add it to `TOPICS` in `notify.mjs` (a kit rele
 | Sender | Store (`ALERTS_STORE`) | Topic | Runs `tick` |
 |---|---|---|---|
 | hands workflows (control repo) | `github:<control repo>`: one issue per problem | `kit` | the daily drift check; `hands-alerts` when on |
-| a project's workflows | `github:<the project>` | its own | `hands-alerts` when on, or a host |
+| a project's workflows | `github:<the project>` | its own (kit-installed ones: the profile's `alerts.topic`) | `hands-alerts` when on, or a host |
 | VPS alerts job | `file:/var/lib/harness-alerts/state.json` | `ops` (or `--outage`) | its own cron |
 | home server watcher | `file:/var/lib/harness-alerts/state.json` | `ops` | its own cron |
 
@@ -67,6 +67,12 @@ A new project gets its own topic: add it to `TOPICS` in `notify.mjs` (a kit rele
 
 Without the two secrets the problem is still recorded (an issue) and the next tick sends it, so a
 project can adopt the standard before its secrets exist, at the cost of the tick's delay.
+
+**A kit-installed workflow** (`harness-stale`) cannot hard-code the project's topic, so it reads it
+from the profile's `alerts.topic` (`erp`, `website`, or another project topic in `TOPICS`; never
+`needs` or `daily`; the Actions variable `ALERTS_TOPIC` overrides it), with the same store and
+secrets as above. Without a topic it
+alerts nobody; its own tracking issue still updates.
 
 **A host** (the VPS, the home server, the laptop): Node 18 or newer, the tool from a release tag, and a state file.
 

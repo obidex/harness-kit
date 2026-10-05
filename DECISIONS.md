@@ -322,4 +322,42 @@ turned on.
    tick across repositories exists but is off until the owner turns it on (O13).
 5. **Quiet escalation waits.** An escalation due in quiet hours is posted at 08:00, so it is heard.
 
+## K011 · 2026-10-05 · STANDING — owner rules for every project; a self-hosted lane; the stale-work check
+
+**Source:** the owner's message in the project chat on 2026-10-05, verbatim fragment: "Bring in the
+owner rules it lacks: models per task (Sonnet for bounded work, Opus for hard decisions and risky
+review), the real-check rule, turn-ending, the stale-work check, Telegram alerts within caps, no
+Claude attribution (with the scrubber), the resource rule, the inbox. Keep the website's existing
+CI; propose the laptop lane only where measurements show a real benefit."
+
+1. **A self-hosted lane for every kit-installed workflow.** Each `harness-*` job runs on
+   `${{ vars.RUNNER || 'ubuntu-latest' }}`, the convention the projects' own CI already uses. The
+   measured benefit: a busy private project gets about 700 issue and PR comments a month, so
+   `harness-scrub` alone would add about 900 GitHub-hosted minutes a month on `ubuntu-latest`, while
+   that project's CI already runs on its self-hosted VPS runner. With `RUNNER` set, the kit's jobs use
+   no hosted minutes; without it, nothing changes. Privileged jobs check out only the default
+   branch's `.harness/tools` with `persist-credentials: false`; `harness-audit`, which runs a PR's
+   code, takes the self-hosted lane only for a PR from the same repository. A project's existing CI
+   is not touched.
+2. **The stale-work check runs per project, on that lane** (`harness-stale.yml`, `stale.mjs`, C15),
+   not as one hosted job in the control repository: the project's runner is unmetered, the job needs
+   only the project's own `GITHUB_TOKEN`, and the list belongs next to the work. Once a day it
+   lists idle PRs (green-unmerged, red, conflicted, draft; bot PRs too), inbox requests left queued
+   or working, and `card` or `risk:*` issues, in one tracking issue updated in place and closed when
+   empty (RJ02).
+3. **Alerts within the one standard (O10, K010).** The check sends nothing itself: when its list
+   holds items not announced before, it opens the problem `stale:<owner/name>` through `notify.mjs`
+   in the project's topic (the profile's `alerts.topic`, since a kit-installed workflow cannot
+   hard-code it; the Actions variable `ALERTS_TOPIC` overrides it), linking the "Stale work" issue; an empty list resolves it. Deduplication, caps,
+   quiet hours and escalation are `notify.mjs`'s, not repeated here. An undelivered alert fails the
+   run and its items stay unannounced, so the next run asks again.
+4. **Kit update PRs carry a project's standing authorization lines** (`kit_updates.pr_body_lines` in
+   the profile), read by the workflow itself and validated against a plain-text pattern with no
+   closing keywords, so a project's guard on `.github/**` or `.claude/**` PRs does not block every
+   unattended update. The project records the decision that grants the line.
+5. **Order of adoption.** H3 is the kit pilot on the website (WEB), a private repository whose CI
+   runs on a self-hosted VPS runner; the web app (ERP) adopts the kit after its verification, as H4.
+   The "laptop lane" in the source is proposed only where measurements show a real benefit; the
+   `RUNNER` lane here is the project's existing self-hosted runner, not a new one.
+
 **Status:** STANDING.

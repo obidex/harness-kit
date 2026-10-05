@@ -32,11 +32,13 @@ export function validateSchema(schema, value) {
     if (s.type && !typeOk(s.type, x)) return err(path, `expected ${s.type}`);
     if (typeof x === 'string') {
       if (s.minLength && x.length < s.minLength) err(path, 'too short');
+      if (s.maxLength !== undefined && x.length > s.maxLength) err(path, `longer than ${s.maxLength}`);
       if (s.pattern && !new RegExp(s.pattern).test(x)) err(path, `does not match ${s.pattern}`);
     }
     if (typeof x === 'number' && s.minimum !== undefined && x < s.minimum) err(path, `below ${s.minimum}`);
     if (Array.isArray(x)) {
       if (s.minItems && x.length < s.minItems) err(path, `fewer than ${s.minItems} items`);
+      if (s.maxItems !== undefined && x.length > s.maxItems) err(path, `more than ${s.maxItems} items`);
       if (s.uniqueItems && new Set(x.map((y) => JSON.stringify(y))).size !== x.length) err(path, 'items repeat');
       if (s.items) x.forEach((y, i) => v(s.items, y, `${path}[${i}]`));
     }

@@ -3,6 +3,33 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.9.0 · 2026-10-05 · a self-hosted lane for kit workflows; the stale-work check
+
+- Every kit-installed workflow (`harness-audit`, `harness-inbox`, `harness-scrub`, `harness-stale`)
+  runs on `${{ vars.RUNNER || 'ubuntu-latest' }}`: with the project's Actions variable `RUNNER` set
+  to a self-hosted label, they use no GitHub-hosted minutes (K011). Privileged jobs still check out
+  only the default branch's `.harness/tools` with `persist-credentials: false` and set up Node 22
+  themselves; `harness-audit` takes the self-hosted lane only for a PR from the same repository (a
+  fork's PR, or one whose fork was deleted, runs on `ubuntu-latest`). `.harness/hands.md` minutes
+  table and the inbox cost updated.
+- C15 stale-work check: installed workflow `harness-stale.yml` (daily and on dispatch, one 3-minute
+  job) and `.harness/tools/stale.mjs` (`scan`, `report`). Lists open PRs idle 2 days (draft,
+  conflicted, red, green-unmerged, waiting; bot PRs too), conflicted PRs idle 1 day, inbox requests
+  queued or working idle 1 day, and `card` or `risk:*` issues idle 3 days (each overridable with an
+  Actions variable) in one "Stale work" issue, edited in place, closed when empty, reopened when
+  items return. Alerts go through `notify.mjs` (O10, K010): newly stale items open the problem
+  `stale:<owner/name>` in the project's topic, named by the profile's `alerts.topic`, linking
+  the issue; an empty list resolves it. Without `ALERTS_BOT_TOKEN` / `ALERTS_CHAT_ID` the problem is
+  kept as an issue for the next tick. About 30 hosted minutes a month without a self-hosted
+  `RUNNER`, none with one.
+- Profile field `kit_updates.pr_body_lines`: standing authorization lines `hands-update` appends,
+  each verbatim at column 1, to a project's kit update or rollback PR body, read from the project's
+  default branch by the workflow itself (not the pinned kit's tool); a line outside the plain-text
+  pattern or with a closing keyword is dropped with a warning; an already open update PR without
+  the lines gets its body edited. The schema validator gains `maxLength` and `maxItems`.
+- The "Stale work" issue counts only when filed by `github-actions[bot]`, so a planted marker issue
+  cannot silence alerts.
+- Audit C15 counts the installed `harness-stale.yml`; `tools/test-stale.mjs` joins the kit's checks.
 ## 0.8.0 · 2026-10-05 · one notification standard for every sender
 
 - Owner default O10 rewritten: one bot, one Telegram group with topics ("Needs you" the only loud

@@ -312,7 +312,7 @@ async function main() {
     }
     return;
   }
-  throw new Error('usage: hands.mjs validate|discover|drift|plan|apply|export  (see the header of this file)');
+  throw new Error('usage: hands.mjs validate|discover|drift|plan|apply|export|control-check  (see the header of this file)');
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {

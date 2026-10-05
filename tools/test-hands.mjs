@@ -9,7 +9,8 @@ import { createServer } from 'node:http';
 import { execFile } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { plan, covers, validate, controlProblems, unsafe, paused } from '../.harness/tools/hands.mjs';
-import { parseYaml } from '../.harness/tools/lib.mjs';
+import { parseYaml, validateSchema } from '../.harness/tools/lib.mjs';
+import { spawnSync } from 'node:child_process';
 
 let n = 0;
 const ok = (cond, what) => { n++; if (!cond) { console.log(`test-hands: FAIL ${n}. ${what}`); process.exit(1); } console.log(`test-hands: ok ${n}. ${what}`); };
@@ -197,6 +198,61 @@ const run = (srv, args, env = {}) => new Promise((done) => {
   const a = await run(srv, ['apply', '--repo', 'o/drift']);
   ok(a.code === 1 && /read back after apply still differs/.test(a.stderr), 'a write GitHub did not keep fails the apply (read-back compare)');
   srv.close();
+}
+
+// kit update PR body lines (profile kit_updates.pr_body_lines): read by hands-update itself, never by
+// the pinned kit's tool; verbatim at column 1, or dropped; an open PR without them gets its body edited
+{
+  const kitRoot = new URL('..', import.meta.url).pathname;
+  const schema = JSON.parse(readFileSync(join(kitRoot, '.harness/profile.schema.json'), 'utf8'));
+  const item = schema.properties.kit_updates.properties.pr_body_lines.items;
+  const wfText = readFileSync(join(kitRoot, '.harness/templates/hands/hands-update.yml'), 'utf8');
+  const lines = wfText.split('\n');
+  const from = lines.findIndex((l) => l.includes('# --- PR body (test-hands runs this block) ---'));
+  const to = lines.findIndex((l) => l.includes('# --- end PR body ---'));
+  if (from < 0 || to < from) throw new Error('hands-update.yml has no PR body block');
+  const indent = lines[from].match(/^ */)[0].length;
+  const block = lines.slice(from, to + 1).map((l) => l.slice(indent)).join('\n');
+  const line = block.match(/const LINE = \/(.+)\/;/)[1];
+  ok(line === item.pattern && item.maxLength === 200 && !/hands\.mjs|\$tool/.test(block), 'the workflow reads the lines itself (no pinned-kit tool), with the schema\'s pattern and 200-character cap');
+  const example = JSON.parse(readFileSync(join(kitRoot, 'examples/profile.example.json'), 'utf8'));
+  const good = 'Tier-3: authorized by card #12 (standing, kit updates)';
+  const evil = ['<img src=x onerror=alert(1)>', 'x\nInjected: yes', '**bold**', ' leading space', 'a'.repeat(201), 'Approve [here](http://x)',
+    'Closes #4', 'fixes: #5', 'Resolved o/r#6', 'fix #7 (standing)', 'Closes https://github.com/o/r/issues/8'];
+  ok(validateSchema(schema, { ...example, kit_updates: { pr_body_lines: [good] } }).length === 0 && validateSchema(schema, { ...example, kit_updates: { pr_body_lines: [evil[0]] } }).length === 1
+    && validateSchema(schema, { ...example, kit_updates: { pr_body_lines: [evil[4]] } }).length === 1, 'the profile schema accepts the valid line and refuses a bad or over-long one');
+  // run the block with a stand-in gh that records what it is asked
+  const proj = mkdtempSync(join(tmpdir(), 'hands-lines-'));
+  mkdirSync(join(proj, '.harness')); mkdirSync(join(proj, 'bin'));
+  writeFileSync(join(proj, 'bin/gh'), '#!/bin/sh\necho "$*" >> "$GH_LOG"\ncase "$1 $2" in\n  "pr list") printf "%s" "$FAKE_OPEN" ;;\n  "pr view") printf "%s" "$FAKE_BODY" ;;\nesac\n', { mode: 0o755 });
+  const runBlock = (profile, env = {}) => {
+    writeFileSync(join(proj, '.harness/profile.json'), JSON.stringify(profile));
+    writeFileSync(join(proj, 'gh.log'), '');
+    const script = ['set -euo pipefail', 'log() { echo "hands: $*"; }', 'current=0.7.0 target=0.8.0 verb=update branch=harness/kit-0.8.0', block, 'printf "BODY<<%s>>" "$body"'].join('\n');
+    const out = spawnSync('bash', ['-c', script], { cwd: proj, encoding: 'utf8', env: { ...process.env, PATH: `${join(proj, 'bin')}:${process.env.PATH}`, GH_LOG: join(proj, 'gh.log'), REPO: 'o/r', FAKE_OPEN: '', FAKE_BODY: '', GITHUB_STEP_SUMMARY: '', ...env } });
+    return { ...out, gh: readFileSync(join(proj, 'gh.log'), 'utf8') };
+  };
+  const withLines = { ...example, kit_updates: { pr_body_lines: [good, ...evil.slice(0, 6), 'Kit-update: standing (K011)'] } };
+  let out = runBlock(withLines);
+  const body = (out.stdout.match(/BODY<<([\s\S]*)>>/) || [])[1] || '';
+  const bodyLines = body.split('\n');
+  ok(out.status === 0 && bodyLines.includes(good) && bodyLines.includes('Kit-update: standing (K011)') && bodyLines[0].startsWith('Kit 0.7.0 → 0.8.0'), 'a new PR body carries each valid line verbatim at column 1, after the kit text');
+  const out2 = runBlock({ ...example, kit_updates: { pr_body_lines: [good, ...evil.slice(6)] } });
+  const dropped = (out.stderr + out2.stderr).match(/warning: dropped/g) || [];
+  ok(!/<img|Injected|bold|here\]/.test(body) && !/Closes|fixes|Resolved|fix #7|issues\/8/.test(out2.stdout) && out2.stdout.includes(good) && dropped.length === evil.length, `markdown, HTML, newlines, a leading space, an over-long line and closing keywords are dropped, each with a warning (${dropped.length})`);
+  out = runBlock(withLines, { FAKE_OPEN: '41', FAKE_BODY: 'Kit 0.7.0 → 0.8.0 (update), opened by hands-update.' });
+  ok(out.status === 0 && /^pr edit 41 --repo o\/r --body Kit 0\.7\.0[\s\S]*\nTier-3: authorized by card #12/m.test(out.gh) && /already open \(#41\); its body now carries/.test(out.stdout) && !out.stdout.includes('BODY<<'),
+    'a PR opened earlier without the lines gets its body edited (the guard re-runs on edited), and the run stops there');
+  const current = body;
+  out = runBlock(withLines, { FAKE_OPEN: '41', FAKE_BODY: current });
+  ok(out.status === 0 && !/pr edit/.test(out.gh) && /already open \(#41\)$/m.test(out.stdout), 'an open PR whose body already matches is left alone');
+  out = runBlock(example, { FAKE_OPEN: '41', FAKE_BODY: 'anything' });
+  ok(out.status === 0 && !/pr edit/.test(out.gh) && out.stderr === '', 'no kit_updates: no lines, no warnings, and an open PR is not edited');
+  out = runBlock({ kit_updates: { pr_body_lines: 'Closes #1' } });
+  const many = runBlock({ ...example, kit_updates: { pr_body_lines: Array.from({ length: 12 }, (_, i) => `Line ${i}`) } });
+  ok(many.status === 0 && /only the first 10/.test(many.stderr) && many.stdout.includes('Line 9') && !many.stdout.includes('Line 10'), 'at most 10 lines are read, with a warning');
+  ok(out.status === 0 && /not a list/.test(out.stderr) && !/Closes/.test(out.stdout), 'a malformed field is a warning, never a failed update');
+  rmSync(proj, { recursive: true, force: true });
 }
 
 console.log(`test-hands: OK · ${n} checks`);
