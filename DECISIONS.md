@@ -361,3 +361,31 @@ CI; propose the laptop lane only where measurements show a real benefit."
    `RUNNER` lane here is the project's existing self-hosted runner, not a new one.
 
 **Status:** STANDING.
+
+## K012 · 2026-10-05 · STANDING — kit update PRs keep themselves current
+
+**Source:** the owner's message in the project chat on 2026-10-05 (item 4), verbatim: "Kit-update PRs
+must keep themselves current: when the base branch moves, the updater brings its PR up to date (the
+App's update-branch call) instead of a thread doing it by hand."
+
+1. **Why it is needed.** A strict required-checks rule (A11) makes a PR "behind" whenever its base
+   branch moves, and GitHub's auto-merge then waits forever: it never updates the branch. Two kit
+   update PRs sat that way on 2026-10-05 until a session updated them by hand.
+2. **Who updates.** `hands-keep` in the control repository, with an App token (A13: a commit made
+   with a workflow's own `GITHUB_TOKEN` starts no checks, so the PR would wait again). It calls
+   GitHub's update-branch for each open kit update PR (`harness/kit-X.Y.Z`, opened by the App, from
+   the same repository) that is behind, pinned to the head it saw; the project's checks run on the
+   new head and auto-merge goes on. It never touches another PR, a draft or a conflicted one. A
+   project cannot reach the control repository on its own push without a credential (K008.1), so
+   the check is a schedule, not an event.
+3. **Cost (O13).** The workflow is on only while a kit update PR is open: `hands-update` turns it on
+   and runs it once when it opens or finds one; the first run that finds none turns it off with the
+   control repository's own token. Hourly while on, one one-minute job, plus one report job when it
+   writes, fails or turns off: about 2-4 GitHub-hosted minutes per kit update; a PR left open longer
+   than `HANDS_KEEP_HOURS` (72) is left to the stale-work check, so one stuck PR costs at most about
+   75. A workflow turned off by hand (as this one turns itself off) is not a missed schedule.
+4. **Token.** The job's token covers the App's repositories (it lists them first) with contents,
+   pull-requests and workflows write: update-branch merges the base into the PR's branch, which may
+   carry workflow changes. It is used for that call only, and every update is logged in the hands log.
+
+**Status:** STANDING.

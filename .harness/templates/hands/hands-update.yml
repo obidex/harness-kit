@@ -4,6 +4,7 @@
 # hands App opens and sets to auto-merge; the project's required checks decide. Replaces the
 # per-project harness-update workflow and its token (K007). A project whose CI requires a body line
 # on such PRs names it in its profile (kit_updates.pr_body_lines); the PR body carries it verbatim.
+# While such a PR is open, hands-keep (turned on here) brings it up to date whenever its base moves (K012).
 name: hands-update
 
 on:
@@ -69,6 +70,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: hands
+    permissions:
+      actions: write   # only to turn hands-keep on and run it (this repository's own token)
+      contents: read
     strategy:
       fail-fast: false
       max-parallel: 4
@@ -111,6 +115,7 @@ jobs:
         with:
           node-version: 22
       - name: Open the maintenance PR and turn on auto-merge
+        id: open
         env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
           HARNESS_KIT_REPO: ${{ vars.HARNESS_KIT_REPO && format('https://github.com/{0}', vars.HARNESS_KIT_REPO) || '' }}
@@ -168,6 +173,7 @@ jobs:
             else
               log "a PR for kit $target is already open (#$open)"
             fi
+            echo "pr=$open" >> "${GITHUB_OUTPUT:-/dev/null}"
             exit 0
           fi
           # --- end PR body ---
@@ -189,7 +195,17 @@ jobs:
           git push -q --force origin "$branch"   # harness/* branches belong to this workflow
           url="$(gh pr create --repo "$REPO" --head "$branch" --title "chore(harness): $verb kit $current to $target" --body "$body")"
           gh pr merge "$url" --auto --squash
+          echo "pr=${url##*/}" >> "$GITHUB_OUTPUT"
           log "opened $url ($verb kit $current to $target) with auto-merge on"
+      - name: Keep the PR current while it is open (hands-keep, K012)
+        if: steps.open.outputs.pr != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api -X PUT "repos/$GITHUB_REPOSITORY/actions/workflows/hands-keep.yml/enable"
+          gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/hands-keep.yml/dispatches" -f ref=main
+          echo "hands-keep is on until no kit update PR is left open." >> "$GITHUB_STEP_SUMMARY"
       - if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:

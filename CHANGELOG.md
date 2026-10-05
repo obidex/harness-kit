@@ -3,6 +3,21 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.11.0 · 2026-10-05 · kit update PRs keep themselves current
+
+- New control-repository workflow `hands-keep` (K012): every open kit update PR of the App's that has
+  fallen behind its base branch (a strict required-checks rule) is brought up to date through the App
+  with GitHub's update-branch, so its checks run again and auto-merge goes on. No session updates
+  such a PR by hand any more. `hands.mjs keep` does the work; conflicted, draft, other and older
+  PRs (`HANDS_KEEP_HOURS`, default 72) are left alone. Every update is logged in the hands log; a
+  refused one is one problem in "Kit & Hands".
+- `hands-update` turns `hands-keep` on, and runs it once, whenever it opens or finds a kit update PR
+  (its job gains `actions: write`, this repository's own token, for that alone); `hands-keep` turns
+  itself off when none is left. Cost: about 2-4 GitHub-hosted minutes per kit update, at most about
+  75 for a PR left open 3 days (`.harness/hands.md`).
+- Control repository: copy `hands-keep.yml` and the new `hands-update.yml` from
+  `.harness/templates/hands/`, then pin 0.11.0.
+
 ## 0.10.0 · 2026-10-05 · missed scheduled runs alert
 
 - GitHub's scheduled runs are best-effort, so none is trusted silently. `stale.mjs schedules --repo
