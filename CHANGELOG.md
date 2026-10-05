@@ -3,6 +3,24 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.8.0 · 2026-10-05 · one notification standard for every sender
+
+- Owner default O10 rewritten: one bot, one Telegram group with topics ("Needs you" the only loud
+  one, a topic per project, "Laptop & VPS", "Daily"); quiet hours 23:00-08:00 Damascus except a
+  production outage; every PROBLEM answered by a RESOLVED (or STILL OPEN) reply to its own message; a
+  silent problem open 3 hours escalates to "Needs you"; deduplication by key and caps per topic (K010).
+- `.harness/tools/notify.mjs` (`setup`, `find`, `problem`, `resolve`, `tick`, `digest`, `send`,
+  `test`): the one sender every workflow and host uses. The bot creates the topics and pins their ids
+  in the group, so a sender needs only the token and the chat id. Problems live in a state file on a
+  host, or as one issue each in a GitHub repository. `.harness/alerts.md`: the rules, how each sender
+  uses it, who runs the clock, setup and cost.
+- Control repository: `hands-report` alerts through `notify.mjs` and resolves on the next green run;
+  the daily drift check also resolves `hands-settings`, ticks and posts the daily digest (no extra
+  job); new `hands-alerts` (`find`, `setup`, `test`, `send`, `tick`, `digest` on dispatch; an hourly
+  tick only when `ALERTS_TICK=on`, about 450 minutes a month). The group id lives in the file
+  `ALERTS_CHAT_ID` there, over the older `TELEGRAM_CHAT_ID`.
+- Audit O10: `notify.mjs` installed, and a file that calls the Telegram API itself is reported.
+
 ## 0.7.0 · 2026-10-05 · the inbox: cross-project requests as issues, picked up without the owner
 
 - Owner default O14 and the `inbox` skill: work for another project is an issue labelled `inbox` in

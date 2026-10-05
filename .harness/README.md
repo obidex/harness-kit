@@ -14,6 +14,7 @@ Installed in each project as a pinned copy (K001). Layers, not systems:
 | Rules left to projects, and conflicts | `project-specific.md` | Lookup |
 | The hands App in operation: when settings apply, the emergency stop, minutes per workflow | `hands.md` | Lookup |
 | Cross-project requests: the issue shape, pickup wiring, setup, cost | `inbox.md`, `tools/inbox.mjs`, `templates/workflows/harness-inbox.yml` | Lookup |
+| Alerts: the one Telegram group, its rules, each sender's wiring, cost (O10) | `alerts.md`, `tools/notify.mjs` | Lookup |
 | Audit: structural script and judgment review | `tools/audit.mjs`, `audit/README.md` | Run, never loaded |
 | Installer and updater | `tools/harness.mjs`, workflows from `templates/workflows/` | Run, never loaded |
 | Kit skills: `correct` (C19 prevention ladder), `inbox` (O14 requests) | `templates/skills/<name>/`, installed as `.claude/skills/<name>/` | Loaded when named |

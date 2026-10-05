@@ -8,6 +8,9 @@
 # The App key lives in the `hands` environment, which only this repository's main branch can use;
 # every write token is minted for one job, one repository and the permissions that job needs.
 # Emergency stop: the Actions variable HANDS_PAUSED (README "Emergency").
+# The daily run also does the alert standard's daily work (O10, K010): escalations and STILL OPEN
+# replies for this repository's open problems, and the one digest in the "Daily" topic at 08:17
+# Damascus time. No extra job: two steps in the drift check's job.
 name: hands-settings
 
 on:
@@ -32,6 +35,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     environment: hands
+    permissions:
+      contents: read
+      issues: write
     outputs:
       repos: ${{ steps.find.outputs.repos }}
     steps:
@@ -70,6 +76,38 @@ jobs:
           echo "repos=${repos:-[]}" >> "$GITHUB_OUTPUT"
           echo "To apply: ${repos:-[]}" >> "$GITHUB_STEP_SUMMARY"
           exit $rc
+      # a full check that found nothing to apply is green: it closes an open hands-settings problem
+      - name: Resolve an open hands-settings problem
+        if: success() && inputs.repo == '' && steps.find.outputs.repos == '[]'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ALERTS_STORE: github:${{ github.repository }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          ALERTS_CHAT_ID_FILE: ALERTS_CHAT_ID
+        run: node kit/.harness/tools/notify.mjs resolve --key hands/hands-settings --text "hands-settings green again: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+      - name: Escalate and remind this repository's open problems
+        if: always() && github.event_name == 'schedule'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          ALERTS_CHAT_ID_FILE: ALERTS_CHAT_ID
+        run: node kit/.harness/tools/notify.mjs tick --stores "github:${{ github.repository }}"
+      - name: The daily digest, across every enrolled repository
+        if: always() && github.event_name == 'schedule'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          SELF: ${{ github.repository }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          ALERTS_CHAT_ID_FILE: ALERTS_CHAT_ID
+        run: |
+          set -euo pipefail
+          stores="$(node kit/.harness/tools/hands.mjs discover | node -e 'const a=JSON.parse(require("fs").readFileSync(0,"utf8")).map(r=>r.repo);console.log([...new Set([process.env.SELF,...a])].map(r=>"github:"+r).join(","))')"
+          node kit/.harness/tools/notify.mjs digest --stores "$stores"
 
   apply:
     needs: discover

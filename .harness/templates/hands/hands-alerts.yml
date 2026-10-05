@@ -1,0 +1,87 @@
+# Harness Kit control repository (K007, K010): copied into the owner's control repository, never into a project.
+# The alert standard's own workflow (O10, `.harness/alerts.md`), run with the bot token in the `hands`
+# environment:
+# - dispatch `find` to see the bot's name and the groups it was added to (the group's id goes in the
+#   file ALERTS_CHAT_ID here, by PR); then `setup`: checks Topics and the bot's admin rights, creates
+#   the missing topics and pins the config every sender reads; then `test`: a PROBLEM and its RESOLVED
+#   reply in "Kit & Hands". `send` posts one message (topic + text); `tick` and `digest` run by hand.
+# - hourly from 08:00 to 22:00 Damascus time, the tick: escalates every enrolled repository's silent
+#   problems open 3 hours to "Needs you" and sends problems held by a cap. OFF until the owner turns it
+#   on (Actions variable ALERTS_TICK=on): about 450 GitHub-hosted minutes a month (15 one-minute jobs a
+#   day, O13). While it is off, the daily drift check of hands-settings ticks this repository once a day,
+#   and a host's cron can tick every repository for free (alerts.md "Ticking").
+name: hands-alerts
+
+on:
+  schedule:
+    - cron: '23 5-19 * * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: find, setup, test, send, tick or digest
+        required: true
+        default: test
+      topic:
+        description: For send (needs, erp, website, kit, ops, daily)
+        required: false
+      text:
+        description: For send
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hands-alerts
+  cancel-in-progress: false
+
+jobs:
+  alerts:
+    # a skipped scheduled job starts no runner and costs no minutes
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || vars.ALERTS_TICK == 'on')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: hands
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - id: kit
+        run: echo "ref=v$(tr -d '[:space:]' < HANDS_KIT_VERSION)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.HARNESS_KIT_REPO || 'obidex/harness-kit' }}
+          ref: ${{ steps.kit.outputs.ref }}
+          path: kit
+          persist-credentials: false
+      - id: token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.HARNESS_APP_ID }}
+          private-key: ${{ secrets.HARNESS_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          permission-contents: read
+          permission-metadata: read
+          permission-issues: write
+      - env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          MODE: ${{ github.event_name == 'schedule' && 'tick' || inputs.mode }}
+          TOPIC: ${{ inputs.topic }}
+          TEXT: ${{ inputs.text }}
+          SELF: ${{ github.repository }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          ALERTS_CHAT_ID_FILE: ALERTS_CHAT_ID
+        run: |
+          set -euo pipefail
+          n="node kit/.harness/tools/notify.mjs"
+          stores() { node kit/.harness/tools/hands.mjs discover | node -e 'const a=JSON.parse(require("fs").readFileSync(0,"utf8")).map(r=>r.repo);console.log([...new Set([process.env.SELF,...a])].map(r=>"github:"+r).join(","))'; }
+          case "$MODE" in
+            find) $n find ;;
+            setup) $n setup ;;
+            test) $n test ;;
+            send) $n send --topic "$TOPIC" --text "$TEXT" ;;
+            tick) $n tick --stores "$(stores)" ;;
+            digest) $n digest --stores "$(stores)" ;;
+            *) echo "FAIL: mode '$MODE' is not find, setup, test, send, tick or digest"; exit 1 ;;
+          esac | tee -a "$GITHUB_STEP_SUMMARY"

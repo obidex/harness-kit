@@ -36,3 +36,5 @@ jobs:
         run: node tools/test-hands.mjs
       - name: Inbox (cross-project requests)
         run: node tools/test-inbox.mjs
+      - name: Alerts (the notification standard)
+        run: node tools/test-notify.mjs

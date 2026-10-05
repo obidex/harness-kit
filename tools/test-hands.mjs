@@ -120,6 +120,16 @@ ok(/hands\.mjs drift/.test(files['hands-settings.yml']) && /needs\.discover\.out
 ok(/!cancelled\(\)/.test(hs.jobs.apply.if) && !/always\(\)/.test(hs.jobs.apply.if), 'a cancelled run starts no apply');
 ok(hs.jobs.discover.steps.find((x) => x.id === 'find').env.HANDS_READ_ONLY, 'the drift check runs read-only');
 
+// the alert standard (O10, K010): every hands alert goes through notify.mjs, and the hourly tick costs nothing until turned on
+ok(!Object.values(files).some((t) => /api\.telegram\.org/.test(t)), 'no control workflow calls the Telegram API itself');
+ok(/notify\.mjs problem --key "hands\/\$JOB"/.test(files['hands-report.yml']) && /notify\.mjs resolve --key "hands\/\$JOB"/.test(files['hands-report.yml']), 'hands-report opens a problem on failure and resolves it on success');
+{
+  const ha = parseYaml(files['hands-alerts.yml']);
+  ok(/vars\.ALERTS_TICK == 'on'/.test(ha.jobs.alerts.if) && /github\.event_name == 'workflow_dispatch'/.test(ha.jobs.alerts.if), 'the scheduled tick runs only with ALERTS_TICK=on (a skipped job starts no runner)');
+  ok(ha.on.schedule.length === 1 && ha.on.schedule[0].cron === '23 5-19 * * *' && /450/.test(files['hands-alerts.yml']), 'the tick is hourly 08:00-22:00 Damascus and names its estimate');
+  const hs2 = parseYaml(files['hands-settings.yml']).jobs.discover;
+  ok(hs2.steps.filter((x) => /notify\.mjs (tick|digest)/.test(x.run || '')).every((x) => x.if === "always() && github.event_name == 'schedule'" && String(x['continue-on-error']) === 'true'), 'the daily tick and digest ride the drift check, scheduled runs only, and never fail it');
+}
 // the emergency stop
 ok(paused('o/r', 'x/y, o/r') && paused('O/R', '*') && !paused('o/r', 'o/rr x/y') && !paused('o/r', ''), 'HANDS_PAUSED names repositories (or *) exactly');
 

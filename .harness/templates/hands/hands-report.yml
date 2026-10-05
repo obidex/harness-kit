@@ -1,7 +1,8 @@
 # Harness Kit control repository (K007): the record and the alert for every hands run.
 # Each run that changed something adds one comment, listing every write, to this month's log issue
-# here. A failure opens one tracking issue and sends one Telegram message; while that issue stays
-# open, later failures only comment on it (O10: deduplicated, never for success).
+# here. Alerts follow the owner's one standard (O10, K010, `.harness/alerts.md`): a failure is one
+# problem, kept as an issue here, sent once to the "Kit & Hands" topic; a repeat only comments on that
+# issue; the next green run replies RESOLVED to the Telegram message and closes the issue.
 name: hands-report
 
 on:
@@ -24,6 +25,7 @@ jobs:
     environment: hands
     permissions:
       actions: read
+      contents: read
       issues: write
     steps:
       - uses: actions/download-artifact@v4
@@ -45,21 +47,38 @@ jobs:
           n="$(gh issue list --state all --search "\"$title\" in:title" --json number --jq '.[0].number // empty')"
           [ -n "$n" ] || n="$(gh issue create --title "$title" --body "Every write the hands App made this month, one comment per run." | grep -oE '[0-9]+$')"
           printf '%s · %s\n\n%s\n' "$JOB" "$url" "$writes" | gh issue comment "$n" --body-file -
-      - name: Alert once on failure
-        if: inputs.result == 'failure'
+      # notify.mjs from the kit tag this repository pins, never another copy (K007.7)
+      - if: inputs.result == 'failure' || inputs.result == 'success'
+        uses: actions/checkout@v4
+        with:
+          path: control
+          persist-credentials: false
+      - if: inputs.result == 'failure' || inputs.result == 'success'
+        id: kit
+        run: echo "ref=v$(tr -d '[:space:]' < control/HANDS_KIT_VERSION)" >> "$GITHUB_OUTPUT"
+      - if: inputs.result == 'failure' || inputs.result == 'success'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.HARNESS_KIT_REPO || 'obidex/harness-kit' }}
+          ref: ${{ steps.kit.outputs.ref }}
+          path: kit
+          persist-credentials: false
+      - name: A failure is one problem; a green run resolves it
+        if: inputs.result == 'failure' || inputs.result == 'success'
         env:
           GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
           JOB: ${{ inputs.job }}
+          RESULT: ${{ inputs.result }}
+          ALERTS_STORE: github:${{ github.repository }}
+          ALERTS_REQUIRE_SEND: '1'
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          ALERTS_CHAT_ID_FILE: control/ALERTS_CHAT_ID
         run: |
           set -euo pipefail
           url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          title="$JOB failing"
-          n="$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number // empty')"
-          if [ -n "$n" ]; then gh issue comment "$n" --body "Still failing: $url"; exit 0; fi
-          gh issue create --title "$title" --body "FAIL: $url"
-          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then echo "::error::Telegram secrets are not set; the alert went only to the issue"; exit 1; fi
-          curl -fsS -o /dev/null "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" --data-urlencode "text=⚠️ ${JOB} failed in ${{ github.repository }}: ${url}"
+          if [ "$RESULT" = failure ]; then
+            node kit/.harness/tools/notify.mjs problem --key "hands/$JOB" --topic kit --title "$JOB failing" --text "$JOB failed in ${{ github.repository }}" --link "$url"
+          else
+            node kit/.harness/tools/notify.mjs resolve --key "hands/$JOB" --text "$JOB green again: $url"
+          fi

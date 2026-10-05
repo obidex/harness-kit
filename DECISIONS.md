@@ -298,3 +298,28 @@ them."
 
 **Status:** STANDING.
 
+## K010 · 2026-10-05 · STANDING — one notification standard for every sender
+
+**Source:** the owner's message in the project chat on 2026-10-05 (thread
+`cmsg_01C7xQzuv2D5T8yCbVzmNegvSqVu1ebs9vGbV82HCoLP13`), summarized without private names: one bot
+and one private Telegram group with Topics: "Needs you" (loud, action-required only), one topic per
+project, "Kit & Hands", "Laptop & VPS" (silent) and "Daily" (one silent digest a day); the bot
+creates the topics itself and the owner only creates the group, turns on Topics and adds the bot as
+admin. Every PROBLEM gets a RESOLVED or STILL OPEN posted as a reply to its original message; a
+silent problem still open after 3 hours escalates to "Needs you". Quiet hours 23:00-08:00 Damascus:
+everything silent except a production outage. Every sender uses it, with deduplication and caps; the
+kit's installer carries it into each project; added Actions minutes are reported before they are
+turned on.
+
+1. **One tool.** `notify.mjs` holds every rule; no workflow or script calls Telegram itself (audit
+   O10). Supersedes the direct Telegram call in `hands-report` (K007).
+2. **The group holds its own config.** `setup` creates the topics and pins their ids, so senders
+   carry only the token and the chat id; the bot is the only writer.
+3. **State where the sender lives.** A host keeps a state file; GitHub keeps one issue per problem,
+   so the record is readable by agents and costs nothing. The Telegram message id rides in the issue.
+4. **The clock is a tick.** Escalation, STILL OPEN and held messages need a periodic `tick`. Hosts
+   tick from cron for free; the control repository ticks itself in its daily job; an hourly Actions
+   tick across repositories exists but is off until the owner turns it on (O13).
+5. **Quiet escalation waits.** An escalation due in quiet hours is posted at 08:00, so it is heard.
+
+**Status:** STANDING.
