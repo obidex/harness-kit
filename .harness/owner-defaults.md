@@ -38,3 +38,8 @@
   the gates (C12).
 - **O12 Read for meaning.** He types fast. When two readings lead to different irreversible
   actions, ask one yes/no in the batch; otherwise act on the meaning.
+- **O13 Metered resources need notice.** Nothing that uses GitHub-hosted runner minutes, a paid
+  service, storage or another metered resource is added or increased without first telling the owner
+  what and an estimate (e.g. "about 30 min/month"). Schedules run no more often than the work needs;
+  an event or a cheap daily check beats an hourly poll; a public repo's or a self-hosted runner's
+  minutes are not metered, but say which.

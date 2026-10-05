@@ -12,6 +12,7 @@ Installed in each project as a pinned copy (K001). Layers, not systems:
 | Platform adapter: Claude Code + GitHub loading, limits, lessons | `adapters/claude-code-github.md` | Lookup |
 | Rule catalogue: applies when, outcome, source, verification per ID | `catalogue/` | Lookup |
 | Rules left to projects, and conflicts | `project-specific.md` | Lookup |
+| The hands App in operation: when settings apply, the emergency stop, minutes per workflow | `hands.md` | Lookup |
 | Audit: structural script and judgment review | `tools/audit.mjs`, `audit/README.md` | Run, never loaded |
 | Installer and updater | `tools/harness.mjs`, workflows from `templates/workflows/` | Run, never loaded |
 | Kit skills: `correct` (C19 prevention ladder) | `templates/skills/<name>/`, installed as `.claude/skills/<name>/` | Loaded when named |

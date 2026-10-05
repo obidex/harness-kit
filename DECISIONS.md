@@ -240,3 +240,35 @@ needs him (creating a new repo, payments, physical machines)."
    the key; a kit change reaches the key only through a reviewed release and a reviewed pin bump.
 
 **Status:** STANDING.
+
+## K008 · 2026-10-05 · STANDING — settings apply on change; metered resources need notice
+
+**Source:** the owner's message in the project chat on 2026-10-05 (items 1 and 2), verbatim:
+"COST FIRST, now: hands-settings runs hourly on GitHub-hosted runners (about 4 jobs × 24 × 30 ≈
+2,900 minutes a month with ERP and website enrolled, close to the whole GitHub Pro allowance).
+Change it today: apply only when a settings file changes on a default branch (an authorized
+trigger), plus one daily drift check, with no per-repo jobs for unchanged repos. Keep the App key in
+its current environment; don't move it onto a general CI worker. Report the old and new monthly
+minute estimate." and "RESOURCE RULE (owner, all projects): nothing that uses GitHub-hosted minutes,
+paid services, storage or other metered resources is added or increased without telling the owner
+first with an estimate. Inventory every workflow in harness-kit, harness-hands and the sandbox that
+runs on GitHub-hosted runners, with monthly minutes, and put the rule in the kit's owner defaults so
+every project inherits it."
+
+1. **The authorized trigger is a dispatch.** A project's push cannot start a workflow in the control
+   repository without a credential in the project, and the key stays in the `hands` environment.
+   So the session that merges a settings PR dispatches `hands-settings` for that repository; only
+   write access to the control repository can, and only its reviewed `main` runs. Supersedes the
+   "hourly" in K007 item 4.
+2. **One daily drift check.** One job compares every enrolled repository with its file; only
+   those that differ get a write job. A missed dispatch is applied within a day. GitHub hides a
+   ruleset's bypass list from a read-only token, which would read as drift every day, so the
+   check's token carries administration write and the tool itself refuses every write
+   (`HANDS_READ_ONLY`). The job runs only the pinned kit, which already holds the key there.
+3. **Read back.** Every apply re-reads the live settings and fails unless they match the file.
+4. **Emergency stop.** `HANDS_PAUSED` names repositories the hands leave alone; the path back is
+   pause, repair, bring the file into agreement, resume (`.harness/hands.md`).
+5. **O13** carries the resource rule to every project.
+
+**Status:** STANDING.
+
