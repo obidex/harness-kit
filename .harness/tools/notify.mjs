@@ -291,10 +291,11 @@ export async function setup(tg) {
   const member = await tg.call('getChatMember', { chat_id: tg.chat, user_id: me.id });
   const missing = ['can_manage_topics', 'can_pin_messages'].filter((p) => !member[p]);
   if (member.status !== 'administrator' || missing.length) throw new Error(`@${me.username} must be an admin with ${missing.join(' and ') || 'Manage topics and Pin messages'}`);
-  // only the config stays pinned (owner, 2026-10-06): a message pinned after it hides it from every sender
-  // (Telegram shows senders the newest pin), so unpin those first, then read the config
+  // only the config stays pinned (owner, 2026-10-06): senders read the chat's pinned message (the newest
+  // pinned one by sending date), so a pin of a later message hides the config; unpin those, then read it
   let top = chat.pinned_message;
-  for (let k = 0; top && !String(top.text || '').startsWith(CONFIG_MARK) && k < 20; k++) {
+  for (let k = 0; top && !String(top.text || '').startsWith(CONFIG_MARK); k++) {
+    if (k === 20) throw new Error('20 messages pinned over the config: unpin them in the group, then run setup again');
     await tg.call('unpinChatMessage', { chat_id: tg.chat, message_id: top.message_id });
     out.push(`unpinned message ${top.message_id}`);
     top = (await tg.call('getChat', { chat_id: tg.chat })).pinned_message;
@@ -312,7 +313,9 @@ export async function setup(tg) {
     await tg.call('pinChatMessage', { chat_id: tg.chat, message_id: m.message_id, disable_notification: true });
     out.push('pinned the config');
   }
-  out.push(`topics ${JSON.stringify(topics)}`);
+  // nothing is pinned inside a topic either: the config lives in General, problems never stay pinned
+  for (const id of Object.values(topics)) await tg.call('unpinAllForumTopicMessages', { chat_id: tg.chat, message_thread_id: id });
+  out.push(`topics ${JSON.stringify(topics)} (no pins inside them)`);
   return out;
 }
 

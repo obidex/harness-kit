@@ -8,8 +8,9 @@
 
 One bot, one private Telegram group with Topics on. The bot creates the topics itself (`notify.mjs
 setup`) and pins a config message listing their ids, so a sender needs only the bot token and the
-group's chat id. Only the config stays pinned: senders read the newest pin, so `setup` unpins anything
-pinned after it, and a RESOLVED unpins its problem.
+group's chat id. Only the config stays pinned: senders read the chat's pinned message (the newest by sending date),
+so `setup` unpins any later message pinned over it and every pin inside the topics, and a RESOLVED
+unpins its problem.
 
 | Topic | Key | Sound | What goes there |
 |---|---|---|---|

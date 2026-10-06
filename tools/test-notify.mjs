@@ -30,7 +30,8 @@ const tgServer = await listen((req, res, p) => {
   if (method === 'createForumTopic') { const id = ++tgState.msg; tgState.topics[p.name] = id; return r({ message_thread_id: id, name: p.name }); }
   if (method === 'sendMessage') { tgState.calls.at(-1).message_id = ++tgState.msg; return r({ message_id: tgState.msg, text: p.text }); }
   if (method === 'getUpdates') return r([{ update_id: 1, my_chat_member: { chat: { id: -1009, title: 'Owner alerts', type: 'supergroup', is_forum: true } } }, { update_id: 2, message: { chat: { id: 55, type: 'private' } } }]);
-  if (method === 'pinChatMessage') { const sent = tgState.calls.findLast((c) => c.method === 'sendMessage' && c.message_id === p.message_id) || tgState.calls.findLast((c) => c.method === 'sendMessage'); tgState.pins.push({ message_id: p.message_id, text: sent.text }); tgState.pinned = tgState.pins.at(-1); return r(true); }
+  if (method === 'pinChatMessage') { const sent = tgState.calls.findLast((c) => c.method === 'sendMessage' && c.message_id === p.message_id) || tgState.calls.findLast((c) => c.method === 'sendMessage'); tgState.pins.push({ message_id: p.message_id, text: sent.text, thread: sent.message_thread_id }); tgState.pinned = tgState.pins.at(-1); return r(true); }
+  if (method === 'unpinAllForumTopicMessages') { tgState.pins = tgState.pins.filter((x) => x.thread !== p.message_thread_id); tgState.pinned = tgState.pins.at(-1) || null; return r(true); }
   if (method === 'unpinChatMessage') { const k = tgState.pins.findIndex((x) => x.message_id === p.message_id); if (k < 0) return json(res, 400, { ok: false, description: 'Bad Request: message is not pinned' }); tgState.pins.splice(k, 1); tgState.pinned = tgState.pins.at(-1) || null; return r(true); }
   return json(res, 400, { ok: false, description: `no ${method}` });
 });
@@ -62,6 +63,12 @@ const T = (name) => tgState.topics[TOPICS[name].name];
   const before = mark(); const lines = await setup(telegram());
   ok(lines.includes(`unpinned message ${stray}`) && !tgState.pins.some((x) => x.message_id === stray) && tgState.pins.length === 1 && tgState.pinned?.text.startsWith('harness-alerts config')
     && !tgState.calls.slice(before).some((c) => c.method === 'createForumTopic' || c.method === 'sendMessage'), 'setup unpins anything pinned after the config, so only the config stays pinned, and creates no topic twice');
+}
+{ // a pin inside a topic that does not hide the config (Telegram may show only General's) is cleared too
+  const tg0 = telegram(); const cfg = tgState.pinned; const old = await tg0.send('kit', 'PROBLEM · an old test');
+  tgState.pins.unshift({ message_id: old, text: 'PROBLEM · an old test', thread: T('kit') });
+  await setup(telegram());
+  ok(tgState.pins.length === 1 && tgState.pinned === cfg, 'setup clears every pin inside the topics; the config in General stays');
 }
 
 // a silent problem, its repeat, its resolve

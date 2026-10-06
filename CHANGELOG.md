@@ -6,8 +6,8 @@ Each version is the tag `v<version>` on this repository, never moved (K003). Pro
 ## 0.11.1 · 2026-10-06 · only the config stays pinned; a new scheduled job is not "never run"
 
 - `notify.mjs resolve` unpins the problem's message (and its escalation): a resolved problem never
-  stays pinned. `notify.mjs setup` unpins every message pinned after the config, which hid the config
-  from every sender (they read the newest pin), and creates no topic twice. Dispatch `setup` once in
+  stays pinned. `notify.mjs setup` unpins any later message pinned over the config, which hid it from
+  every sender, then clears every pin inside the topics; it creates no topic twice. Dispatch `setup` once in
   the control repository to clean a group up (K013).
 - `stale.mjs schedules`: a test proves a workflow new to its repository, or moved there, raises nothing
   before its first due time is 36 hours past; its clock starts when it appeared (already the

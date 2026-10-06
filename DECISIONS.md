@@ -397,9 +397,10 @@ noise"), items 2 and 4: "Unpin it; only the config message stays pinned. Resolve
 pinned." and "A newly enrolled or moved scheduled job starts its overdue clock from when it was
 enrolled, not from 'never'."
 
-1. **Pins.** Senders find the topics in the group's newest pinned message, so any pin after the config
-   hides it. `resolve` unpins its problem's messages; `setup` unpins whatever was pinned after the
-   config, then reads it. Proven in `tools/test-notify.mjs`.
+1. **Pins.** Senders find the topics in the chat's pinned message (the newest pinned one by sending
+   date), so a later message pinned over the config hides it. `resolve` unpins its problem's
+   messages; `setup` unpins any message over the config, then reads it, and clears every pin inside
+   the topics (the config lives in General). Proven in `tools/test-notify.mjs`.
 2. **Overdue clock.** A missed-run check starts at the newest run on schedule or by hand or, with none,
    when the workflow appeared in its repository (`stale.mjs`; the VPS's own check follows the same
    rule). Proven in `tools/test-stale.mjs`.
