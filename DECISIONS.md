@@ -389,3 +389,19 @@ App's update-branch call) instead of a thread doing it by hand."
    carry workflow changes. It is used for that call only, and every update is logged in the hands log.
 
 **Status:** STANDING.
+
+## K013 · 2026-10-06 · STANDING — resolved problems never stay pinned; a moved job is not "never run"
+
+**Source:** the owner's message in the project chat on 2026-10-06 ("Overnight alerts, 6 Oct — fix the
+noise"), items 2 and 4: "Unpin it; only the config message stays pinned. Resolved problems never stay
+pinned." and "A newly enrolled or moved scheduled job starts its overdue clock from when it was
+enrolled, not from 'never'."
+
+1. **Pins.** Senders find the topics in the group's newest pinned message, so any pin after the config
+   hides it. `resolve` unpins its problem's messages; `setup` unpins whatever was pinned after the
+   config, then reads it. Proven in `tools/test-notify.mjs`.
+2. **Overdue clock.** A missed-run check starts at the newest run on schedule or by hand or, with none,
+   when the workflow appeared in its repository (`stale.mjs`; the VPS's own check follows the same
+   rule). Proven in `tools/test-stale.mjs`.
+
+**Status:** STANDING.

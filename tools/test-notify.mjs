@@ -16,7 +16,7 @@ const ok = (cond, what) => { n++; if (!cond) { console.log(`test-notify: FAIL ${
 const at = (iso) => { process.env.ALERTS_NOW = iso; return new Date(iso).getTime(); };
 
 // --- a stand-in Telegram: a forum group the bot administers -----------------------------------------
-const tgState = { calls: [], msg: 100, topics: {}, pinned: null, forum: true, admin: true };
+const tgState = { calls: [], msg: 100, topics: {}, pinned: null, pins: [], forum: true, admin: true };
 const json = (res, code, data) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(data)); };
 const listen = (handler) => new Promise((done) => { const s = createServer((req, res) => { let b = ''; req.on('data', (c) => { b += c; }); req.on('end', () => handler(req, res, b ? JSON.parse(b) : {})); }); s.listen(0, '127.0.0.1', () => done(s)); });
 const tgServer = await listen((req, res, p) => {
@@ -28,9 +28,10 @@ const tgServer = await listen((req, res, p) => {
   if (method === 'getChat') return r({ id: -1001234, title: 'Owner alerts', type: 'supergroup', is_forum: tgState.forum, pinned_message: tgState.pinned });
   if (method === 'getChatMember') return r(tgState.admin ? { status: 'administrator', can_manage_topics: true, can_pin_messages: true } : { status: 'member' });
   if (method === 'createForumTopic') { const id = ++tgState.msg; tgState.topics[p.name] = id; return r({ message_thread_id: id, name: p.name }); }
-  if (method === 'sendMessage') return r({ message_id: ++tgState.msg, text: p.text });
+  if (method === 'sendMessage') { tgState.calls.at(-1).message_id = ++tgState.msg; return r({ message_id: tgState.msg, text: p.text }); }
   if (method === 'getUpdates') return r([{ update_id: 1, my_chat_member: { chat: { id: -1009, title: 'Owner alerts', type: 'supergroup', is_forum: true } } }, { update_id: 2, message: { chat: { id: 55, type: 'private' } } }]);
-  if (method === 'pinChatMessage') { const sent = tgState.calls.findLast((c) => c.method === 'sendMessage'); tgState.pinned = { message_id: p.message_id, text: sent.text }; return r(true); }
+  if (method === 'pinChatMessage') { const sent = tgState.calls.findLast((c) => c.method === 'sendMessage' && c.message_id === p.message_id) || tgState.calls.findLast((c) => c.method === 'sendMessage'); tgState.pins.push({ message_id: p.message_id, text: sent.text }); tgState.pinned = tgState.pins.at(-1); return r(true); }
+  if (method === 'unpinChatMessage') { const k = tgState.pins.findIndex((x) => x.message_id === p.message_id); if (k < 0) return json(res, 400, { ok: false, description: 'Bad Request: message is not pinned' }); tgState.pins.splice(k, 1); tgState.pinned = tgState.pins.at(-1) || null; return r(true); }
   return json(res, 400, { ok: false, description: `no ${method}` });
 });
 const base = `http://127.0.0.1:${tgServer.address().port}`;
@@ -56,6 +57,12 @@ ok(Object.keys(tgState.topics).length === 6 && Object.values(TOPICS).every((t) =
 const again = mark(); await setup(telegram());
 ok(!tgState.calls.slice(again).some((c) => c.method === 'createForumTopic' || c.method === 'sendMessage'), 'a second setup changes nothing');
 const T = (name) => tgState.topics[TOPICS[name].name];
+{ // a message pinned after the config (a test PROBLEM, say) hides it from every sender: setup unpins it, keeps the topics
+  const tg0 = telegram(); const stray = await tg0.send('kit', 'PROBLEM · a test'); await tg0.call('pinChatMessage', { chat_id: tg0.chat, message_id: stray });
+  const before = mark(); const lines = await setup(telegram());
+  ok(lines.includes(`unpinned message ${stray}`) && !tgState.pins.some((x) => x.message_id === stray) && tgState.pins.length === 1 && tgState.pinned?.text.startsWith('harness-alerts config')
+    && !tgState.calls.slice(before).some((c) => c.method === 'createForumTopic' || c.method === 'sendMessage'), 'setup unpins anything pinned after the config, so only the config stays pinned, and creates no topic twice');
+}
 
 // a silent problem, its repeat, its resolve
 const dir = mkdtempSync(join(tmpdir(), 'notify-test-'));
@@ -69,7 +76,10 @@ let i0 = mark();
 r = await problem(st, tg, { key: 'hands/hands-update', topic: 'kit', text: 'hands-update failed again' });
 ok(r.status === 'repeat' && since(i0).length === 0 && r.inc.count === 2, 'a repeat of an open problem sends nothing (deduplicated) and counts');
 at('2026-10-05T10:30:00Z'); i0 = mark();
+await tg.call('pinChatMessage', { chat_id: tg.chat, message_id: original }); // someone pinned the problem
+ok(tgState.pinned?.message_id === original, 'fixture: the problem is pinned, so senders no longer see the config');
 r = await resolveKey(st, tg, { key: 'hands/hands-update', text: 'hands-update green again' });
+ok(!tgState.pins.some((x) => x.message_id === original) && tgState.pinned?.text.startsWith('harness-alerts config'), 'a resolved problem never stays pinned: RESOLVED unpins it and the config is the newest pin again');
 ok(r.status === 'resolved' && since(i0).length === 1 && last().reply_parameters?.message_id === original && last().message_thread_id === T('kit') && /RESOLVED after 1 h 30 min/.test(last().text), 'RESOLVED is a reply to the original message, in its topic');
 ok((await resolveKey(st, tg, { key: 'hands/hands-update' })).status === 'none', 'resolving a key with nothing open does nothing');
 

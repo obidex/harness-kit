@@ -3,6 +3,7 @@
 // every PROBLEM closed by a RESOLVED (or STILL OPEN) reply. Every sender runs this tool. No dependencies.
 //
 //   node .harness/tools/notify.mjs setup        check the group, create the missing topics, pin the config
+//                                               (unpinning anything pinned after it: only the config stays)
 //   node .harness/tools/notify.mjs problem --key <k> --topic <t> --text <t> [--link <url>] [--title <t>]
 //        [--action] [--outage]                  open a problem (a repeat of an open key sends nothing)
 //   node .harness/tools/notify.mjs resolve --key <k> [--text <t>]
@@ -234,6 +235,8 @@ export async function resolveKey(st, tg, o) {
       await tg.send(inc.topic, text, { reply: inc.msg, t });
       if (inc.escMsg) await tg.send('needs', text, { reply: inc.escMsg, t });
     }
+    // a resolved problem never stays pinned (owner, 2026-10-06); a message that was not pinned is no error
+    for (const id of [inc.msg, inc.escMsg].filter(Boolean)) await tg.call('unpinChatMessage', { chat_id: tg.chat, message_id: id }).catch(() => {});
     inc.open = false; inc.closed = t; inc.resolution = one(o.text || '');
     await st.close(inc, `RESOLVED after ${age(t - inc.opened)}${o.text ? `: ${one(o.text)}` : '.'}`);
     return { status: inc.msg ? 'resolved' : 'closed-unsent', inc };
@@ -288,7 +291,15 @@ export async function setup(tg) {
   const member = await tg.call('getChatMember', { chat_id: tg.chat, user_id: me.id });
   const missing = ['can_manage_topics', 'can_pin_messages'].filter((p) => !member[p]);
   if (member.status !== 'administrator' || missing.length) throw new Error(`@${me.username} must be an admin with ${missing.join(' and ') || 'Manage topics and Pin messages'}`);
-  const pinned = chat.pinned_message?.text || '';
+  // only the config stays pinned (owner, 2026-10-06): a message pinned after it hides it from every sender
+  // (Telegram shows senders the newest pin), so unpin those first, then read the config
+  let top = chat.pinned_message;
+  for (let k = 0; top && !String(top.text || '').startsWith(CONFIG_MARK) && k < 20; k++) {
+    await tg.call('unpinChatMessage', { chat_id: tg.chat, message_id: top.message_id });
+    out.push(`unpinned message ${top.message_id}`);
+    top = (await tg.call('getChat', { chat_id: tg.chat })).pinned_message;
+  }
+  const pinned = top?.text || '';
   const topics = pinned.startsWith(CONFIG_MARK) ? JSON.parse(pinned.slice(pinned.indexOf('{'))).topics : {};
   let created = 0;
   for (const [key, { name, color }] of Object.entries(TOPICS)) {
