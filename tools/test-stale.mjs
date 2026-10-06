@@ -228,6 +228,18 @@ const ranAgain = tg.slice(tgBefore + 1);
 ok(sch.find((x) => x.file === 'hands-update.yml').alert === 'resolved' && ranAgain.length === 1 && ranAgain[0].reply_parameters.message_id === missed[0].message_id && /RESOLVED .*hands-update in o\/r ran again \(2026-10-06 19:05 UTC\)/.test(ranAgain[0].text)
   && !alertIssues().some((i) => /schedule:o\/r\/hands-update.yml/.test(i.body) && i.state === 'open'),
   'once it has run again (on schedule, or by hand from Actions), the next check replies RESOLVED to the PROBLEM and closes it');
+// a new or moved scheduled workflow (owner, 2026-10-06): its clock starts when it appeared in the repository, never at "never"
+{
+  const moved = wf(6, 'box-watch.yml', ['20 6 * * *']); moved.meta.created_at = '2026-10-07T18:18:00Z'; wfs.push(moved);
+  const bw = async (iso, alert) => (await (alert ? alertSchedules('o/r', at(iso), 'kit') : schedules('o/r', at(iso)))).find((x) => x.file === 'box-watch.yml');
+  const sentBw = () => tg.filter((m) => /box-watch/.test(m.text)).length;
+  const night = await bw('2026-10-08T05:45:00Z', true), firstDue = await bw('2026-10-08T06:21:00Z'), edge = await bw('2026-10-09T18:19:00Z', true);
+  ok(!night.overdue && night.alert === 'none' && night.due === '2026-10-08T06:20:00.000Z' && !firstDue.overdue && !edge.overdue && edge.alert === 'none' && sentBw() === 0,
+    'a workflow moved in at 18:18 and never run raises nothing overnight, at its first due time, or until 36 h after it');
+  const late = await bw('2026-10-09T18:22:00Z', true);
+  ok(late.overdue && late.alert === 'sent' && sentBw() === 1 && /last run never/.test(tg.filter((m) => /box-watch/.test(m.text)).at(-1).text), 'only once its first due time is more than 36 h past does it count as missed');
+  wfs.pop();
+}
 for (const k of ['ALERTS_BOT_TOKEN', 'ALERTS_CHAT_ID']) delete process.env[k];
 Object.assign(process.env, { ALERTS_TOPICS: '{"needs":1,"website":5}' });
 srv.close();
