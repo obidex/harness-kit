@@ -3,6 +3,16 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.13.0 · 2026-10-07 · threads close when they report DONE
+
+- New owner default O16 (K015): a thread is resolved in the same turn it reports DONE. Anything due
+  later (a report, a re-check) becomes a check-in scheduled on the coordinator, never an idle thread.
+  WAITING FOR YOU is only for true owner steps.
+- The owner defaults stay within their 4096-byte cap by shorter wording, with no rule removed. O10
+  now points to `.harness/alerts.md` for the STILL OPEN replies and the 3-hour escalation, which
+  `notify.mjs` performs. O09 names the scrubber, and O14 names the `inbox` skill for the fields.
+- `test-harness` proves O16 reaches the installed owner defaults.
+
 ## 0.12.0 · 2026-10-07 · never a relay; Haiku only for read-only helpers
 
 - New owner default O15 (K014): no automation, routine or thread asks the owner to wake, nudge or
