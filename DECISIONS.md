@@ -406,3 +406,28 @@ enrolled, not from 'never'."
    rule). Proven in `tools/test-stale.mjs`.
 
 **Status:** STANDING.
+
+## K014 · 2026-10-07 · STANDING — never a relay; Haiku only for read-only helpers
+
+**Source:** the owner's messages in the project chat on 2026-10-07. At 17:50 UTC, as a standing
+rule: no automation, routine or thread ever asks him to wake, nudge or relay between sessions; if
+something cannot reach a session it records state, the next scheduled check picks it up, at most a
+daily-summary entry, never "Needs you". At 20:08 UTC (item 3), choosing to add it to the kit's owner
+defaults, "trimming words to stay within the size limit", and: "model roles gain Haiku 5.5 [...]
+Haiku only for read-only helper subagents (code search, CI log reading, summaries, watchers); never
+for writing code that touches money, stock or permissions, nor for reviews."
+
+1. **O15 Never a relay.** A wake that fails is not the owner's job to repair by hand: the sender
+   records the state where the next scheduled check reads it (an issue, a label, a state file), and
+   the check acts on it. A routine never puts "ask the owner" in its fallback. Prefer wakes that cost
+   nothing per fire (an event the receiving session is subscribed to) over routines that spend plan
+   usage on every fire.
+2. **Haiku in O06.** Haiku is a helper, never the thread's model for building: it runs read-only
+   subagents (code search, CI log reading, summaries, watchers). It never writes code touching money,
+   stock or permissions and never reviews (C10 and O07 reviews stay Sonnet or Opus). Whether it
+   stretches plan usage is measured in the projects that use it, not assumed.
+3. **Cap.** The always-loaded owner defaults stay within 4096 bytes (C17): the two additions are paid
+   for by shorter wording of O01-O14, with no rule removed.
+
+**Status:** STANDING.
+

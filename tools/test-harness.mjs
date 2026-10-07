@@ -64,6 +64,8 @@ ok(lock1.version === v1 && lock1.commit === git(kitRepo, 'rev-parse', `v${v1}`),
 ok(['audit', 'scrub', 'inbox', 'stale'].every((w) => existsSync(join(proj, `.github/workflows/harness-${w}.yml`))), 'workflows installed from templates');
 ok(!existsSync(join(proj, '.harness/templates')), 'templates are not copied into the project');
 ok(['.harness/tools/notify.mjs', '.harness/alerts.md'].every((f) => f in lock1.files) && /O10 Alerts\.\*\* One bot, one Telegram group/.test(readFileSync(join(proj, '.harness/owner-defaults.md'), 'utf8')), 'the alert standard is installed: notify.mjs, alerts.md and O10 in the loaded owner defaults');
+const od = readFileSync(join(proj, '.harness/owner-defaults.md'), 'utf8');
+ok(/O15 Never a relay\.\*\* No automation, routine or thread asks the owner to wake, nudge or relay/.test(od) && /Haiku\s+only for\s+read-only helper subagents/.test(od), 'the loaded owner defaults carry O15 (never a relay) and the Haiku helper role');
 ok(existsSync(join(proj, '.claude/skills/correct/SKILL.md')) && '.claude/skills/correct/SKILL.md' in lock1.files, 'kit skills installed into .claude/skills and listed in the lock');
 const claude = readFileSync(join(proj, 'CLAUDE.md'), 'utf8');
 ok(/^@\.harness\/core\.md$/m.test(claude) && /^@\.harness\/VERSION$/m.test(claude) && claude.includes('Local note.'), 'CLAUDE.md gained the kit imports and kept its own text');
