@@ -431,3 +431,22 @@ for writing code that touches money, stock or permissions, nor for reviews."
 
 **Status:** STANDING.
 
+## K015 · 2026-10-07 · STANDING — a thread closes when it reports DONE
+
+**Source:** the owner's message in the project chat on 2026-10-07 at 20:39 UTC (item 2), as a
+standing rule for all coordinators: "a thread is resolved in the same turn it reports DONE. Anything
+due later (a report, a re-check) becomes a scheduled check-in on the coordinator, never an idle
+thread. "Waiting on you" only for true owner steps. [...] Add this rule to the kit's owner defaults so
+the ERP and website coordinators follow it too."
+
+1. **O16.** Reporting DONE and resolving the thread happen in the same turn. A later report or
+   re-check is not a reason to keep a thread open: the coordinator schedules it as its own check-in
+   and starts or wakes a thread when it fires.
+2. **WAITING FOR YOU** (C03) is used only when the owner has a real step to take, never to park a
+   thread.
+3. **Cap.** The owner defaults stay within 4096 bytes (C17) by shorter wording, with no rule
+   removed. Details that `notify.mjs` performs (STILL OPEN replies, the 3-hour escalation) are in
+   `.harness/alerts.md`, which O10 points to.
+
+**Status:** STANDING.
+
