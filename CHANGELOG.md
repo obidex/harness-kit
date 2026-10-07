@@ -3,6 +3,17 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.12.0 · 2026-10-07 · never a relay; Haiku only for read-only helpers
+
+- New owner default O15 (K014): no automation, routine or thread asks the owner to wake, nudge or
+  relay between sessions. What cannot reach a session records its state for the next scheduled
+  check, at most a daily-summary line, never "Needs you".
+- O06 model roles gain Haiku (K014): only for read-only helper subagents (code search, CI logs,
+  summaries, watchers); never writing money, stock or permission code, never reviewing.
+- The owner defaults stay within their 4096-byte cap: O01-O14 are reworded shorter with the same
+  rules (O04, O09, O13 and O14 most), and the header drops its column list.
+- `test-harness` proves O15 and the Haiku role reach the installed owner defaults.
+
 ## 0.11.1 · 2026-10-06 · only the config stays pinned; a new scheduled job is not "never run"
 
 - `notify.mjs resolve` unpins the problem's message (and its escalation): a resolved problem never
