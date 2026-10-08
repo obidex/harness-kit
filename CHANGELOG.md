@@ -3,6 +3,19 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.16.0 · 2026-10-08 · an idle wait names who acts next; outside checkers are not wait points
+
+- C03 (K018): a fourth status word, `WAITING ON <who> — <what>`, naming the card's wake (C22);
+  `WAITING FOR YOU` only when the owner acts next; "nothing" is never a status while any party has an
+  action. C22's wait record adds who acts next and what wakes it.
+- O18 (K018): a checker no session can wake is not a wait point. The independent reviewer runs its
+  checklist (checksums rebuilt, owner-effort pass, no secret on the wrong machine), the step goes to
+  the owner, the checker audits afterwards. Only money or production steps wait for it, and the
+  owner's message says: tell the checker "check".
+- core and owner defaults reworded to stay under their caps; no rule removed. `test-harness`
+  checks the installed copies carry C03's four status words and O18; the audit's judgment step 2
+  checks the wait endings.
+
 ## 0.15.0 · 2026-10-08 · alerts hold 10 minutes and end with "You:"; precise audit exceptions
 
 - `notify.mjs` (K017): in a host's file store a new problem is held and sent only if still open 10

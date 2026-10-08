@@ -1,20 +1,20 @@
 # Harness Kit · core
 
-> Loaded in every session. Binds every agent in a project that installs the kit. Each line is a
-> rule by ID; its applicability, expected outcome, source and check are in
-> `.harness/catalogue/core.md` (lookup only, never preloaded). Project specifics live in the
-> project profile and the project's own rulebook; where they are stricter, they win.
+> Loaded in every session; binds every agent in a project that installs the kit. Records:
+> `.harness/catalogue/core.md` (lookup only). Project specifics live in the profile and the
+> project's rulebook; where stricter, they win.
 
 ## Stages and the card
 
-- **C01 Stages.** Work runs PLAN → BUILD → VERIFY → RELEASE → MAINTAIN. MAINTAIN may be not
-  applicable. A small fix runs the compressed cycle: one card plans and builds it, its checks
+- **C01 Stages.** Work runs PLAN → BUILD → VERIFY → RELEASE → MAINTAIN. MAINTAIN may not
+  apply. A small fix runs the compressed cycle: one card plans and builds it, its checks
   verify it, its merge releases it.
 - **C02 One outcome per card.** A card states its stage, goal, context, numbered pass/fail
   acceptance, the files it may touch, done-when and blocked-by. Two outcomes are two ordered cards.
-- **C03 How a card ends.** The final message opens `DONE —`, `WAITING FOR YOU — <exact action>` or
-  `STOPPED — <why>`, then `Waiting for you:` · `Changed:` · `Found:` (`none` where empty); its
-  last line repeats the status word.
+- **C03 How a card ends.** The final message opens `DONE —`, `WAITING FOR YOU — <exact action>`
+  (the owner acts next), `WAITING ON <who> — <what>` naming its wake (C22), or
+  `STOPPED — <why>`; then `Waiting for you:` · `Changed:` · `Found:` (`none` where empty); its last
+  line repeats the status word. "Nothing" is never a status while any party has an action.
 - **C04 Never stall silently.** End a turn only when the card is DONE or STOPPED, nothing can move
   without the owner, or a watcher you started will wake you. A wait that can outlast the session
   leaves a durable handover (branch, PR, what is done, the exact next step), then ends.
@@ -37,7 +37,7 @@
 - **C10 Independent review.** A tier-3 or profile-risky diff gets a fresh-context reviewer given
   only the diff and the rulebook: "List only problems you'd block the merge for: file, line, why,
   how to show it fails." Fix every block. Still blocked after 3 rounds → STOPPED; one extra focused
-  round is allowed for a small final fix.
+  round may close a small final fix.
 - **C11 Build floor and release bar.** A merge is blocked only by a broken essential workflow in
   the changed area, a security failure, data corruption or broken money math. Every other finding
   is logged with a severity; a release leaves VERIFY with no blocker or major open in its scope.
@@ -84,9 +84,9 @@ Assigned work always finishes on its own; automations never run forever.
 - **C21 Full handoff.** A CI result arrives → check the current commit and its required review
   (re-review if commits came after it) → clear the gate → merge → close the card → tell the
   coordinator → continue the batch. "Ready for you" only for a decision only the owner can make.
-- **C22 Wait record.** A card that waits says so on the card: condition, owner (thread or
-  coordinator), PR and commit, next action, deadline. A stall goes to that owner; missing cards go
-  to the coordinator.
+- **C22 Wait record.** A waiting card records the condition, who acts next, what wakes it, its
+  owner (thread or coordinator), PR and commit, next action and deadline. A stall goes to that
+  owner; missing cards go to the coordinator.
 - **C23 Cleanup is part of done.** Every reminder, check-in, routine and PR watch records the card
   or batch it serves, what makes it act, what retires it and the coordinator responsible. It retires
   when that work finishes, is cancelled or is superseded (history kept, future runs off). A card

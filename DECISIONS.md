@@ -485,3 +485,23 @@ Platform project on 2026-10-08 at 08:45 UTC (three repairs).
    The audit skips that commit only, so a new one still fails.
 
 **Status:** STANDING.
+
+## K018 · 2026-10-08 · STANDING — an idle wait names who acts next; outside checkers are not wait points
+
+**Source:** the strategist's two fixes, posted by the owner in the Platform project on 2026-10-08 at
+14:17 UTC (item 2). A thread sat idle with "WAITING FOR YOU — nothing yet" while the next action was
+another party's, and owner steps waited on a checker that no session can wake.
+
+1. **Status words (C03, C22).** `WAITING FOR YOU — <exact action>` only when the owner acts next.
+   Any other wait ends `WAITING ON <who> — <what>` and names how the card will be woken when that
+   clears, which is its C22 wait record (now: who acts next, what wakes it). "Nothing" is never a
+   status while any party has an action.
+2. **Outside checkers (O18).** A checker that no session can wake (a chat only the owner runs) is
+   never a wait point. The project's independent reviewer runs that checker's checklist (rebuilt
+   checksums match, the owner-effort pass, no secret on the wrong machine), then the step goes to the
+   owner; the checker audits afterwards through its own line, and its findings return as evidence.
+3. **Exception.** Only a step that spends money or touches production waits for the checker, and the
+   owner's message for it says: tell the checker "check".
+4. **Cap.** core and owner defaults stay under their caps by shorter wording, with no rule removed.
+
+**Status:** STANDING.
