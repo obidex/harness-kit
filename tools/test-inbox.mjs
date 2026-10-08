@@ -29,6 +29,7 @@ const fires = [];
 const wakes = [];          // comments on the wake-channel pull request (#99)
 let channel = false, refuse = false, forbidPulls = false, channelBranch = 'inbox-wake';
 const opened = [];
+let refsRefused = false;
 const srv = createServer((q, res) => {
   let data = '';
   q.on('data', (c) => { data += c; });
@@ -38,6 +39,7 @@ const srv = createServer((q, res) => {
     if (u.pathname.endsWith('/fire')) { fires.push({ auth: q.headers.authorization, body: JSON.parse(data) }); return send(200, { type: 'routine_fire' }); }
     if (u.pathname === '/repos/o/r' && q.method === 'GET') return send(200, { default_branch: 'main' });
     if (u.pathname === '/repos/o/r/git/ref/heads/main') return send(200, { object: { sha: 'abc' } });
+    if (u.pathname === '/repos/o/r/git/refs' && q.method === 'POST' && refsRefused) return send(403, { message: 'refused by proxy' });
     if (u.pathname === '/repos/o/r/git/refs' && q.method === 'POST') { opened.push(['ref', JSON.parse(data)]); return send(201, {}); }
     if (u.pathname.startsWith('/repos/o/r/contents/') && q.method === 'GET') return send(404, {});
     if (u.pathname.startsWith('/repos/o/r/contents/') && q.method === 'PUT') { opened.push(['file', u.pathname, JSON.parse(data)]); return send(201, {}); }
@@ -92,6 +94,10 @@ ok((await run(['wake', '--repo', 'o/r', '--issue', '1'], {})).code === 0 && wake
 ok(/wake channel is https:\/\/gh\.test\/o\/r\/pull\/99;/.test((await run(['channel', '--repo', 'o/r'])).out), 'channel names the open wake-channel PR');
 channel = false;
 ok((await run(['channel', '--repo', 'o/r'])).code === 3 && !opened.length, 'channel fails when no wake-channel PR is open, and opens nothing by itself');
+refsRefused = true;
+const refused = await run(['channel', '--repo', 'o/r', '--open']);
+ok(refused.code === 1 && /push it with git instead \(git push origin main:refs\/heads\/inbox-wake\)/.test(refused.out) && !opened.length, 'when the API may not make the branch, channel --open says the exact git push and opens nothing');
+refsRefused = false;
 const op = await run(['channel', '--repo', 'o/r', '--open']);
 const pr = opened.find((x) => x[0] === 'pr')?.[1];
 ok(op.code === 0 && opened[0][1].ref === 'refs/heads/inbox-wake' && opened[0][1].sha === 'abc' && opened[1][1] === '/repos/o/r/contents/.github/INBOX_WAKE.md' && opened[1][2].branch === 'inbox-wake' && pr.draft === true && pr.head === 'inbox-wake' && pr.base === 'main' && /Never merge/.test(pr.body), 'channel --open makes the inbox-wake branch with one note and a draft PR into the default branch');

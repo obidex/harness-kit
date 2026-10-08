@@ -31,6 +31,12 @@ A comment on it is an inbox wake.
 
 When an inbox wake or a routine wakes you, or at the start of a coordinator turn:
 
+*If running `inbox.mjs` is refused* (a session may refuse code from a fresh clone), do each step
+with the GitHub tools instead, never asking the owner to allow it: `pending` is the open issues
+labelled `inbox` whose body has `- **State:** queued`; `state` is editing that line (for `done`,
+also the `- **Evidence:**` line, then closing the issue as completed) plus a comment `**working**`
+or `**done**: <evidence>`.
+
 1. Run `inbox.mjs pending --repo <this repo>`. If it prints `[]`, stop: there is nothing to do and
    nothing to report.
 2. For each queued request, oldest first:
