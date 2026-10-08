@@ -197,8 +197,20 @@ jobs:
           gh pr merge "$url" --auto --squash
           echo "pr=${url##*/}" >> "$GITHUB_OUTPUT"
           log "opened $url ($verb kit $current to $target) with auto-merge on"
+          # --- superseded (test-hands runs this block) ---
+          # an older kit PR of the App's left open never merges and hides the new one: close it and delete
+          # its branch (harness/kit-* branches belong to this workflow), so one kit PR stays open
+          gh pr list --repo "$REPO" --state open --author "app/$SLUG" --json number,headRefName --jq '.[] | "\(.number) \(.headRefName)"' |
+            while read -r old ref; do
+              printf '%s' "$ref" | grep -Eq '^harness/kit-[0-9]+\.[0-9]+\.[0-9]+$' || continue
+              [ "$ref" != "$branch" ] || continue
+              gh pr close "$old" --repo "$REPO" --delete-branch --comment "Superseded by #${url##*/} (kit $target); closed by hands-update."
+              log "closed #$old (${ref#harness/kit-}): superseded by $url"
+            done
+          # --- end superseded ---
       - name: Keep the PR current while it is open (hands-keep, K012)
-        if: steps.open.outputs.pr != ''
+        # always(): a superseded PR that would not close fails the step above after the new PR is open
+        if: always() && steps.open.outputs.pr != ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

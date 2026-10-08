@@ -3,6 +3,19 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.14.1 · 2026-10-08 · a stuck run never stops kit updates
+
+- `hands-keep`: the newest run replaces an older one (`cancel-in-progress: true`). On 6 Oct one run
+  stayed "waiting" for two days and every later run queued behind it and was cancelled, so no kit
+  update PR was kept current.
+- `hands-update`: opening a kit PR closes every other open kit PR of the App's in that repository as
+  superseded (a comment names the new PR) and deletes its branch, so an old one left behind its base
+  never hides the new version. `test-hands` runs the block.
+- `stale.mjs schedules`: only a run that finished and was not cancelled counts as the last run. Runs
+  created and cancelled behind a stuck one now raise "Scheduled run missed" 36 hours after the last
+  real run, and at once when none of the newest 30 finished. `hands-update` turns `hands-keep` on
+  even when closing a superseded PR failed.
+
 ## 0.14.0 · 2026-10-08 · work finishes on its own; automations retire with it
 
 - New core section "Finishing, waiting and cleanup" (K016): C20 finish line (a coordinator finishes
