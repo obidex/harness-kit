@@ -545,3 +545,25 @@ the pull request's state.
 5. **Cap.** core stays under its cap by shorter wording, with no rule removed.
 
 **Status:** STANDING.
+
+## K021 · 2026-10-08 · STANDING — settings load only in a one-repository session
+
+**Source:** the owner's permissions repair, posted in the Platform project on 2026-10-08 at 19:21
+UTC. Routine work stopped for owner sentences: a product thread attached a second repository to read
+the board, lost its repository settings at the next resume, committed as Claude, then had its
+re-author, push and harness edit refused by the auto-mode classifier; threads in a project with
+several repositories never had settings, and edits to rule files were refused unpredictably.
+
+1. **One repository per thread (A15).** A thread never attaches a second repository; reads and
+   writes elsewhere go through the coordinator or the inbox (O14).
+2. **Identity.** From the repository settings, or in a project with several repositories from
+   `git config` in each clone before the first commit. A commit is never re-authored.
+3. **Standing approvals.** A project with several repositories states its owner's standing
+   approvals (identity, edits, push, merge on the gates, talk) in its project instructions; they
+   mirror existing rules and add no gate.
+4. **Branch updates (A10).** On the server with the expected head SHA, never a pushed local merge.
+5. **Refusals.** A refused routine command is a settings fault fixed at its cause (a fresh
+   one-repository thread, or an allow rule the owner adds), never an owner sentence per push. C14
+   still holds: the refused command is reported, never retried or reworded.
+
+**Status:** STANDING.
