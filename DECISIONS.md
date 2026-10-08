@@ -567,3 +567,24 @@ several repositories never had settings, and edits to rule files were refused un
    still holds: the refused command is reported, never retried or reworded.
 
 **Status:** STANDING.
+
+## K022 · 2026-10-08 · STANDING — standing approvals have one home
+
+**Source:** the owner's order of 2026-10-08, 20:12 UTC, in the Platform project: near-zero owner
+involvement in every project; the standing approvals proven once (kit 0.19.0 landed with no
+refusal) are published in the kit as the single source, and projects copy them and stay in step
+with each release.
+
+1. **One text (`standing-approvals.md`).** The block is the same in every project; a project fills
+   in only its repositories, identity, inbox targets, reserved list and settings line. It mirrors
+   O09, C07, A10, A15, C10, C12, O11, O14 and C14, and adds no gate.
+2. **The reserved list stays the owner's.** At least spending money, going live in production and
+   any action the safety check refuses (C14), plus secrets, the settings file, root steps on
+   machines and deleting data.
+3. **In step.** A release that changes the block says so in its changelog (`check-version`); the
+   maintainer sends each project one inbox request (O14) with its filled-in new block, and its
+   coordinator replaces the old one.
+4. **Public kit.** The block carries placeholders only; `check-kit` refuses an email address or a
+   repository link in it.
+
+**Status:** STANDING.
