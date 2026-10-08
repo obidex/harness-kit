@@ -27,7 +27,7 @@ const issues = [];
 let lag = false;
 const fires = [];
 const wakes = [];          // comments on the wake-channel pull request (#99)
-let channel = false, refuse = false;
+let channel = false, refuse = false, forbidPulls = false, channelBranch = 'inbox-wake';
 const opened = [];
 const srv = createServer((q, res) => {
   let data = '';
@@ -42,7 +42,10 @@ const srv = createServer((q, res) => {
     if (u.pathname.startsWith('/repos/o/r/contents/') && q.method === 'GET') return send(404, {});
     if (u.pathname.startsWith('/repos/o/r/contents/') && q.method === 'PUT') { opened.push(['file', u.pathname, JSON.parse(data)]); return send(201, {}); }
     if (u.pathname === '/repos/o/r/pulls' && q.method === 'POST') { opened.push(['pr', JSON.parse(data)]); channel = true; return send(201, { number: 99, draft: true, html_url: 'https://gh.test/o/r/pull/99' }); }
-    if (u.pathname === '/repos/o/r/pulls' && q.method === 'GET') return send(200, channel && u.searchParams.get('head') === 'o:inbox-wake' ? [{ number: 99, draft: true, html_url: 'https://gh.test/o/r/pull/99' }] : []);
+    if (u.pathname === '/repos/o/r/pulls' && q.method === 'GET') {
+      if (forbidPulls) return send(403, { message: 'Resource not accessible by integration' });
+      return send(200, channel && u.searchParams.get('head') === `o:${channelBranch}` ? [{ number: 99, draft: true, html_url: 'https://gh.test/o/r/pull/99' }] : []);
+    }
     if (u.pathname === '/repos/o/r/issues/99/comments' && q.method === 'POST') { if (refuse) return send(403, { message: 'refused' }); wakes.push(JSON.parse(data).body); return send(201, { id: 500 + wakes.length }); }
     if (u.pathname === '/repos/o/r/issues' && q.method === 'GET') {
       // like GitHub, the label listing lags a new issue: with lag on, it misses it on the next four listings
@@ -80,6 +83,12 @@ ok(s4.code === 0 && /woke the receiving coordinator \(delivered on #99\)/.test(s
 const s5 = await run(send);
 ok(s5.code === 0 && /already woken/.test(s5.out) && wakes.length === 1, 'a request already woken is never woken twice by a resend');
 ok((await run(['wake', '--repo', 'o/r', '--issue', '1'], {})).code === 0 && wakes.length === 1 && fires.length === 0, 'the workflow\'s wake after a delivered send wakes nobody again');
+{
+  const saved = issues[0].comments; issues[0].comments = [];
+  const w = await run(['wake', '--repo', 'o/r', '--issue', '1'], {});
+  ok(w.code === 0 && /sender's send wakes/.test(w.out) && wakes.length === 1 && issues[0].comments.length === 0, 'with a channel open, the read-only workflow job never posts: the sender wakes (no false red race)');
+  issues[0].comments = saved;
+}
 ok(/wake channel is https:\/\/gh\.test\/o\/r\/pull\/99;/.test((await run(['channel', '--repo', 'o/r'])).out), 'channel names the open wake-channel PR');
 channel = false;
 ok((await run(['channel', '--repo', 'o/r'])).code === 3 && !opened.length, 'channel fails when no wake-channel PR is open, and opens nothing by itself');
@@ -102,6 +111,17 @@ ok(JSON.parse((await run(['pending', '--repo', 'o/r'])).out)[0].id === 'kit/proo
   issues.splice(issues.indexOf(copies[0]), 1, { ...copies[0], labels: [] }); // keep the rest of the test about kit/proof-1
 }
 
+forbidPulls = true;
+const priv = await run(['wake', '--repo', 'o/r', '--issue', '1'], wired);
+ok(priv.code === 0 && fires.length === 1, 'a token that may not list pull requests (private repo, read-only job) still fires the routine');
+forbidPulls = false; fires.length = 0;
+channelBranch = 'wake-channel'; channel = true;
+{
+  const saved = issues[0].comments; issues[0].comments = [];
+  const s6 = await run(send);
+  ok(/delivered on #99/.test(s6.out) && wakes.length === 2, 'a repository\'s existing wake-channel pull request serves as its inbox channel too (one channel per repository)');
+  issues[0].comments = []; channel = false; channelBranch = 'inbox-wake';
+}
 const unwired = await run(['wake', '--repo', 'o/r', '--issue', '1']);
 ok(unwired.code === 3 && /NOT delivered/.test(unwired.out) && fires.length === 0, 'a queued request with no channel and no routine fails loudly');
 issues[0].comments = [];

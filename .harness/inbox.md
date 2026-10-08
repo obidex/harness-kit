@@ -19,17 +19,18 @@ scope; citing a decision never expands it.
 
 1. The sender files the request with `inbox.mjs send`, which then comments the wake on the
    receiving repository's **wake channel**: its open draft pull request from the branch
-   `inbox-wake`, never merged.
+   `inbox-wake`, never merged. A repository that already keeps a general wake channel (branch
+   `wake-channel`) uses that one, so each repository has one channel.
 2. The receiving coordinator's session is subscribed to that pull request, so the comment reaches it
    as a GitHub event, at no cost and with no schedule. It runs the `inbox` skill.
 3. "Woke" is written on the request only after GitHub accepted the wake comment. Otherwise the
    request gets one "Not delivered" note and `send` ends non-zero; nothing is lost: a resend of the
    same ID tries the wake again, and the coordinator's own `pending` check at the start of a turn
    finds it. A request is woken once; nothing ever asks a person to wake or relay (O15).
-4. `harness-inbox.yml` (on the `inbox` label) runs `inbox.mjs wake`: a request already woken, picked
-   up or done wakes nobody. A project without the channel may still fire a routine from it
-   (`INBOX_ROUTINE_URL`, `INBOX_ROUTINE_TOKEN`); a routine fire is not proof the session ran, so the
-   channel is the standard.
+4. `harness-inbox.yml` (on the `inbox` label) runs `inbox.mjs wake`, read-only: with a channel open
+   it only reports, because the sender wakes. A project without the channel may still fire a
+   routine from it (`INBOX_ROUTINE_URL`, `INBOX_ROUTINE_TOKEN`); a routine fire is not proof the
+   session ran, so the channel is the standard. A request already picked up or done wakes nobody.
 
 ## Setup in a project (once)
 

@@ -20,11 +20,12 @@
 //                                         coordinator, once, in its own repository)
 //
 // The wake (K018): a comment on the repository's open wake-channel pull request (head branch
-// `inbox-wake`, a draft never merged), which the receiving coordinator's session subscribes to, so
+// `inbox-wake`, or `wake-channel` where the repository already keeps one; a draft never merged), which the receiving coordinator's session subscribes to, so
 // it arrives as a GitHub event at no cost. "Woke" is written on the request only after GitHub
-// accepted that comment; otherwise one "Not delivered" note, a non-zero exit, and the next send,
-// wake or the receiver's own `pending` check tries again. A project without the channel may still
-// fire a routine (INBOX_ROUTINE_URL, INBOX_ROUTINE_TOKEN) from `wake`; nothing ever asks a person.
+// accepted that comment; otherwise one "Not delivered" note, a non-zero exit, and a resend or the
+// receiver's own `pending` check picks it up. The sender wakes: `wake` (the read-only workflow job)
+// only reports when a channel is open, and fires a routine (INBOX_ROUTINE_URL, INBOX_ROUTINE_TOKEN)
+// only for a project without one. Nothing ever asks a person.
 //
 // A request is an issue labelled `inbox`. Its body carries one hidden marker `<!-- inbox-id: … -->`
 // and these lines, which only this tool edits: ID, Source, Outcome, Responsible coordinator,
@@ -101,6 +102,7 @@ export function canonical(list) {
 }
 
 export const WAKE_BRANCH = 'inbox-wake';
+export const WAKE_BRANCHES = [WAKE_BRANCH, 'wake-channel'];   // the second: a repository's existing general wake channel
 export const WOKE_MARK = '<!-- inbox-woke -->';
 export const UNDELIVERED_MARK = '<!-- inbox-wake-undelivered -->';
 
@@ -114,25 +116,35 @@ export async function deliver(call, repo, r) {
     if (cs.length < 100) break;
   }
   if (notes.some((b) => b.startsWith(WOKE_MARK))) return { delivered: true, already: true };
-  const [owner] = repo.split('/');
-  let why;
-  try {
-    const prs = await call('GET', `/repos/${repo}/pulls?state=open&head=${owner}:${WAKE_BRANCH}&per_page=1`);
-    if (!prs.length) why = `no open ${WAKE_BRANCH} pull request in ${repo}`;
-    else {
-      const c = await call('POST', `/repos/${repo}/issues/${prs[0].number}/comments`, { body: `Inbox wake (O14) for the ${r.fields['Responsible coordinator'] || 'receiving coordinator'}: request ${r.fields.id} is queued: ${r.url}\nRun the inbox skill (pick up queued requests); this comment needs no reply.` });
-      if (!c?.id) why = 'GitHub did not return the wake comment';
-      else {
-        await call('POST', `/repos/${repo}/issues/${r.number}/comments`, { body: `${WOKE_MARK}\nWoke the receiving coordinator (delivered on #${prs[0].number}).` });
-        return { delivered: true, where: `#${prs[0].number}` };
-      }
+  let why, pr = null;
+  try { pr = await findChannel(call, repo); } catch (e) { why = `could not look for the wake channel (${e.message.slice(0, 120)})`; }
+  if (!pr && !why) why = `no open ${WAKE_BRANCH} pull request in ${repo}`;
+  if (pr) {
+    let c = null;
+    try { c = await call('POST', `/repos/${repo}/issues/${pr.number}/comments`, { body: `Inbox wake (O14) for the ${r.fields['Responsible coordinator'] || 'receiving coordinator'}: request ${r.fields.id} is queued: ${r.url}\nRun the inbox skill (pick up queued requests); this comment needs no reply.` }); }
+    catch (e) { why = `the wake comment was refused (${e.message.slice(0, 120)})`; }
+    if (c && !c.id) why = 'GitHub did not return the wake comment';
+    if (c?.id) {
+      // delivered: the record below is best effort, and its failure never turns a delivery into a resend
+      await call('POST', `/repos/${repo}/issues/${r.number}/comments`, { body: `${WOKE_MARK}\nWoke the receiving coordinator (delivered on #${pr.number}).` }).catch(() => {});
+      return { delivered: true, where: `#${pr.number}` };
     }
-  } catch (e) { why = `the wake comment was refused (${e.message.slice(0, 120)})`; }
+  }
   if (!notes.some((b) => b.startsWith(UNDELIVERED_MARK))) {
     // best effort: a read-only caller (the harness-inbox job) still reports, and exits non-zero
     await call('POST', `/repos/${repo}/issues/${r.number}/comments`, { body: `${UNDELIVERED_MARK}\nNot delivered to the receiving coordinator: ${why}. Nothing is lost: the request stays queued, and the next send or the coordinator's own inbox check picks it up.` }).catch(() => {});
   }
   return { delivered: false, why };
+}
+
+/** The open wake-channel pull request of the repository, or null. */
+export async function findChannel(call, repo) {
+  const [owner] = repo.split('/');
+  for (const b of WAKE_BRANCHES) {
+    const prs = await call('GET', `/repos/${repo}/pulls?state=open&head=${owner}:${b}&per_page=1`);
+    if (prs.length) return prs[0];
+  }
+  return null;
 }
 
 const queued = (r) => r.state === 'open' && r.fields.State === 'queued';
@@ -220,9 +232,10 @@ async function main() {
     const mine = canonical(await requests(repo)).find((x) => x.number === n);
     // only a queued request wakes anyone: a request already picked up or done never re-runs the AI
     if (!mine || !queued(mine)) { console.log(`inbox: #${n} is not a queued request; nobody woken`); return; }
-    const [owner] = repo.split('/');
-    const channel = (await api('GET', `/repos/${repo}/pulls?state=open&head=${owner}:${WAKE_BRANCH}&per_page=1`)).length > 0;
-    if (channel || !process.env.INBOX_ROUTINE_URL) { report(await deliver(api, repo, mine)); return; }
+    // The sender wakes (send); this job only reads. A lookup this token may not make counts as no channel.
+    const channel = await findChannel(api, repo).catch(() => null);
+    if (channel) { console.log(`inbox: the wake channel is open (#${channel.number}); the sender's send wakes the coordinator there, and a resend tries again`); return; }
+    if (!process.env.INBOX_ROUTINE_URL) { report(await deliver(api, repo, mine)); return; }
     const url = process.env.INBOX_ROUTINE_URL, token = process.env.INBOX_ROUTINE_TOKEN;
     if (!url || !token) throw new Error('pickup is not wired: open the inbox-wake channel, or set the INBOX_ROUTINE_URL and INBOX_ROUTINE_TOKEN secrets (.harness/inbox.md)');
     const base = (process.env.INBOX_FIRE_BASE || 'https://api.anthropic.com').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -237,8 +250,7 @@ async function main() {
     return;
   }
   if (cmd === 'channel') {
-    const [owner] = repo.split('/');
-    let prs = await api('GET', `/repos/${repo}/pulls?state=open&head=${owner}:${WAKE_BRANCH}&per_page=1`);
+    let prs = [await findChannel(api, repo)].filter(Boolean);
     if (!prs.length && argv.includes('--open')) prs = [await openChannel(api, repo)];
     if (!prs.length) { console.log(`inbox: no open ${WAKE_BRANCH} pull request in ${repo}: nobody can be woken (.harness/inbox.md "Pickup")`); process.exitCode = 3; return; }
     console.log(`inbox: the wake channel is ${prs[0].html_url}${prs[0].draft ? '' : ' (not a draft: make it one, it must never merge)'}; the coordinator subscribes to it at the start of every session`);

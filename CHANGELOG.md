@@ -9,9 +9,10 @@ Each version is the tag `v<version>` on this repository, never moved (K003). Pro
   wake channel, its open draft pull request from `inbox-wake` (never merged), which the coordinator's
   session subscribes to: free, no schedule, no routine. "Woke" is written on the request only after
   GitHub accepted the comment; otherwise one "Not delivered" note and exit 3, and a resend of the
-  same ID tries again. A request is woken once. `wake` (the workflow) wakes nobody for a request
-  already woken and keeps the routine fire only for a project without the channel. New
-  `channel [--open]` checks or opens the channel.
+  same ID tries again. A request is woken once. A repository's existing `wake-channel` pull
+  request serves too (one channel per repository). `wake` (the read-only workflow job) only reports
+  when a channel is open, and keeps the routine fire for a project without one, even when its token
+  may not list pull requests. New `channel [--open]` checks or opens the channel.
 - `inbox.md` and the `inbox` skill: the coordinator subscribes to the channel as the first step of
   every session; setup is one command and one proof. `test-inbox` covers delivery, refusal, no
   channel, no double wake and opening the channel.
