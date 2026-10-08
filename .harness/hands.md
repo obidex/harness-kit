@@ -72,7 +72,10 @@ refused update fails the run, one problem under the alert standard. A conflicted
 touched. The newest `hands-keep` run replaces an older one (`cancel-in-progress`), so a run stuck
 before it starts never holds the later ones back. When `hands-update` opens a kit PR it closes every
 other open kit PR of the App's in that repository as superseded, with a comment naming the new one,
-and deletes its branch: one kit PR is open per project. `stale.mjs schedules` counts only runs that
+and deletes its branch: one kit PR is open per project. It does so, and then turns auto-merge on,
+whether it opened the PR now or found it open; a project whose settings file leaves
+`allow_auto_merge` off gets a failed run naming that setting, and its kit PR waits for a merge on
+its gates. `stale.mjs schedules` counts only runs that
 finished and were not cancelled, so runs created and cancelled behind a stuck one still raise
 "Scheduled run missed".
 

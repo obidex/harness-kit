@@ -139,6 +139,25 @@ jobs:
           [ "$target" = "$current" ] && { log "kit $current is current"; exit 0; }
           branch="harness/kit-$target"
           if [ "$(printf '%s\n%s\n' "$target" "$current" | sort -V | head -1)" = "$target" ]; then verb="roll back"; else verb="update"; fi
+          # --- helpers (test-hands runs this block) ---
+          # supersede N: an older kit PR of the App's left open never merges and hides PR N: close it and
+          # delete its branch (harness/kit-* branches belong to this workflow), so one kit PR stays open
+          supersede() {
+            gh pr list --repo "$REPO" --state open --author "app/$SLUG" --json number,headRefName --jq '.[] | "\(.number) \(.headRefName)"' |
+              while read -r old ref; do
+                printf '%s' "$ref" | grep -Eq '^harness/kit-[0-9]+\.[0-9]+\.[0-9]+$' || continue
+                [ "$ref" != "$branch" ] || continue
+                gh pr close "$old" --repo "$REPO" --delete-branch --comment "Superseded by #$1 (kit $target); closed by hands-update."
+                log "closed #$old (${ref#harness/kit-}): superseded by #$1"
+              done
+          }
+          # automerge N: auto-merge on PR N, or one plain failure naming the setting (the PR stays open)
+          automerge() {
+            gh pr merge "$1" --repo "$REPO" --auto --squash && return 0
+            log "FAIL: GitHub refused auto-merge on #$1: turn on allow_auto_merge in $REPO's .github/harness-settings.json, or merge #$1 on its gates"
+            return 1
+          }
+          # --- end helpers ---
           # --- PR body (test-hands runs this block) ---
           # Standing authorization lines the project's own PR guards expect (profile
           # kit_updates.pr_body_lines), read from its default branch before anything changes. Read here,
@@ -174,6 +193,8 @@ jobs:
               log "a PR for kit $target is already open (#$open)"
             fi
             echo "pr=$open" >> "${GITHUB_OUTPUT:-/dev/null}"
+            supersede "$open"
+            automerge "$open"
             exit 0
           fi
           # --- end PR body ---
@@ -194,22 +215,13 @@ jobs:
           git commit -q -m "chore(harness): $verb kit $current to $target"
           git push -q --force origin "$branch"   # harness/* branches belong to this workflow
           url="$(gh pr create --repo "$REPO" --head "$branch" --title "chore(harness): $verb kit $current to $target" --body "$body")"
-          gh pr merge "$url" --auto --squash
           echo "pr=${url##*/}" >> "$GITHUB_OUTPUT"
-          log "opened $url ($verb kit $current to $target) with auto-merge on"
-          # --- superseded (test-hands runs this block) ---
-          # an older kit PR of the App's left open never merges and hides the new one: close it and delete
-          # its branch (harness/kit-* branches belong to this workflow), so one kit PR stays open
-          gh pr list --repo "$REPO" --state open --author "app/$SLUG" --json number,headRefName --jq '.[] | "\(.number) \(.headRefName)"' |
-            while read -r old ref; do
-              printf '%s' "$ref" | grep -Eq '^harness/kit-[0-9]+\.[0-9]+\.[0-9]+$' || continue
-              [ "$ref" != "$branch" ] || continue
-              gh pr close "$old" --repo "$REPO" --delete-branch --comment "Superseded by #${url##*/} (kit $target); closed by hands-update."
-              log "closed #$old (${ref#harness/kit-}): superseded by $url"
-            done
-          # --- end superseded ---
+          log "opened $url ($verb kit $current to $target)"
+          supersede "${url##*/}"
+          automerge "${url##*/}"
+          log "auto-merge is on for $url"
       - name: Keep the PR current while it is open (hands-keep, K012)
-        # always(): a superseded PR that would not close fails the step above after the new PR is open
+        # always(): a refused close or auto-merge fails the step above after the PR is open
         if: always() && steps.open.outputs.pr != ''
         env:
           GH_TOKEN: ${{ github.token }}
