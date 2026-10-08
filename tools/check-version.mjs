@@ -22,4 +22,19 @@ const was = git('show', `${base}:.harness/VERSION`).trim();
 if (cmp(now, was) <= 0) fail(`${changed.length} kit file(s) changed but VERSION is ${now}, not above ${was}`);
 if (git('tag', '--list', `v${now}`)) fail(`tag v${now} already exists; pick the next version`);
 if (!new RegExp(`^## ${now.replace(/\./g, '\\.')}\\b`, 'm').test(readFileSync('CHANGELOG.md', 'utf8'))) fail(`CHANGELOG.md has no "## ${now}" entry`);
+// a changed standing-approvals block reaches projects only by an inbox request each (K022): the
+// release names it in the changelog, so the maintainer sends them
+const blockOf = (t) => (t.match(/<!-- standing-approvals:begin -->[\s\S]*<!-- standing-approvals:end -->/) || [''])[0];
+const SA = '.harness/standing-approvals.md';
+if (changed.includes(SA)) {
+  let before = '';
+  try { before = execFileSync('git', ['show', `${base}:${SA}`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }); } catch { /* new file */ }
+  const after = readFileSync(SA, 'utf8');
+  const entry = (readFileSync('CHANGELOG.md', 'utf8').split(new RegExp(`^## ${now.replace(/\./g, '\\.')}\\b`, 'm'))[1] || '').split(/^## /m)[0];
+  if (blockOf(before) !== blockOf(after)) {
+    if (!/standing approvals/i.test(entry)) fail(`the standing-approvals block changed but the ${now} changelog entry does not say "standing approvals"`);
+    const text = (blockOf(after).match(/\(kit text ([0-9.]+);/) || [])[1];
+    if (text !== now) fail(`the standing-approvals block changed but its "kit text" is ${text || 'missing'}, not ${now}`);
+  }
+}
 console.log(`check-version: OK · ${changed.length} kit file(s) changed; ${was} → ${now}, untagged, in the changelog`);

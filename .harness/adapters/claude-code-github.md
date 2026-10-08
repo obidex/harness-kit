@@ -32,7 +32,8 @@
   pushes and edits reach the auto-mode classifier. So a project thread never attaches a second
   repository: another repository's reads and writes go through the coordinator or the inbox (O14).
   Identity comes from those settings, or in a project with several repositories from `git config`
-  in each clone before the first commit; a thread never re-authors a commit. A refused routine
+  in each clone before the first commit; a thread never re-authors a commit. Every project copies
+  the standing approvals from `standing-approvals.md` into its instructions. A refused routine
   command is a settings fault: the coordinator fixes its cause (a fresh one-repository thread, or
   an allow rule the owner adds), never an owner sentence per push.
 
@@ -101,4 +102,4 @@
 | A12 | the profile lists tier-3 paths | The guard runs on every PR including body edits. | ERP tier3-guard job; WEB tier3-guard step | script: workflow has the guard and the `edited` trigger. |
 | A13 | an unattended PR must pass checks and merge | Maintenance PRs come from an App or owner-created token and their checks run. | K001 (H2); PLATFORM (GITHUB_TOKEN events do not trigger workflows) | script: the maintenance PR's author is the App or token identity and its check runs exist. |
 | A14 | the kit is installed | Settings live in `.github/harness-settings.json` and the live repository matches it; only the hands App's reviewed workflows write them. | K007 (owner 4A) | script: the settings file is valid and the live repository matches it. |
-| A15 | a cloud thread works in a project | Each thread runs with exactly one repository and its settings loaded (commits authored as the owner, no classifier refusal on routine work); a project with several repositories sets identity with `git config` per clone and states standing approvals in its instructions; no commit is re-authored. | K021 | script: commits on recent PR branches are authored as the owner. judgment: sampled refusals traced to a missing-settings session and fixed at the cause, never one owner sentence per push. |
+| A15 | a cloud thread works in a project | Each thread runs with exactly one repository and its settings loaded (commits authored as the owner, no classifier refusal on routine work); a project with several repositories sets identity with `git config` per clone; every project's instructions carry the standing-approvals block of `standing-approvals.md`, at its current `kit text`; no commit is re-authored. | K021, K022 | script: commits on recent PR branches are authored as the owner. judgment: the project instructions' block matches the kit's, filled in; sampled refusals traced to a missing-settings session and fixed at the cause, never one owner sentence per push. |

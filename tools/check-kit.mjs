@@ -124,6 +124,25 @@ for (const f of wfFiles) {
   }
 }
 
+// --- 8. the standing-approvals block: one generic text, every fill-in explained (K022) ------------
+{
+  const f = '.harness/standing-approvals.md';
+  const text = existsSync(join(root, f)) ? read(f) : '';
+  const block = (text.match(/<!-- standing-approvals:begin -->\n```\n([\s\S]*?)\n```\n<!-- standing-approvals:end -->/) || [])[1];
+  if (!block) fail(`${f} has no block between the standing-approvals markers`);
+  else {
+    if (!/^STANDING APPROVALS \(kit text [0-9]+\.[0-9]+\.[0-9]+;/.test(block)) fail(`${f}: the block's first line names its kit text (the release that last changed it)`);    const guide = text.slice(0, text.indexOf('<!-- standing-approvals:begin -->'));
+    for (const m of new Set(block.match(/\{\{[A-Z_]+\}\}/g) || [])) if (!guide.includes(`\`${m}\``)) fail(`${f}: ${m} is not explained`);
+    // what a project copies: the block plus the settings line it fills in
+    const settings = (text.match(/^## Settings line\n([\s\S]*?)^## /m) || [, ''])[1];
+    if ((settings.match(/^- [^:]+: `[^`]+`$/gm) || []).length !== 2) fail(`${f}: "Settings line" has the one-repository and the several-repositories line`);
+    for (const id of ['O09', 'C07', 'A10', 'A15', 'C10', 'C12', 'O11', 'O14', 'C14']) if (!(block + settings).includes(id)) fail(`${f}: the copied text does not cite ${id}`);
+    // the kit is public: no identity, address or repository of a real project in the shared text
+    if (/[\w.+-]+@[\w-]+\.[\w.]+/.test(text)) fail(`${f} contains an email address; use {{OWNER_EMAIL}}`);
+    if (/github\.com\//.test(text)) fail(`${f} links a repository; use {{REPOS}}`);
+  }
+}
+
 const rules = worded.size;
 if (failures) { console.log(`check-kit: ${failures} failure(s)`); process.exit(1); }
 console.log(`check-kit: OK · ${rules} rules, each with one complete record · profile example valid · caps hold`);
