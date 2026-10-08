@@ -3,6 +3,16 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.17.1 · 2026-10-08 · the inbox pickup never depends on running the tool
+
+- The `inbox` skill: when a session refuses to run `inbox.mjs` (code from a fresh clone), the
+  coordinator does each step with the GitHub tools (the State line, the Evidence line, a comment,
+  closing as completed); never an ask to the owner. The refused command is still reported in
+  `Found:` (C14). Seen on the website's first wake (K018).
+- `inbox.mjs channel --open`: when the API may not make the branch (a session proxy refuses
+  `git/refs`), it says the exact `git push` to make it and opens nothing; the refused API call is
+  reported in `Found:` (C14). `test-inbox` covers it.
+
 ## 0.17.0 · 2026-10-08 · an idle wait names who acts next; outside checkers are not wait points
 
 - C03 (K019): a fourth status word, `WAITING ON <who> — <what>`, naming the card's wake (C22);
