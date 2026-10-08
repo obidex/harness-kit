@@ -5,7 +5,7 @@ Each version is the tag `v<version>` on this repository, never moved (K003). Pro
 
 ## 0.18.0 · 2026-10-08 · waits wake themselves
 
-- C25 (K020): a passing check may never wake a thread, so no turn ends waiting on CI, a review or
+- C25 (K020): a passing check may never wake a thread; no turn ends waiting on CI, a review or
   another thread without one self-reminder (or a watcher) at the expected finish. Each turn first
   reads the PR's checks, reviews and comments since the last turn, so a finding that arrived
   mid-turn is answered. A wake reads the real state and continues or sets one more: at most three
@@ -14,7 +14,7 @@ Each version is the tag `v<version>` on this repository, never moved (K003). Pro
   deleted at DONE (C23). C04 and C21 point to it.
 - A06 (Claude Code adapter): the reminder is one `send_later` to the session; a PR activity
   subscription is not a wait.
-- core reworded to stay under its cap; no rule removed. `test-harness` checks the installed core
+- core reworded (and three section headings shortened) to stay under its cap; no rule or obligation removed. `test-harness` checks the installed core
   carries C25; the audit's judgment step 2 checks waiting turns.
 
 ## 0.17.1 · 2026-10-08 · the inbox pickup never depends on running the tool
