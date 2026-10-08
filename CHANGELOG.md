@@ -3,6 +3,18 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.19.0 · 2026-10-08 · settings load only in a one-repository session
+
+- A15 (K021, Claude Code adapter): a cloud thread applies a repository's `.claude/settings.json`
+  (identity, allow and deny rules, attribution) only while its session has exactly one repository;
+  attaching a second takes effect at the next resume and drops them, so commits turn Claude-authored
+  and routine pushes and edits reach the auto-mode classifier. A project thread never attaches a
+  second repository (other repositories go through the coordinator or the inbox); a project with
+  several repositories sets identity with `git config` per clone and states standing approvals in
+  its instructions; a commit is never re-authored; a refused routine command is fixed at its cause.
+- A10: PR branches are brought up to date on the server with the expected head SHA, never by
+  pushing a local merge of main.
+
 ## 0.18.0 · 2026-10-08 · waits wake themselves
 
 - C25 (K020): a passing check may never wake a thread; no turn ends waiting on CI, a review or
