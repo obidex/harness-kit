@@ -146,7 +146,8 @@ const commitLog = (n) => git('log', `-${n}`, '--format=%H%x1f%an%x1f%s%x1f%b%x1e
 // An entry with `commits` (each a SHA of 7+ characters) is a known exception, not an accepted rule: the
 // rule skips exactly those commits (history that is never rewritten) and still FAILs on any other.
 const basePath = opt('--baseline') ? resolve(opt('--baseline')) : join(root, '.harness/audit-baseline.json');
-const baseline = existsSync(basePath) ? JSON.parse(readFileSync(basePath, 'utf8')).results || [] : [];
+let baseline = [];
+try { baseline = existsSync(basePath) ? JSON.parse(readFileSync(basePath, 'utf8')).results || [] : []; } catch (e) { if (flags.has('--strict')) throw e; }
 const knownCommits = (id) => baseline.filter((r) => r.id === id && Array.isArray(r.commits)).flatMap((r) => r.commits).filter((c) => /^[0-9a-f]{7,40}$/.test(c));
 /** The commits of a log, less the rule's known exceptions; `skipped` is how many were left out. */
 const exceptCommits = (id, log) => {
@@ -233,7 +234,7 @@ const checks = {
     if (!log) return [UNKNOWN, 'git history unreadable'];
     const { kept: commits, note } = exceptCommits('A10', log);
     // a Claude co-author trailer, or a commit authored as Claude (a squash adds the trailer for it)
-    const bad = commits.filter((c) => /co-authored-by:[^\n]*(claude|anthropic)/i.test(c) || /^claude$/i.test(c.trim().split('\x1f')[1] || '')).map((c) => c.trim().slice(0, 10));
+    const bad = commits.filter((c) => /co-authored-by:[^\n]*(claude|anthropic)/i.test(c) || /^claude( code)?(\[bot\])?$/i.test(c.trim().split('\x1f')[1] || '')).map((c) => c.trim().slice(0, 10));
     return bad.length ? [FAIL, `${bad.length} of the last ${commits.length} commits carry a Claude Co-authored-by trailer or Claude as author: ${bad.slice(0, 5).join(', ')}${note}`]
       : [PASS, `none of the last ${commits.length} commits carry a Claude trailer or author${note}`];
   },
