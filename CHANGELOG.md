@@ -3,6 +3,22 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.15.0 · 2026-10-08 · alerts hold 10 minutes and end with "You:"; precise audit exceptions
+
+- `notify.mjs` (K017): in a host's file store a new problem is held and sent only if still open 10
+  minutes after it was first seen (`ALERTS_HOLD_MINUTES`); one cleared sooner sends nothing, so a
+  flapping check (a timer between runs) never reaches the group. GitHub stores and outages send at
+  once. New status `held`.
+- Every PROBLEM ends with one `You:` line from `--you` (`nothing`, `<who> is fixing it` or
+  `Needs you: <exact step>`; anything else is refused; default `nothing` in a silent topic); the
+  3-hour escalation ends with a `Needs you:` line. RESOLVED is the short reply `✅ Fixed after N min`.
+  `alerts.md` states the format: no commands in messages, Damascus time only.
+- `audit.mjs`: a baseline entry with `commits` is a known exception: A10 and O09 skip exactly those
+  commits and still FAIL on any other; it never accepts the whole rule in `--strict`. A10 also counts
+  a commit authored as Claude (a squash merge turns its author into a co-author trailer).
+  `test-harness` and `test-notify` cover both.
+- `stale.mjs`: a missed-schedule alert gives its times in Damascus time (`notify.mjs localTime`).
+
 ## 0.14.2 · 2026-10-08 · a refused auto-merge says which setting, and old kit PRs still close
 
 - `hands-update`: a repository with auto-merge off made `gh pr merge --auto` fail before the PR was

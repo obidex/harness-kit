@@ -163,7 +163,7 @@ r = await report('o/r', NOW + 3600000);
 ok(r.alert === 'repeat' && tg.length === 1 && alertIssues()[0].comments.some((c) => c.includes(first.html_url)), 'while the problem is open, more new items send nothing more (notify.mjs deduplicates); its issue gets a comment');
 pulls.length = 0; issues.splice(0, issues.length, ...issues.filter((i) => String(i.body).includes(MARKER) || String(i.body).includes('harness-alert')));
 r = await report('o/r', NOW + 2 * DAY);
-ok(tracking()[0].state === 'closed' && /Nothing is stale/.test(tracking()[0].body) && r.alert === 'resolved' && tg.length === 2 && tg[1].reply_parameters.message_id === tg[0].message_id && /RESOLVED/.test(tg[1].text) && alertIssues()[0].state === 'closed',
+ok(tracking()[0].state === 'closed' && /Nothing is stale/.test(tracking()[0].body) && r.alert === 'resolved' && tg.length === 2 && tg[1].reply_parameters.message_id === tg[0].message_id && /^✅ Fixed after /.test(tg[1].text) && alertIssues()[0].state === 'closed',
   'an empty list closes "Stale work" and resolves stale:o/r: RESOLVED is a reply to the problem\'s message');
 const patches = tracking()[0].patches;
 r = await report('o/r', NOW + 2 * DAY);
@@ -216,7 +216,7 @@ const T1 = at('2026-10-06T18:42:00Z'); // hands-update due 06:41 on the 5th, 36 
 sch = await alertSchedules('o/r', T1, 'kit');
 const missed = tg.slice(tgBefore);
 ok(sch.find((x) => x.file === 'hands-update.yml').alert === 'sent' && missed.length === 1 && missed[0].message_thread_id === 6 && missed[0].disable_notification === true
-  && /^🔴 PROBLEM · Scheduled run missed: hands-update in o\/r was due 2026-10-05 06:41 UTC and is 36 h overdue/.test(missed[0].text) && missed[0].text.includes('actions/workflows/hands-update.yml')
+  && /^🔴 PROBLEM · Scheduled run missed: hands-update in o\/r was due 2026-10-05 09:41 and is 36 h overdue/.test(missed[0].text) && missed[0].text.includes('actions/workflows/hands-update.yml')
   && alertIssues().some((i) => /"key":"schedule:o\/r\/hands-update.yml"/.test(i.body) && i.state === 'open'),
   'a schedule more than 36 h overdue (push runs neither count nor hide its last run) posts one PROBLEM in "Kit & Hands", silent, linking the workflow; its record is kept until it runs');
 ok(sch.find((x) => x.file === 'hands-settings.yml').overdue === false && sch.find((x) => x.file === 'hands-settings.yml').alert === 'none', 'a schedule on time sends nothing');
@@ -226,7 +226,7 @@ ok(tg.length === tgBefore + 1 && sch.find((x) => x.file === 'hands-update.yml').
 wfs[1].runs = [{ event: 'workflow_dispatch', created_at: '2026-10-06T19:05:00Z', ...done }, ...wfs[1].runs];
 sch = await alertSchedules('o/r', at('2026-10-07T05:30:00Z'), 'kit');
 const ranAgain = tg.slice(tgBefore + 1);
-ok(sch.find((x) => x.file === 'hands-update.yml').alert === 'resolved' && ranAgain.length === 1 && ranAgain[0].reply_parameters.message_id === missed[0].message_id && /RESOLVED .*hands-update in o\/r ran again \(2026-10-06 19:05 UTC\)/.test(ranAgain[0].text)
+ok(sch.find((x) => x.file === 'hands-update.yml').alert === 'resolved' && ranAgain.length === 1 && ranAgain[0].reply_parameters.message_id === missed[0].message_id && /^✅ Fixed after /.test(ranAgain[0].text)
   && !alertIssues().some((i) => /schedule:o\/r\/hands-update.yml/.test(i.body) && i.state === 'open'),
   'once it has run again (on schedule, or by hand from Actions), the next check replies RESOLVED to the PROBLEM and closes it');
 // a new or moved scheduled workflow (owner, 2026-10-06): its clock starts when it appeared in the repository, never at "never"

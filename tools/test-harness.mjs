@@ -98,6 +98,23 @@ writeFileSync(join(proj, 'src/app.js'), 'console.log(2)\n');
 writeFileSync(join(proj, '.harness/profile.json'), JSON.stringify({ ...profile, project: { ...profile.project, summary: 'edited by the project' } }, null, 2));
 appendFileSync(join(proj, 'CLAUDE.md'), '\nAnother local line.\n');
 git(proj, 'add', '-A'); git(proj, 'commit', '-q', '-m', 'project work');
+// 3b. a known exception in the baseline skips exactly its commit; any other Claude-attributed commit FAILs
+{
+  const ax = join(work, 'attr'); cpSync(proj, ax, { recursive: true });
+  const claudeEnv = { ...gitEnv, GIT_AUTHOR_NAME: 'Claude', GIT_AUTHOR_EMAIL: 'noreply@anthropic.com' };
+  const commitAs = (msg) => { execFileSync('git', ['commit', '-q', '--allow-empty', '-m', msg], { cwd: ax, env: claudeEnv }); return git(ax, 'rev-parse', 'HEAD'); };
+  const old = commitAs('old work\n\nCo-authored-by: Claude <noreply@anthropic.com>');
+  const run = () => { const o = spawnSync('node', [join(ax, '.harness/tools/audit.mjs'), ax, '--json', join(work, 'attr.json'), '--strict'], { encoding: 'utf8' }); const j = JSON.parse(readFileSync(join(work, 'attr.json'), 'utf8')).results; return { out: o.stdout, r: (id) => j.find((x) => x.id === id) }; };
+  let x = run();
+  ok(x.r('A10').result === 'FAIL' && /FAIL A10 /.test(x.out) && /FAIL O09 /.test(x.out), 'a commit with a Claude trailer FAILs A10 and O09 under --strict');
+  writeFileSync(join(ax, '.harness/audit-baseline.json'), JSON.stringify({ results: ['A10', 'O09'].map((id) => ({ id, result: 'FAIL', commits: [old.slice(0, 7)], why: 'merged before the gate; history is never rewritten' })) }));
+  x = run();
+  ok(x.r('A10').result === 'PASS' && /1 known exception/.test(x.r('A10').evidence) && !/FAIL A10 |FAIL O09 .*commits carry/.test(x.out), 'listed in the baseline by its SHA, that one commit is skipped and A10 passes, saying so');
+  commitAs('new work');
+  x = run();
+  ok(x.r('A10').result === 'FAIL' && /FAIL A10 /.test(x.out), 'a later commit authored as Claude still FAILs A10: the exception never accepts the whole rule');
+}
+
 const owned = git(proj, 'ls-files').split('\n').filter((f) => !(f in lock1.files) && f !== '.harness/kit.lock.json');
 const before = Object.fromEntries(owned.map((f) => [f, hash(join(proj, f))]));
 
