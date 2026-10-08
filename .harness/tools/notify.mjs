@@ -5,7 +5,7 @@
 //   node .harness/tools/notify.mjs setup        check the group, create the missing topics, pin the config
 //                                               (unpinning anything pinned after it: only the config stays)
 //   node .harness/tools/notify.mjs problem --key <k> --topic <t> --text <t> [--link <url>] [--title <t>]
-//        [--action] [--outage]                  open a problem (a repeat of an open key sends nothing)
+//        [--action] [--outage] [--you <line>]   open a problem (a repeat of an open key sends nothing)
 //   node .harness/tools/notify.mjs resolve --key <k> [--text <t>]
 //                                               reply RESOLVED to the problem's message and close it
 //   node .harness/tools/notify.mjs tick [--stores <spec,…>]
@@ -25,6 +25,12 @@
 //   day; its RESOLVED is a reply to the original message (and to the escalation, if any).
 // - Dedupe: one open problem per key; a repeat only counts. Caps: at most 5 new messages per topic per
 //   hour (10 in "Needs you"); the rest wait for the next tick. An outage is never capped.
+// - Hold: in a host's file store a problem is sent only once it is still open 10 minutes after it was
+//   first seen (ALERTS_HOLD_MINUTES), by a later `problem` call or `tick`; one resolved sooner was never
+//   sent and sends nothing. A GitHub store (ticked daily) and an outage send at once.
+// - Format: a PROBLEM ends with one "You:" line (--you: "nothing", "<who> is fixing it" or "Needs you:
+//   <exact step>"); a RESOLVED is the short reply "✅ Fixed after N min". Messages carry no commands,
+//   and any time in them is the owner's time zone.
 //
 // Environment: ALERTS_BOT_TOKEN (or TELEGRAM_BOT_TOKEN) and the group: ALERTS_CHAT_ID, else the file
 // ALERTS_CHAT_ID_FILE names, else TELEGRAM_CHAT_ID. A chat with no pinned config (a private chat, before
@@ -57,10 +63,17 @@ export const rules = () => ({
   cap: Number(env('ALERTS_CAP', 5)),
   capNeeds: Number(env('ALERTS_CAP_NEEDS', 10)),
 });
+/** How long a new problem in this store waits, still open, before it is sent (0 = at once). */
+const holdOf = (st) => (!st.hold ? 0 : env('ALERTS_HOLD_MINUTES') ? Number(env('ALERTS_HOLD_MINUTES')) * 60e3 : st.hold);
+/** The one "You:" line of a PROBLEM: what the owner does about it. */
+export const YOU = /^(nothing|\S.* is fixing it|Needs you: \S.*)$/;
+const youOf = (inc) => inc.you || (inc.topic === 'needs' ? 'Needs you: see the message above' : 'nothing');
 export const now = () => (process.env.ALERTS_NOW ? new Date(process.env.ALERTS_NOW).getTime() : Date.now());
 
 /** The local hour in the owner's time zone. */
 export const localHour = (t, tz = rules().tz) => Number(new Intl.DateTimeFormat('en-GB', { hour: '2-digit', hourCycle: 'h23', timeZone: tz }).format(new Date(t)));
+/** A time as the owner reads it: "2026-10-05 09:41" in his time zone (messages carry no other). */
+export const localTime = (t, tz = rules().tz) => new Intl.DateTimeFormat('sv-SE', { dateStyle: 'short', timeStyle: 'short', hourCycle: 'h23', timeZone: tz }).format(new Date(t));
 /** True inside quiet hours (a window that may cross midnight). */
 export function isQuiet(t, r = rules()) {
   const h = localHour(t, r.tz); const [from, to] = r.quiet;
@@ -127,6 +140,7 @@ function fileStore(path) {
   };
   return {
     name: `file:${path}`,
+    hold: 10 * 60e3, // a host checks every few minutes and ticks itself: a flap is never sent
     async locked(fn) {
       mkdirSync(dirname(path), { recursive: true });
       for (let i = 0; ; i++) {
@@ -187,7 +201,10 @@ export function store(spec = env('ALERTS_STORE')) {
 }
 
 // --- the rules --------------------------------------------------------------------------------------
-const headline = (inc) => `${inc.outage ? '🚨 OUTAGE' : inc.topic === 'needs' ? '🔴 NEEDS YOU' : '🔴 PROBLEM'} · ${one(inc.text)}${inc.link ? `\n${inc.link}` : ''}`;
+const headline = (inc) => `${inc.outage ? '🚨 OUTAGE' : inc.topic === 'needs' ? '🔴 NEEDS YOU' : '🔴 PROBLEM'} · ${one(inc.text)}${inc.link ? `\n${inc.link}` : ''}\nYou: ${youOf(inc)}`;
+const fixed = (inc, t) => `✅ Fixed after ${age(t - inc.opened)}`;
+/** A held problem is due once it has been open the store's hold; an outage never waits. */
+const due = (st, inc, t) => inc.outage || t - inc.opened >= holdOf(st);
 
 /** Messages sent in the last hour to a topic, from what the store remembers. */
 const sentLastHour = (list, topic, t) => list.filter((i) => i.topic === topic && i.sentAt && t - i.sentAt < HOUR).length
@@ -204,6 +221,7 @@ async function sendProblem(tg, inc, list, t, r) {
 export async function problem(st, tg, o) {
   const r = rules(), t = now();
   if (!o.key || !o.text) throw new Error('--key and --text are required');
+  if (o.you && !YOU.test(one(o.you))) throw new Error('--you is "nothing", "<who> is fixing it" or "Needs you: <exact step>"');
   const topic = o.outage || o.action ? 'needs' : o.topic;
   if (!topic) throw new Error('--topic is required (needs, erp, website, kit, ops, or another set up topic)');
   return st.locked(async () => {
@@ -212,16 +230,17 @@ export async function problem(st, tg, o) {
       open.count = (open.count || 1) + 1; open.lastSeen = t;
       await st.save(open);
       if (o.link) await st.note(open, `Still failing: ${o.link}`);
-      if (!open.msg && tg.ready) { const list = await st.list(); if (await sendProblem(tg, open, list, t, r)) await st.save(open); }
-      return { status: 'repeat', inc: open };
+      if (!open.msg && tg.ready && due(st, open, t)) { const list = await st.list(); if (await sendProblem(tg, open, list, t, r)) await st.save(open); }
+      return { status: open.msg || due(st, open, t) ? 'repeat' : 'held', inc: open };
     }
-    const inc = { key: o.key, topic, text: one(o.text), title: o.title, link: o.link, outage: !!o.outage, opened: t, msg: null, count: 1, open: true };
+    const inc = { key: o.key, topic, text: one(o.text), title: o.title, link: o.link, outage: !!o.outage, ...(o.you ? { you: one(o.you) } : {}), opened: t, msg: null, count: 1, open: true };
     const list = await st.list();
     let sent = false, err;
-    try { sent = await sendProblem(tg, inc, list, t, r); } catch (e) { err = e; }
+    const now0 = due(st, inc, t);
+    if (now0) try { sent = await sendProblem(tg, inc, list, t, r); } catch (e) { err = e; }
     await st.save(inc);
     if (err) throw err;
-    return { status: sent ? 'sent' : tg.ready ? 'capped' : 'queued', inc };
+    return { status: sent ? 'sent' : !now0 ? 'held' : tg.ready ? 'capped' : 'queued', inc };
   });
 }
 
@@ -230,7 +249,7 @@ export async function resolveKey(st, tg, o) {
   return st.locked(async () => {
     const inc = await st.get(o.key);
     if (!inc) return { status: 'none' };
-    const text = `✅ RESOLVED after ${age(t - inc.opened)} · ${one(o.text || inc.text)}`;
+    const text = fixed(inc, t);
     if (inc.msg) {
       await tg.send(inc.topic, text, { reply: inc.msg, t });
       if (inc.escMsg) await tg.send('needs', text, { reply: inc.escMsg, t });
@@ -250,10 +269,11 @@ export async function tick(st, tg) {
     const list = await st.list();
     for (const inc of list.filter((i) => i.open)) {
       let changed = false;
-      if (!inc.msg) { if (await sendProblem(tg, inc, list, t, r)) { changed = true; did.push(`sent ${inc.key}`); } }
+      if (!inc.msg && due(st, inc, t)) { if (await sendProblem(tg, inc, list, t, r)) { changed = true; did.push(`sent ${inc.key}`); } }
       if (inc.msg && inc.topic !== 'needs' && !inc.escalated && t - inc.opened >= r.escalateAfter && !quiet && !capped(list, { topic: 'needs' }, t, r)) {
         const original = await tg.link(inc.topic, inc.msg);
-        inc.escMsg = await tg.send('needs', `⏰ STILL OPEN after ${age(t - inc.opened)}, nobody resolved it · ${one(inc.text)}${inc.link ? `\n${inc.link}` : ''}\n${original}`, { t });
+        const you = youOf(inc).startsWith('Needs you:') ? youOf(inc) : 'Needs you: it has not cleared in 3 hours; pass this message to its project\'s coordinator';
+        inc.escMsg = await tg.send('needs', `⏰ STILL OPEN after ${age(t - inc.opened)}, nobody resolved it · ${one(inc.text)}${inc.link ? `\n${inc.link}` : ''}\n${original}\nYou: ${you}`, { t });
         await tg.send(inc.topic, `🟠 STILL OPEN after ${age(t - inc.opened)} · escalated to Needs you`, { reply: inc.msg, t });
         inc.escalated = t; inc.remindedAt = t; changed = true; did.push(`escalated ${inc.key}`);
       } else if (inc.msg && !quiet && t - (inc.remindedAt || inc.opened) >= r.remindEvery) {
@@ -330,7 +350,7 @@ async function main(argv) {
   switch (cmd) {
     case 'setup': for (const l of await setup(tg)) say(l); break;
     case 'problem': {
-      const r = await problem(store(), tg, { key: opt('--key'), topic: opt('--topic'), text: opt('--text'), link: opt('--link'), title: opt('--title'), action: flag('--action'), outage: flag('--outage') });
+      const r = await problem(store(), tg, { key: opt('--key'), topic: opt('--topic'), text: opt('--text'), link: opt('--link'), title: opt('--title'), action: flag('--action'), outage: flag('--outage'), you: opt('--you') });
       say(`${r.status} ${r.inc.key}${r.inc.url ? ` (${r.inc.url})` : ''}`);
       if (r.status === 'queued' && env('ALERTS_REQUIRE_SEND') === '1') { console.error('notify: no bot token or chat id here, so the problem was recorded but not sent'); process.exit(2); }
       break;

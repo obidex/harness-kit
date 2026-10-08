@@ -469,3 +469,19 @@ that message, and item 7 of the earlier repair (the owner-effort pass), which th
 
 **Status:** STANDING.
 
+## K017 · 2026-10-08 · STANDING — an alert holds 10 minutes, ends with "You:"; audit exceptions name commits
+
+**Source:** the strategist's check of the owner's failed notifications, posted by the owner in the
+Platform project on 2026-10-08 at 08:45 UTC (three repairs).
+
+1. **Hold.** An alert fires only if its condition still holds 10 minutes later: host stores hold a
+   new problem 10 minutes; a problem cleared sooner is never sent. GitHub stores (ticked daily) and
+   outages (confirmed by their sender) are not held.
+2. **Format.** No commands in messages; every PROBLEM ends with one `You:` line (`nothing`,
+   `<who> is fixing it`, `Needs you: <exact step>`), enforced by `notify.mjs`; RESOLVED is the short
+   reply `✅ Fixed after N min`; Damascus time only.
+3. **Known exceptions.** A commit carrying Claude attribution that reached a default branch stays
+   (history is never rewritten); the project records it in its audit baseline by SHA with the reason.
+   The audit skips that commit only, so a new one still fails.
+
+**Status:** STANDING.

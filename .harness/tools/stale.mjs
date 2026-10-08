@@ -40,7 +40,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse as parseInbox } from './inbox.mjs';
 import { parseYaml } from './lib.mjs';
-import { TOPICS, problem, resolveKey, store, telegram } from './notify.mjs';
+import { TOPICS, problem, resolveKey, store, telegram, localTime } from './notify.mjs';
 
 export const MARKER = '<!-- harness-stale -->';
 export const TITLE = 'Stale work';
@@ -365,7 +365,7 @@ export async function schedules(repo, now = Date.now(), limit = overdueHours()) 
 export function missedText(repo, s, limit = 36) {
   const why = s.state === 'disabled_inactivity' ? 'GitHub turned its schedule off for inactivity; turn it back on in Actions' : 'GitHub\'s scheduled runs are best-effort; run it by hand from Actions if it stays missing';
   if (s.noneFinished) return `Scheduled run missed: ${s.workflow} in ${repo}: none of its last ${s.noneFinished} runs finished (cancelled or stuck). ${why}.`;
-  return `Scheduled run missed: ${s.workflow} in ${repo} was due ${s.due.slice(0, 16).replace('T', ' ')} UTC and is ${s.lateHours} h overdue (more than ${limit} h); last run ${s.lastRun ? s.lastRun.slice(0, 16).replace('T', ' ') + ' UTC' : 'never'}. ${why}.`;
+  return `Scheduled run missed: ${s.workflow} in ${repo} was due ${localTime(s.due)} and is ${s.lateHours} h overdue (more than ${limit} h); last run ${s.lastRun ? localTime(s.lastRun) : 'never'}. ${why}.`;
 }
 
 /** schedules, then a problem per overdue workflow and a resolve for each that ran again. */
@@ -379,7 +379,7 @@ export async function alertSchedules(repo, now = Date.now(), topic = topicOf()) 
     const key = `schedule:${repo}/${s.file}`;
     const r = s.overdue
       ? await problem(st, tg, { key, topic, title: `Scheduled run missed: ${s.workflow}`, text: missedText(repo, s, limit), link: s.url })
-      : await resolveKey(st, tg, { key, text: `${s.workflow} in ${repo} ran again (${s.lastRun ? s.lastRun.slice(0, 16).replace('T', ' ') + ' UTC' : 'its next run is not due yet'})` });
+      : await resolveKey(st, tg, { key, text: `${s.workflow} in ${repo} ran again (${s.lastRun ? localTime(s.lastRun) : 'its next run is not due yet'})` });
     done.push({ ...s, alert: r.status });
   }
   return done;

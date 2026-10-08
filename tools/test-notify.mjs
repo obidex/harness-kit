@@ -73,12 +73,15 @@ const T = (name) => tgState.topics[TOPICS[name].name];
 
 // a silent problem, its repeat, its resolve
 const dir = mkdtempSync(join(tmpdir(), 'notify-test-'));
+// the rules below run without the hold; the hold has its own cases after them
+process.env.ALERTS_HOLD_MINUTES = '0';
 const st = store(`file:${join(dir, 'state.json')}`);
 const tg = telegram();
 at('2026-10-05T09:00:00Z');
 let r = await problem(st, tg, { key: 'hands/hands-update', topic: 'kit', text: 'hands-update failed', link: 'https://example.invalid/run/1' });
 const original = r.inc.msg;
 ok(r.status === 'sent' && last().message_thread_id === T('kit') && last().disable_notification === true && /PROBLEM · hands-update failed/.test(last().text), 'a problem goes silently to its own topic');
+ok(last().text.split('\n').at(-1) === 'You: nothing', 'a PROBLEM ends with one "You:" line (default for a silent topic: nothing)');
 let i0 = mark();
 r = await problem(st, tg, { key: 'hands/hands-update', topic: 'kit', text: 'hands-update failed again' });
 ok(r.status === 'repeat' && since(i0).length === 0 && r.inc.count === 2, 'a repeat of an open problem sends nothing (deduplicated) and counts');
@@ -87,8 +90,44 @@ await tg.call('pinChatMessage', { chat_id: tg.chat, message_id: original }); // 
 ok(tgState.pinned?.message_id === original, 'fixture: the problem is pinned, so senders no longer see the config');
 r = await resolveKey(st, tg, { key: 'hands/hands-update', text: 'hands-update green again' });
 ok(!tgState.pins.some((x) => x.message_id === original) && tgState.pinned?.text.startsWith('harness-alerts config'), 'a resolved problem never stays pinned: RESOLVED unpins it and the config is the newest pin again');
-ok(r.status === 'resolved' && since(i0).length === 1 && last().reply_parameters?.message_id === original && last().message_thread_id === T('kit') && /RESOLVED after 1 h 30 min/.test(last().text), 'RESOLVED is a reply to the original message, in its topic');
+ok(r.status === 'resolved' && since(i0).length === 1 && last().reply_parameters?.message_id === original && last().message_thread_id === T('kit') && last().text === '✅ Fixed after 1 h 30 min', 'RESOLVED is the short reply "✅ Fixed after …" to the original message, in its topic');
 ok((await resolveKey(st, tg, { key: 'hands/hands-update' })).status === 'none', 'resolving a key with nothing open does nothing');
+
+// the "You:" line: one of three forms, given by the sender
+at('2026-10-05T09:00:00Z');
+await problem(st, tg, { key: 'ops/fixing', topic: 'ops', text: 'backup failed', you: 'Platform coordinator is fixing it' });
+ok(last().text.endsWith('\nYou: Platform coordinator is fixing it'), 'a sender names who is fixing it');
+await problem(st, tg, { key: 'ops/step', topic: 'ops', text: 'laptop silent', you: 'Needs you: check that the laptop is switched on' });
+ok(last().text.endsWith('\nYou: Needs you: check that the laptop is switched on'), 'or the exact step the owner takes');
+let bad = null; try { await problem(st, tg, { key: 'ops/bad', topic: 'ops', text: 'x', you: 'run systemctl restart x' }); } catch (e) { bad = e.message; }
+ok(/--you is/.test(bad || '') && !(await st.get('ops/bad')), 'any other "You:" line is refused and nothing is recorded');
+await resolveKey(st, tg, { key: 'ops/fixing' }); await resolveKey(st, tg, { key: 'ops/step' });
+
+// the hold (a host's file store): sent only if still open 10 minutes after it was first seen
+{
+  delete process.env.ALERTS_HOLD_MINUTES;
+  const hs = store(`file:${join(dir, 'hold.json')}`);
+  at('2026-10-05T09:00:00Z'); let h0 = mark();
+  let h = await problem(hs, tg, { key: 'vps/timer', topic: 'ops', text: 'cleanup timer has no next run' });
+  ok(h.status === 'held' && since(h0).length === 0, 'a new problem in a host store is held, not sent');
+  at('2026-10-05T09:02:00Z'); h = await resolveKey(hs, tg, { key: 'vps/timer' });
+  ok(h.status === 'closed-unsent' && since(h0).length === 0, 'cleared after 2 minutes (a flap): nothing is ever sent, no PROBLEM and no reply');
+  at('2026-10-05T09:04:00Z'); await problem(hs, tg, { key: 'vps/disk', topic: 'ops', text: 'disk 90% full' });
+  at('2026-10-05T09:13:00Z'); h = await problem(hs, tg, { key: 'vps/disk', topic: 'ops', text: 'disk 90% full' });
+  ok(h.status === 'held' && since(h0).length === 0, 'still failing 9 minutes later: still held');
+  at('2026-10-05T09:14:00Z'); h = await problem(hs, tg, { key: 'vps/disk', topic: 'ops', text: 'disk 90% full' });
+  ok(h.status === 'repeat' && h.inc.msg && since(h0).length === 1 && /PROBLEM · disk 90% full\nYou: nothing$/.test(last().text), 'still failing 10 minutes after it was first seen: one PROBLEM');
+  at('2026-10-05T09:30:00Z'); await resolveKey(hs, tg, { key: 'vps/disk' });
+  ok(last().text === '✅ Fixed after 26 min' && last().reply_parameters?.message_id === h.inc.msg, 'its RESOLVED counts from when it was first seen');
+  at('2026-10-05T10:00:00Z'); h0 = mark(); await problem(hs, tg, { key: 'vps/feed', topic: 'ops', text: 'feed stale' });
+  at('2026-10-05T10:09:00Z'); ok((await tick(hs, tg)).length === 0, 'a tick inside the hold sends nothing');
+  at('2026-10-05T10:10:00Z'); ok((await tick(hs, tg)).includes('sent vps/feed') && since(h0).length === 1, 'a tick sends a held problem once its 10 minutes are up');
+  await resolveKey(hs, tg, { key: 'vps/feed' });
+  h0 = mark(); h = await problem(hs, tg, { key: 'prod/web', topic: 'ops', text: 'site down', outage: true });
+  ok(h.status === 'sent' && since(h0).length === 1, 'an outage is never held');
+  await resolveKey(hs, tg, { key: 'prod/web' });
+  process.env.ALERTS_HOLD_MINUTES = '0';
+}
 
 // action-required and outages go to "Needs you"; quiet hours silence all but an outage
 at('2026-10-05T09:00:00Z');
@@ -110,6 +149,7 @@ ok((await tick(st, tg)).length === 0 && since(i0).length === 0, 'before 3 hours 
 at('2026-10-05T13:00:00Z'); i0 = mark();
 let did = await tick(st, tg);
 const [esc, still] = since(i0);
+ok(esc.text.endsWith("\nYou: Needs you: it has not cleared in 3 hours; pass this message to its project's coordinator"), 'the escalation ends with a "Needs you" line');
 ok(did.includes('escalated erp/ci') && esc.message_thread_id === T('needs') && esc.disable_notification === false && esc.text.includes(`/${T('erp')}/${erpMsg}`), 'at 3 hours it is escalated, loud, to "Needs you", linking the original');
 ok(still.reply_parameters.message_id === erpMsg && /STILL OPEN after 3 h/.test(still.text) && still.disable_notification === true, 'and a STILL OPEN reply goes silently under the original');
 i0 = mark(); await tick(st, tg);
@@ -238,7 +278,7 @@ ok(c.code === 0 && /bot @example_alerts_bot/.test(c.out) && /group "Owner alerts
   x = await sh('failure');
   ok(x.code === 0 && issues.filter((i) => i.title === 'hands-update failing').length === 1 && /Still failing: https:\/\/github\.invalid\/o\/hands\/actions\/runs\/99/.test(comments.at(-1).body), 'hands-report: a second failure only comments');
   x = await sh('success');
-  ok(x.code === 0 && opened.state === 'closed' && /RESOLVED after .* hands-update green again/.test(last().text) && last().reply_parameters?.message_id, 'hands-report: the next green run replies RESOLVED and closes the issue');
+  ok(x.code === 0 && opened.state === 'closed' && last().text === '✅ Fixed after 0 min' && last().reply_parameters?.message_id, 'hands-report: the next green run replies RESOLVED and closes the issue');
   rmSync(w, { recursive: true, force: true });
 }
 

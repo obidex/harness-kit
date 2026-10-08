@@ -20,6 +20,10 @@ with "judgment review" as evidence.
 - **Heuristics are findings, not verdicts.** A structural FAIL whose evidence shows a recorded,
   justified exception (a comment naming the rule, a profile `exceptions` entry) is settled in the
   judgment review as PASS with that citation, or as a conflict (below).
+- **The baseline.** `.harness/audit-baseline.json` (project-owned) lists accepted results, each with
+  `why`. An entry with `result: FAIL` accepts that rule's FAIL in `--strict`. An entry with `commits`
+  (SHAs, 7+ characters) is a known exception instead: A10 and O09 skip exactly those commits (history
+  is never rewritten) and still FAIL on any other, so the exception never hides a recurrence.
 
 ## 2. Judgment review (sampled, by a fresh-context reviewer)
 
