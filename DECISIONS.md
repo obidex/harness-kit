@@ -588,3 +588,17 @@ with each release.
    repository link in it.
 
 **Status:** STANDING.
+
+## K023 · 2026-10-08 · STANDING — two remaining owner stops removed at their causes
+
+**Source:** the owner's order of 2026-10-08, 20:12 UTC, item 3: count every remaining
+owner-sentence stop and fix each at its cause (count on the Platform maintenance card).
+
+1. **Shell edits (A16).** In a session without repository settings, files change through the
+   file-edit and write tools. Every classifier refusal of a rule-file edit in the
+   several-repository project was a shell edit; no file-tool edit was refused.
+2. **Declared auto-merge off.** A project whose settings file sets `allow_auto_merge: false` has
+   chosen thread merges on the gates (O11); `hands-update` passes and says so, instead of failing
+   weekly until the owner decides something already inside his rules.
+
+**Status:** STANDING.

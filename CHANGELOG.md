@@ -3,6 +3,16 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.21.0 · 2026-10-08 · two remaining owner stops removed at their causes
+
+- A16 (K023, Claude Code adapter): in a session without repository settings, files change through
+  the file-edit and write tools, never a shell script; every classifier refusal of a rule-file edit
+  in the several-repository project (7-8 Oct) was a shell edit.
+- `hands-update` (K023): a project whose settings file sets `allow_auto_merge: false` gets a
+  passing run that says its thread merges the kit PR on its gates (O11), not a weekly failure
+  waiting on an owner decision. Any other auto-merge refusal still fails naming the setting.
+  `test-hands` covers the opt-out, a declared `true`, and an unreadable settings file.
+
 ## 0.20.0 · 2026-10-08 · standing approvals have one home
 
 - `standing-approvals.md` (K022, lookup): the one standing-approvals text every project copies

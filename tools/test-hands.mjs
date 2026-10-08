@@ -294,7 +294,21 @@ const run = (srv, args, env = {}) => new Promise((done) => {
   ok(r.status !== 0 && /pr close 374/.test(r.gh) && /^pr merge 380 --repo o\/r --auto --squash$/m.test(r.gh) && /FAIL: GitHub refused auto-merge on #380: turn on allow_auto_merge in o\/r's \.github\/harness-settings\.json/.test(r.stdout),
     'auto-merge refused: the superseded PR is still closed first, and the step fails naming allow_auto_merge');
   r = run('', {}, 'automerge 380');
-  ok(r.status === 0 && /^pr merge 380 --repo o\/r --auto --squash$/m.test(r.gh), 'auto-merge allowed: it is turned on and the step goes on');
+  ok(r.status === 0 && /^pr merge 380 --repo o\/r --auto --squash$/m.test(r.gh) && /auto-merge is on for #380/.test(r.stdout), 'auto-merge allowed: it is turned on and the step goes on');
+  // the project chose auto-merge off in its own settings file (the website, 8 Oct 2026, K023): a pass that
+  // says its thread merges the PR, never a weekly failure waiting on the owner; any other refusal still fails
+  mkdirSync(join(proj, '.github'));
+  writeFileSync(join(proj, '.github/harness-settings.json'), JSON.stringify({ repository: { allow_auto_merge: false } }));
+  r = run('374 harness/kit-0.10.0\n', { FAKE_MERGE_FAIL: '1' }, 'supersede 380; automerge 380');
+  ok(r.status === 0 && /pr close 374/.test(r.gh) && /auto-merge is off by o\/r's own settings \(allow_auto_merge false\): #380 waits for its thread/.test(r.stdout) && !/FAIL/.test(r.stdout),
+    'auto-merge off by the project\'s own settings: the step passes and says the thread merges the PR');
+  writeFileSync(join(proj, '.github/harness-settings.json'), JSON.stringify({ repository: { allow_auto_merge: true } }));
+  r = run('', { FAKE_MERGE_FAIL: '1' }, 'automerge 380');
+  ok(r.status !== 0 && /FAIL: GitHub refused auto-merge on #380/.test(r.stdout), 'auto-merge declared on but refused: still one failure naming the setting');
+  writeFileSync(join(proj, '.github/harness-settings.json'), '{ not json');
+  r = run('', { FAKE_MERGE_FAIL: '1' }, 'automerge 380');
+  ok(r.status !== 0 && /FAIL: GitHub refused auto-merge on #380/.test(r.stdout), 'an unreadable settings file is no opt-out: the refusal fails');
+  rmSync(join(proj, '.github'), { recursive: true, force: true });
   const hu = readFileSync(join(kitRoot, '.harness/templates/hands/hands-update.yml'), 'utf8');
   const openPath = hu.slice(hu.indexOf('if [ -n "$open" ]; then'), hu.indexOf('# --- end PR body ---'));
   const newPath = hu.slice(hu.indexOf('url="$(gh pr create'), hu.indexOf('- name: Keep the PR current'));

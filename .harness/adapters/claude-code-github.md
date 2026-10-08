@@ -61,6 +61,13 @@
   date on the server (the GitHub tool's update-branch, or `gh pr update-branch`, with the expected
   head SHA), never by pushing a local merge of main: that push carries other PRs' changes, agent
   rule files among them, and without settings it reaches the classifier (A15).
+- **A16 Edit files with the file tools.** In a session without repository settings (A15), change
+  files with the session's file-edit and write tools, never with a shell script (`python3 -`,
+  `sed -i`, a heredoc into a file): shell edits of agent rule files go to the auto-mode classifier
+  and are refused unpredictably; file-tool edits inside the working directory have not been. Seen in a
+  several-repository project on 7-8 Oct 2026: nine refusals, every one a shell edit or a shell
+  command after one; eleven file-tool edits of rule files in one thread, none refused. A refused
+  shell edit is still reported (C14).
 
 ## GitHub enforcement
 
@@ -103,3 +110,4 @@
 | A13 | an unattended PR must pass checks and merge | Maintenance PRs come from an App or owner-created token and their checks run. | K001 (H2); PLATFORM (GITHUB_TOKEN events do not trigger workflows) | script: the maintenance PR's author is the App or token identity and its check runs exist. |
 | A14 | the kit is installed | Settings live in `.github/harness-settings.json` and the live repository matches it; only the hands App's reviewed workflows write them. | K007 (owner 4A) | script: the settings file is valid and the live repository matches it. |
 | A15 | a cloud thread works in a project | Each thread runs with exactly one repository and its settings loaded (commits authored as the owner, no classifier refusal on routine work); a project with several repositories sets identity with `git config` per clone; every project's instructions carry the standing-approvals block of `standing-approvals.md`, at its current `kit text`; no commit is re-authored. | K021, K022 | script: commits on recent PR branches are authored as the owner. judgment: the project instructions' block matches the kit's, filled in; sampled refusals traced to a missing-settings session and fixed at the cause, never one owner sentence per push. |
+| A16 | a session without repository settings changes files | Files change through the file-edit and write tools; no shell-script edit of a rule file. | K023 | judgment: sampled refusals in sessions without settings name no file-tool edit; a refused shell edit was reported and not retried. |
