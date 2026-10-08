@@ -40,7 +40,7 @@ STANDING APPROVALS (kit text 0.20.0; owner, {{DATE}}; standing, for every {{PROJ
 - Checks: run the repository's own checks and tests on the session's branch (its test and check scripts, linters and the kit's self-checks, as its CI runs them) before pushing; this is the real check C07 requires.
 - Push: push the session's own claude/* branch (never the default branch, never a force push), open its PR, and bring the PR branch up to date on the server (A10); once, open the project's inbox-wake channel branch (O14).
 - Merge: merge its own PR on green required checks plus the review its risk tier requires (C10, C12, O11). Never around a gate.
-- Talk: comment on issues and PRs in {{REPOS}}; file and wake inbox issues in {{INBOX_REPOS}} (O14).
+- Talk: comment on issues and PRs in {{REPOS}}; file and wake inbox issues in {{INBOX_REPOS}} (O14), through the coordinator when a thread holds one repository (A15).
 Not covered (still the owner's): {{RESERVED}}; secrets, .claude/settings.json, root steps on machines, deleting data. A refused command is reported, never retried or reworded (C14).
 ```
 <!-- standing-approvals:end -->
