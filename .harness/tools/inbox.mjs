@@ -252,7 +252,7 @@ async function main() {
   if (cmd === 'channel') {
     let prs = [await findChannel(api, repo)].filter(Boolean);
     if (!prs.length && argv.includes('--open')) prs = [await openChannel(api, repo)];
-    if (!prs.length) { console.log(`inbox: no open ${WAKE_BRANCH} pull request in ${repo}: nobody can be woken (.harness/inbox.md "Pickup")`); process.exitCode = 3; return; }
+    if (!prs.length) { console.log(`inbox: no open ${WAKE_BRANCHES.join(' or ')} pull request in ${repo}: nobody can be woken (.harness/inbox.md "Pickup")`); process.exitCode = 3; return; }
     console.log(`inbox: the wake channel is ${prs[0].html_url}${prs[0].draft ? '' : ' (not a draft: make it one, it must never merge)'}; the coordinator subscribes to it at the start of every session`);
     return;
   }

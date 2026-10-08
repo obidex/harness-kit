@@ -26,7 +26,7 @@ on that issue, and the sender reads the result there. Setup and cost: `.harness/
 ## Picking up requests (the receiving coordinator)
 
 **First step of every coordinator session:** subscribe to this repository's wake channel (the open
-`inbox-wake` pull request; `inbox.mjs channel --repo <this repo>` names it, `--open` opens it once).
+`inbox-wake` pull request, or the repository's existing `wake-channel` one; `inbox.mjs channel --repo <this repo>` names it, `--open` opens it once).
 A comment on it is an inbox wake.
 
 When an inbox wake or a routine wakes you, or at the start of a coordinator turn:
