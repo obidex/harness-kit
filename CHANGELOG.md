@@ -3,6 +3,23 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.14.0 · 2026-10-08 · work finishes on its own; automations retire with it
+
+- New core section "Finishing, waiting and cleanup" (K016): C20 finish line (a coordinator finishes
+  the approved batch, no improvement rounds after it, the next item by board order), C21 full
+  handoff (a CI result leads to review check, gate, merge, card closed, coordinator told, batch
+  continued; "ready for you" only for an owner-only decision), C22 wait record on every waiting card
+  (condition, owner, PR and commit, next action, deadline; stalls to that owner, missing cards to the
+  coordinator), C23 cleanup is part of done (every reminder, check-in, routine and PR watch names its
+  work and what retires it), C24 failure caps (count failed recovery, not waiting).
+- O06 model roles follow the owner's final rules: plain status by existing checks, Haiku at low
+  effort for logs and summaries only when it saves real work, the smallest reliable model for
+  building, Opus for architecture, accounting and security.
+- New owner default O17 owner effort: an API or token, a pre-filled link, a guided script, then
+  bundling; what is left states its action count and minutes.
+- The owner defaults stay within their 4096-byte cap by shorter wording, with no rule removed.
+- `test-harness` proves C20-C24, O06 and O17 reach the installed files.
+
 ## 0.13.0 · 2026-10-07 · threads close when they report DONE
 
 - New owner default O16 (K015): a thread is resolved in the same turn it reports DONE. Anything due

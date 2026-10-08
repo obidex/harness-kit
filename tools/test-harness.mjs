@@ -65,7 +65,10 @@ ok(['audit', 'scrub', 'inbox', 'stale'].every((w) => existsSync(join(proj, `.git
 ok(!existsSync(join(proj, '.harness/templates')), 'templates are not copied into the project');
 ok(['.harness/tools/notify.mjs', '.harness/alerts.md'].every((f) => f in lock1.files) && /O10 Alerts\.\*\* One bot, one Telegram group/.test(readFileSync(join(proj, '.harness/owner-defaults.md'), 'utf8')), 'the alert standard is installed: notify.mjs, alerts.md and O10 in the loaded owner defaults');
 const od = readFileSync(join(proj, '.harness/owner-defaults.md'), 'utf8');
-ok(/O15 Never a relay\.\*\* No automation, routine or thread asks the owner to wake, nudge or relay/.test(od) && /Haiku\s+only for\s+read-only helper subagents/.test(od), 'the loaded owner defaults carry O15 (never a relay) and the Haiku helper role');
+ok(/O15 Never a relay\.\*\* No automation, routine or thread asks the owner to wake, nudge or relay/.test(od) && /Haiku at low effort\s+reads logs and summarizes/.test(od), 'the loaded owner defaults carry O15 (never a relay) and the Haiku helper role');
+ok(/O17 Owner effort\.\*\* Before an owner step goes out/.test(od), 'the loaded owner defaults carry O17 (owner effort)');
+const core = readFileSync(join(proj, '.harness/core.md'), 'utf8');
+ok(['C20 Finish line', 'C21 Full handoff', 'C22 Wait record', 'C23 Cleanup is part of done', 'C24 Failure caps'].every((x) => core.includes(`**${x}.**`)), 'the loaded core carries C20-C24 (finish line, full handoff, wait record, cleanup, failure caps)');
 ok(/O16 Close threads\.\*\* A thread is resolved in the turn it reports DONE/.test(od), 'the loaded owner defaults carry O16 (a thread is resolved when it reports DONE)');
 ok(existsSync(join(proj, '.claude/skills/correct/SKILL.md')) && '.claude/skills/correct/SKILL.md' in lock1.files, 'kit skills installed into .claude/skills and listed in the lock');
 const claude = readFileSync(join(proj, 'CLAUDE.md'), 'utf8');

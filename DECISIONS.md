@@ -450,3 +450,22 @@ the ERP and website coordinators follow it too."
 
 **Status:** STANDING.
 
+## K016 · 2026-10-08 · STANDING — work finishes on its own; automations retire with it
+
+**Source:** the owner's final rules in the project chat on 2026-10-08 at 00:01 UTC,
+which replace the VPS parts of his repair of 2026-10-07 23:26 UTC: "The
+first rule: assigned work always finishes on its own; automations never run forever." Items 1-6 of
+that message, and item 7 of the earlier repair (the owner-effort pass), which they do not replace.
+
+1. **C20-C24** in core: the finish line, the full handoff ("kit rule in each repo's agent
+   instructions"), the wait record, cleanup as part of done, and failure caps that count failed
+   recovery, not waiting.
+2. **O06** follows item 5 (models). **O17** is the owner-effort pass.
+3. **No AI runs from a server.** The cancelled parts (a recovery controller on a server, delivery
+   with `claude -p --cloud`, signing a server into Claude, work windows, away mode, parking messages)
+   are not kit rules; everything stays in the projects.
+4. **Cap.** core stays under 7168 bytes and the owner defaults under 4096 by shorter wording, with no
+   rule removed.
+
+**Status:** STANDING.
+
