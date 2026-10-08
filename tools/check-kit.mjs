@@ -131,8 +131,7 @@ for (const f of wfFiles) {
   const block = (text.match(/<!-- standing-approvals:begin -->\n```\n([\s\S]*?)\n```\n<!-- standing-approvals:end -->/) || [])[1];
   if (!block) fail(`${f} has no block between the standing-approvals markers`);
   else {
-    if (!/^STANDING APPROVALS \(kit text /.test(block)) fail(`${f}: the block's first line names its kit text`);
-    const guide = text.slice(0, text.indexOf('<!-- standing-approvals:begin -->'));
+    if (!/^STANDING APPROVALS \(kit text [0-9]+\.[0-9]+\.[0-9]+;/.test(block)) fail(`${f}: the block's first line names its kit text (the release that last changed it)`);    const guide = text.slice(0, text.indexOf('<!-- standing-approvals:begin -->'));
     for (const m of new Set(block.match(/\{\{[A-Z_]+\}\}/g) || [])) if (!guide.includes(`\`${m}\``)) fail(`${f}: ${m} is not explained`);
     // what a project copies: the block plus the settings line it fills in
     const settings = (text.match(/^## Settings line\n([\s\S]*?)^## /m) || [, ''])[1];

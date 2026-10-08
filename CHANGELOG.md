@@ -9,8 +9,8 @@ Each version is the tag `v<version>` on this repository, never moved (K003). Pro
   into its project instructions, filled in with its own repositories, identity, inbox targets and
   reserved list. It mirrors O09, C07, A10, A15, C10, C12, O11, O14 and C14 and adds no gate; its
   Checks line (run the repository's own checks before pushing) is the line whose absence stopped
-  the first test. A release that changes the block says "standing approvals" in its changelog
-  entry (`check-version`), and the maintainer sends each project one inbox request with the new
+  the first test. A release that changes the block sets the block's `kit text` to that release and
+  says "standing approvals" in its changelog entry (`check-version`), and the maintainer sends each project one inbox request with the new
   text. A15 points to it. `check-kit` checks the block: markers, every fill-in explained, the rule
   IDs it mirrors, and no email address or repository link.
 

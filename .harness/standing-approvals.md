@@ -7,8 +7,8 @@
 
 ## How a project uses it
 
-1. Copy the block below into the project instructions, replacing every `{{…}}`:
-   - `{{KIT_TEXT}}`: the kit version on the block's first line; keep it as written.
+1. Copy the block below into the project instructions, replacing every `{{…}}` and keeping its
+   `kit text` release as written (the release that last changed the block):
    - `{{DATE}}`: the day the owner approved this block for the project.
    - `{{PROJECT}}`: the project's name. `{{REPOS}}`: its repositories, `owner/name`, comma-separated.
    - `{{SETTINGS_LINE}}`: one of the two lines under "Settings line", by the number of repositories.
@@ -18,7 +18,8 @@
      going live in production, and any action the safety check refuses.
 2. Change nothing else: the block is the same text in every project, so one kit release keeps them
    all in step. A project may only tighten it, through an exception in its profile naming a decision.
-3. When a kit release changes the block, its first line names that release. The kit's maintainer
+3. A release that changes the block sets its `kit text` to that release and says "standing
+   approvals" in its changelog entry (`check-version` fails otherwise). The kit's maintainer
    sends each enrolled project one inbox request (O14) carrying its filled-in new block; that
    project's coordinator replaces its old block and closes the request with the date. A project
    whose block names an older `kit text` than this file is out of step.
@@ -32,12 +33,12 @@
 
 <!-- standing-approvals:begin -->
 ```
-STANDING APPROVALS (kit text {{KIT_TEXT}}; owner, {{DATE}}; standing, for every {{PROJECT}} thread working an approved card)
+STANDING APPROVALS (kit text 0.20.0; owner, {{DATE}}; standing, for every {{PROJECT}} thread working an approved card)
 {{SETTINGS_LINE}} The owner approves in advance:
 - Identity: before the first commit, run `git config user.name {{OWNER_NAME}}` and `git config user.email {{OWNER_EMAIL}}` in each clone; commits and squash bodies carry no Claude attribution (O09). Never re-author a commit.
-- Edits: change the files the card names in {{REPOS}}, including agent rule files (AGENTS.md, CLAUDE.md, .claude/rules, .claude/skills, the decisions log) and the shared memory, when the card is an owner-approved change to them. Kit-managed files change only through kit updates.
+- Edits: change the files the card names in {{REPOS}}, including agent rule files (AGENTS.md, CLAUDE.md, .claude/rules, .claude/skills, the decisions log) and the project's shared agent memory, when the card is an owner-approved change to them. Kit-managed files change only through kit updates.
 - Checks: run the repository's own checks and tests on the session's branch (its test and check scripts, linters and the kit's self-checks, as its CI runs them) before pushing; this is the real check C07 requires.
-- Push: push the session's own claude/* branch (never the default branch, never a force push to someone else's branch), open its PR, and bring the PR branch up to date on the server (A10); once, open the project's inbox-wake channel branch (O14).
+- Push: push the session's own claude/* branch (never the default branch, never a force push), open its PR, and bring the PR branch up to date on the server (A10); once, open the project's inbox-wake channel branch (O14).
 - Merge: merge its own PR on green required checks plus the review its risk tier requires (C10, C12, O11). Never around a gate.
 - Talk: comment on issues and PRs in {{REPOS}}; file and wake inbox issues in {{INBOX_REPOS}} (O14).
 Not covered (still the owner's): {{RESERVED}}; secrets, .claude/settings.json, root steps on machines, deleting data. A refused command is reported, never retried or reworded (C14).
