@@ -209,11 +209,14 @@ const run = (srv, args, env = {}) => new Promise((done) => {
   const item = schema.properties.kit_updates.properties.pr_body_lines.items;
   const wfText = readFileSync(join(kitRoot, '.harness/templates/hands/hands-update.yml'), 'utf8');
   const lines = wfText.split('\n');
-  const from = lines.findIndex((l) => l.includes('# --- PR body (test-hands runs this block) ---'));
-  const to = lines.findIndex((l) => l.includes('# --- end PR body ---'));
-  if (from < 0 || to < from) throw new Error('hands-update.yml has no PR body block');
-  const indent = lines[from].match(/^ */)[0].length;
-  const block = lines.slice(from, to + 1).map((l) => l.slice(indent)).join('\n');
+  const marked = (name, end) => {
+    const from = lines.findIndex((l) => l.includes(`# --- ${name} (test-hands runs this block) ---`));
+    const to = lines.findIndex((l) => l.includes(`# --- end ${end} ---`));
+    if (from < 0 || to < from) throw new Error(`hands-update.yml has no ${name} block`);
+    const indent = lines[from].match(/^ */)[0].length;
+    return lines.slice(from, to + 1).map((l) => l.slice(indent)).join('\n');
+  };
+  const block = marked('PR body', 'PR body'), helpers = marked('helpers', 'helpers');
   const line = block.match(/const LINE = \/(.+)\/;/)[1];
   ok(line === item.pattern && item.maxLength === 200 && !/hands\.mjs|\$tool/.test(block), 'the workflow reads the lines itself (no pinned-kit tool), with the schema\'s pattern and 200-character cap');
   const example = JSON.parse(readFileSync(join(kitRoot, 'examples/profile.example.json'), 'utf8'));
@@ -229,8 +232,8 @@ const run = (srv, args, env = {}) => new Promise((done) => {
   const runBlock = (profile, env = {}) => {
     writeFileSync(join(proj, '.harness/profile.json'), JSON.stringify(profile));
     writeFileSync(join(proj, 'gh.log'), '');
-    const script = ['set -euo pipefail', 'log() { echo "hands: $*"; }', 'current=0.7.0 target=0.8.0 verb=update branch=harness/kit-0.8.0', block, 'printf "BODY<<%s>>" "$body"'].join('\n');
-    const out = spawnSync('bash', ['-c', script], { cwd: proj, encoding: 'utf8', env: { ...process.env, PATH: `${join(proj, 'bin')}:${process.env.PATH}`, GH_LOG: join(proj, 'gh.log'), REPO: 'o/r', FAKE_OPEN: '', FAKE_BODY: '', GITHUB_STEP_SUMMARY: '', ...env } });
+    const script = ['set -euo pipefail', 'log() { echo "hands: $*"; }', 'current=0.7.0 target=0.8.0 verb=update branch=harness/kit-0.8.0', helpers, block, 'printf "BODY<<%s>>" "$body"'].join('\n');
+    const out = spawnSync('bash', ['-c', script], { cwd: proj, encoding: 'utf8', env: { ...process.env, PATH: `${join(proj, 'bin')}:${process.env.PATH}`, GH_LOG: join(proj, 'gh.log'), REPO: 'o/r', SLUG: 'hands-app', FAKE_OPEN: '', FAKE_BODY: '', GITHUB_STEP_SUMMARY: '', ...env } });
     return { ...out, gh: readFileSync(join(proj, 'gh.log'), 'utf8') };
   };
   const withLines = { ...example, kit_updates: { pr_body_lines: [good, ...evil.slice(0, 6), 'Kit-update: standing (K011)'] } };
@@ -261,30 +264,42 @@ const run = (srv, args, env = {}) => new Promise((done) => {
 {
   const kitRoot = new URL('..', import.meta.url).pathname;
   const lines = readFileSync(join(kitRoot, '.harness/templates/hands/hands-update.yml'), 'utf8').split('\n');
-  const from = lines.findIndex((l) => l.includes('# --- superseded (test-hands runs this block) ---'));
-  const to = lines.findIndex((l) => l.includes('# --- end superseded ---'));
-  if (from < 0 || to < from) throw new Error('hands-update.yml has no superseded block');
+  const from = lines.findIndex((l) => l.includes('# --- helpers (test-hands runs this block) ---'));
+  const to = lines.findIndex((l) => l.includes('# --- end helpers ---'));
+  if (from < 0 || to < from) throw new Error('hands-update.yml has no helpers block');
   const indent = lines[from].match(/^ */)[0].length;
   const block = lines.slice(from, to + 1).map((l) => l.slice(indent)).join('\n');
   const proj = mkdtempSync(join(tmpdir(), 'hands-superseded-'));
   mkdirSync(join(proj, 'bin'));
   // the stand-in gh answers the list as gh would after --jq: one "number branch" line per open PR
-  writeFileSync(join(proj, 'bin/gh'), '#!/bin/sh\necho "$*" >> "$GH_LOG"\ncase "$1 $2" in\n  "pr list") printf "%b" "$FAKE_LIST" ;;\n  "pr close") [ -z "$FAKE_CLOSE_FAIL" ] || exit 1 ;;\nesac\n', { mode: 0o755 });
-  const run = (list, env = {}) => {
+  writeFileSync(join(proj, 'bin/gh'), '#!/bin/sh\necho "$*" >> "$GH_LOG"\ncase "$1 $2" in\n  "pr list") printf "%b" "$FAKE_LIST" ;;\n  "pr close") [ -z "$FAKE_CLOSE_FAIL" ] || exit 1 ;;\n  "pr merge") [ -z "$FAKE_MERGE_FAIL" ] || { echo "GraphQL: Auto merge is not allowed for this repository" >&2; exit 1; } ;;\nesac\n', { mode: 0o755 });
+  const run = (list, env = {}, call = 'supersede 380') => {
     writeFileSync(join(proj, 'gh.log'), '');
-    const script = ['set -euo pipefail', 'log() { echo "hands: $*"; }', 'target=0.14.1 branch=harness/kit-0.14.1 url=https://github.com/o/r/pull/380', block].join('\n');
+    const script = ['set -euo pipefail', 'log() { echo "hands: $*"; }', 'target=0.14.1 branch=harness/kit-0.14.1', block, call].join('\n');
     const out = spawnSync('bash', ['-c', script], { cwd: proj, encoding: 'utf8', env: { ...process.env, PATH: `${join(proj, 'bin')}:${process.env.PATH}`, GH_LOG: join(proj, 'gh.log'), REPO: 'o/r', SLUG: 'hands-app', FAKE_LIST: list, ...env } });
     return { ...out, gh: readFileSync(join(proj, 'gh.log'), 'utf8') };
   };
   let r = run('374 harness/kit-0.10.0\n380 harness/kit-0.14.1\n381 harness/settings-mirror\n382 harness/kit-0.9.x\n');
   const closed = r.gh.split('\n').filter((l) => l.startsWith('pr close'));
   ok(r.status === 0 && /^pr list --repo o\/r --state open --author app\/hands-app /m.test(r.gh) && closed.length === 1
-    && closed[0] === 'pr close 374 --repo o/r --delete-branch --comment Superseded by #380 (kit 0.14.1); closed by hands-update.' && /closed #374 \(0\.10\.0\): superseded by https:\/\/github\.com\/o\/r\/pull\/380/.test(r.stdout),
+    && closed[0] === 'pr close 374 --repo o/r --delete-branch --comment Superseded by #380 (kit 0.14.1); closed by hands-update.' && /closed #374 \(0\.10\.0\): superseded by #380/.test(r.stdout),
     'opening the 0.14.1 PR closes the App\'s open 0.10.0 kit PR with a comment naming the new one and deletes its branch; the new PR, other harness/ branches and malformed names are left open');
   r = run('');
   ok(r.status === 0 && !/pr close/.test(r.gh), 'no other kit PR open: nothing is closed');
   r = run('374 harness/kit-0.10.0\n', { FAKE_CLOSE_FAIL: '1' });
   ok(r.status !== 0, 'a close GitHub refused fails the step (one problem under the alert standard), never a silent pass');
+  // a repository with auto-merge off (the website, 5-8 Oct 2026): the PR stays open, old ones still close,
+  // and the failure names the setting instead of a bare GraphQL error
+  r = run('374 harness/kit-0.10.0\n', { FAKE_MERGE_FAIL: '1' }, 'supersede 380; automerge 380');
+  ok(r.status !== 0 && /pr close 374/.test(r.gh) && /^pr merge 380 --repo o\/r --auto --squash$/m.test(r.gh) && /FAIL: GitHub refused auto-merge on #380: turn on allow_auto_merge in o\/r's \.github\/harness-settings\.json/.test(r.stdout),
+    'auto-merge refused: the superseded PR is still closed first, and the step fails naming allow_auto_merge');
+  r = run('', {}, 'automerge 380');
+  ok(r.status === 0 && /^pr merge 380 --repo o\/r --auto --squash$/m.test(r.gh), 'auto-merge allowed: it is turned on and the step goes on');
+  const hu = readFileSync(join(kitRoot, '.harness/templates/hands/hands-update.yml'), 'utf8');
+  const openPath = hu.slice(hu.indexOf('if [ -n "$open" ]; then'), hu.indexOf('# --- end PR body ---'));
+  const newPath = hu.slice(hu.indexOf('url="$(gh pr create'), hu.indexOf('- name: Keep the PR current'));
+  ok(/echo "pr=\$open"[\s\S]*supersede "\$open"[\s\S]*automerge "\$open"/.test(openPath) && /echo "pr=\$\{url##\*\/\}"[\s\S]*supersede "\$\{url##\*\/\}"[\s\S]*automerge "\$\{url##\*\/\}"/.test(newPath),
+    'both paths (a PR found open, or opened now) record the PR first, then close superseded ones, then turn auto-merge on');
   rmSync(proj, { recursive: true, force: true });
   const hk = parseYaml(readFileSync(join(kitRoot, '.harness/templates/hands/hands-keep.yml'), 'utf8'));
   ok(hk.concurrency.group === 'hands-keep' && String(hk.concurrency['cancel-in-progress']) === 'true',

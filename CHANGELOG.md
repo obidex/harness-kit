@@ -3,6 +3,15 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.14.2 · 2026-10-08 · a refused auto-merge says which setting, and old kit PRs still close
+
+- `hands-update`: a repository with auto-merge off made `gh pr merge --auto` fail before the PR was
+  recorded, so the old kit PR stayed open, `hands-keep` never started and the run failed with a bare
+  GraphQL error (the website, every run since 5 Oct). Now both paths (a PR opened now, or found open)
+  record the PR, close superseded kit PRs, then turn auto-merge on; a refusal fails the step with a
+  line naming `allow_auto_merge` in the project's settings file. A PR found open now also gets its
+  superseded PRs closed and auto-merge retried. `test-hands` runs both helpers.
+
 ## 0.14.1 · 2026-10-08 · a stuck run never stops kit updates
 
 - `hands-keep`: the newest run replaces an older one (`cancel-in-progress: true`). On 6 Oct one run
