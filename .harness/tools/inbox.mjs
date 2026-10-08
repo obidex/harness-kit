@@ -159,7 +159,7 @@ export async function openChannel(call, repo) {
   try { await call('POST', `/repos/${repo}/git/refs`, { ref: `refs/heads/${WAKE_BRANCH}`, sha: head.object.sha }); }
   catch (e) {
     if (/ 422:/.test(e.message)) { /* the branch is already there */ }
-    else throw new Error(`could not make the ${WAKE_BRANCH} branch through the API (${e.message.slice(0, 80)}); push it with git instead (git push origin ${base}:refs/heads/${WAKE_BRANCH}), then run channel --open again`);
+    else throw new Error(`could not make the ${WAKE_BRANCH} branch through the API (${e.message.slice(0, 80)}); report that refused call in Found (C14); if it was a proxy refusal, not a bad token or a missing repo, push it with git instead (git push origin ${base}:refs/heads/${WAKE_BRANCH}), then run channel --open again`);
   }
   const path = '.github/INBOX_WAKE.md';
   const note = '# Inbox wake channel\n\nThis branch and its draft pull request are never merged. Each comment on the pull request\nwakes this repository\'s coordinator for a queued inbox request (Harness Kit inbox, O14, K018).\nThe coordinator subscribes to the pull request at the start of every session.\n';
