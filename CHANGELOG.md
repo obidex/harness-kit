@@ -3,6 +3,20 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.18.0 · 2026-10-08 · waits wake themselves
+
+- C25 (K020): a passing check may never wake a thread; no turn ends waiting on CI, a review or
+  another thread without one self-reminder (or a watcher) at the expected finish. Each turn first
+  reads the PR's checks, reviews and comments since the last turn, so a finding that arrived
+  mid-turn is answered. A wake reads the real state and continues or sets one more: at most three
+  per wait, then STOPPED with why. Merge decisions read the PR (required checks green, a review
+  PASS recorded, no unanswered finding), never another thread's message alone. Reminders are
+  deleted at DONE (C23). C04 and C21 point to it.
+- A06 (Claude Code adapter): the reminder is one `send_later` to the session; a PR activity
+  subscription is not a wait.
+- core reworded (and three section headings shortened) to stay under its cap; no rule or obligation removed. `test-harness` checks the installed core
+  carries C25; the audit's judgment step 2 checks waiting turns.
+
 ## 0.17.1 · 2026-10-08 · the inbox pickup never depends on running the tool
 
 - The `inbox` skill: when a session refuses to run `inbox.mjs` (code from a fresh clone), the

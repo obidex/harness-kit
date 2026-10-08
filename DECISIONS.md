@@ -522,3 +522,26 @@ another party's, and owner steps waited on a checker that no session can wake.
 4. **Cap.** core and owner defaults stay under their caps by shorter wording, with no rule removed.
 
 **Status:** STANDING.
+
+## K020 · 2026-10-08 · STANDING — waits wake themselves
+
+**Source:** the strategist's finding, posted by the owner in the Platform project on 2026-10-08 at
+16:08 UTC. Two threads idled on events that had already happened: one waited "on CI" after its
+required check had passed (a pass never woke it) and never acted on three review findings that
+arrived mid-turn; a merge-batch thread waited for another thread's "go" message instead of reading
+the pull request's state.
+
+1. **Self-reminder (C25).** A turn never ends waiting on CI, a review or another thread without one
+   self-reminder (or a watcher) at the expected finish. On wake it reads the real state (checks,
+   reviews, new comments since its last turn) and continues, or sets one more. At most three per
+   wait, then STOPPED with why. Reminders are deleted when the card is DONE (C23).
+2. **Read first.** Each turn starts by reading the PR's comments and reviews since the last turn, so
+   findings that arrived mid-turn are never lost.
+3. **Merge from the PR.** A thread that merges decides from the PR's state (required checks green, a
+   review PASS recorded, no unanswered finding) and wakes itself the same way; never from another
+   thread's message alone.
+4. **Proof.** One pull request in a project goes from push to merged with no owner or coordinator
+   nudge, and its reminders are gone afterwards.
+5. **Cap.** core stays under its cap by shorter wording, with no rule removed.
+
+**Status:** STANDING.
