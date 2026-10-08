@@ -73,9 +73,10 @@ touched. The newest `hands-keep` run replaces an older one (`cancel-in-progress`
 before it starts never holds the later ones back. When `hands-update` opens a kit PR it closes every
 other open kit PR of the App's in that repository as superseded, with a comment naming the new one,
 and deletes its branch: one kit PR is open per project. It does so, and then turns auto-merge on,
-whether it opened the PR now or found it open; a project whose settings file leaves
-`allow_auto_merge` off gets a failed run naming that setting, and its kit PR waits for a merge on
-its gates. `stale.mjs schedules` counts only runs that
+whether it opened the PR now or found it open. A project whose settings file sets
+`allow_auto_merge` to `false` chose that its threads merge kit PRs on their gates (O11): the run
+passes and says so, and the stale-work check lists the PR if it waits (K023). A refusal in any
+other case (the setting absent or `true`) fails the run naming that setting. `stale.mjs schedules` counts only runs that
 finished and were not cancelled, so runs created and cancelled behind a stuck one still raise
 "Scheduled run missed".
 

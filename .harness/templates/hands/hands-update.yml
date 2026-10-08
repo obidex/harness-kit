@@ -151,9 +151,15 @@ jobs:
                 log "closed #$old (${ref#harness/kit-}): superseded by #$1"
               done
           }
-          # automerge N: auto-merge on PR N, or one plain failure naming the setting (the PR stays open)
+          # automerge N: auto-merge on PR N. A project whose settings file sets allow_auto_merge false
+          # chose that its threads merge kit PRs on their gates (O11): a pass that says so, never a
+          # failure waiting on the owner (K023). Otherwise one plain failure naming the setting (the PR stays open).
           automerge() {
-            gh pr merge "$1" --repo "$REPO" --auto --squash && return 0
+            gh pr merge "$1" --repo "$REPO" --auto --squash && { log "auto-merge is on for #$1"; return 0; }
+            if node -e 'const r = JSON.parse(require("fs").readFileSync(".github/harness-settings.json", "utf8")).repository || {}; process.exit(r.allow_auto_merge === false ? 0 : 1)' 2>/dev/null; then
+              log "auto-merge is off by $REPO's own settings (allow_auto_merge false): #$1 waits for its thread to merge it on its gates (O11); the stale-work check lists it if it waits"
+              return 0
+            fi
             log "FAIL: GitHub refused auto-merge on #$1: turn on allow_auto_merge in $REPO's .github/harness-settings.json, or merge #$1 on its gates"
             return 1
           }
@@ -219,7 +225,6 @@ jobs:
           log "opened $url ($verb kit $current to $target)"
           supersede "${url##*/}"
           automerge "${url##*/}"
-          log "auto-merge is on for $url"
       - name: Keep the PR current while it is open (hands-keep, K012)
         # always(): a refused close or auto-merge fails the step above after the PR is open
         if: always() && steps.open.outputs.pr != ''
