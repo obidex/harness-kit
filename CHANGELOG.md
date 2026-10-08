@@ -7,9 +7,11 @@ Each version is the tag `v<version>` on this repository, never moved (K003). Pro
 
 - The `inbox` skill: when a session refuses to run `inbox.mjs` (code from a fresh clone), the
   coordinator does each step with the GitHub tools (the State line, the Evidence line, a comment,
-  closing as completed); never an ask to the owner. Seen on the website's first wake (K018).
+  closing as completed); never an ask to the owner. The refused command is still reported in
+  `Found:` (C14). Seen on the website's first wake (K018).
 - `inbox.mjs channel --open`: when the API may not make the branch (a session proxy refuses
-  `git/refs`), it says the exact `git push` to make it and opens nothing. `test-inbox` covers it.
+  `git/refs`), it says the exact `git push` to make it and opens nothing; the refused API call is
+  reported in `Found:` (C14). `test-inbox` covers it.
 
 ## 0.17.0 · 2026-10-08 · an idle wait names who acts next; outside checkers are not wait points
 
