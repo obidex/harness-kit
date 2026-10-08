@@ -199,7 +199,8 @@ ok(overdueHours({}) === 36 && overdueHours({ HARNESS_SCHEDULE_OVERDUE_HOURS: '48
 const wf = (id, file, crons, state = 'active') => ({ meta: { id, name: file.replace(/\.yml$/, ''), path: `.github/workflows/${file}`, state, created_at: '2026-10-01T00:00:00Z', html_url: `https://gh.test/o/r/blob/main/.github/workflows/${file}` },
   text: `name: ${file}\non:\n${crons.length ? `  schedule:\n${crons.map((c) => `    - cron: '${c}'`).join('\n')}\n` : ''}  workflow_dispatch:\njobs:\n  a:\n    runs-on: x\n`, runs: [] });
 wfs.push(wf(1, 'hands-settings.yml', ['17 5 * * *']), wf(2, 'hands-update.yml', ['41 6 * * 1']), wf(3, 'hands-check.yml', []), wf(4, 'old.yml', ['0 * * * *'], 'disabled_manually'), wf(5, 'quiet.yml', ['0 3 * * *'], 'disabled_inactivity'));
-wfs[0].runs = [{ event: 'schedule', created_at: '2026-10-05T05:37:00Z' }]; wfs[1].runs = [...Array.from({ length: 40 }, () => ({ event: 'push', created_at: '2026-10-06T12:00:00Z' })), { event: 'schedule', created_at: '2026-09-28T07:02:00Z' }]; wfs[4].runs = [{ event: 'schedule', created_at: '2026-10-05T03:20:00Z' }];
+const done = { status: 'completed', conclusion: 'success' };
+wfs[0].runs = [{ event: 'schedule', created_at: '2026-10-05T05:37:00Z', ...done }]; wfs[1].runs = [...Array.from({ length: 40 }, () => ({ event: 'push', created_at: '2026-10-06T12:00:00Z', ...done })), { event: 'schedule', created_at: '2026-09-28T07:02:00Z', ...done }]; wfs[4].runs = [{ event: 'schedule', created_at: '2026-10-05T03:20:00Z', ...done }];
 for (const k of ['ALERTS_BOT_TOKEN', 'ALERTS_CHAT_ID', 'ALERTS_TOPIC']) delete process.env[k];
 Object.assign(process.env, { ALERTS_TOPICS: '{"needs":1,"website":5,"kit":6}' });
 const T0 = at('2026-10-05T15:00:00Z');
@@ -222,7 +223,7 @@ ok(sch.find((x) => x.file === 'hands-settings.yml').overdue === false && sch.fin
 ok(missedText('o/r', { workflow: 'quiet', state: 'disabled_inactivity', due: '2026-10-06T03:00:00.000Z', lateHours: 40, lastRun: null }).includes('turned its schedule off for inactivity'), 'a schedule GitHub turned off for inactivity says so');
 sch = await alertSchedules('o/r', T1 + 3600000, 'kit');
 ok(tg.length === tgBefore + 1 && sch.find((x) => x.file === 'hands-update.yml').alert === 'repeat', 'the next check while it is still missing sends nothing more (one open problem per key)');
-wfs[1].runs = [{ event: 'workflow_dispatch', created_at: '2026-10-06T19:05:00Z' }, ...wfs[1].runs];
+wfs[1].runs = [{ event: 'workflow_dispatch', created_at: '2026-10-06T19:05:00Z', ...done }, ...wfs[1].runs];
 sch = await alertSchedules('o/r', at('2026-10-07T05:30:00Z'), 'kit');
 const ranAgain = tg.slice(tgBefore + 1);
 ok(sch.find((x) => x.file === 'hands-update.yml').alert === 'resolved' && ranAgain.length === 1 && ranAgain[0].reply_parameters.message_id === missed[0].message_id && /RESOLVED .*hands-update in o\/r ran again \(2026-10-06 19:05 UTC\)/.test(ranAgain[0].text)
@@ -238,6 +239,27 @@ ok(sch.find((x) => x.file === 'hands-update.yml').alert === 'resolved' && ranAga
     'a workflow moved in at 18:18 and never run raises nothing overnight, at its first due time, or until 36 h after it');
   const late = await bw('2026-10-09T18:22:00Z', true);
   ok(late.overdue && late.alert === 'sent' && sentBw() === 1 && /last run never/.test(tg.filter((m) => /box-watch/.test(m.text)).at(-1).text), 'only once its first due time is more than 36 h past does it count as missed');
+  wfs.pop();
+}
+// a stuck run (hands-keep, 6-8 Oct 2026): one run "waiting" forever, every later scheduled run created
+// and cancelled behind it. Those runs are not runs: the work stopped, and the check says so
+{
+  const keep = wf(7, 'keep.yml', ['53 * * * *']);
+  const hourly = (from, n, extra) => Array.from({ length: n }, (_, i) => ({ event: 'schedule', created_at: new Date(at(from) - i * 3600000).toISOString(), status: 'completed', conclusion: 'cancelled', ...extra }));
+  keep.runs = [{ event: 'schedule', created_at: '2026-10-07T22:53:00Z', status: 'pending' }, ...hourly('2026-10-07T21:53:00Z', 4),
+    { event: 'schedule', created_at: '2026-10-06T19:53:00Z', status: 'waiting' }, { event: 'schedule', created_at: '2026-10-06T14:53:00Z', status: 'completed', conclusion: 'success' }];
+  wfs.push(keep);
+  const k = async (iso) => (await schedules('o/r', at(iso))).find((x) => x.file === 'keep.yml');
+  const early = await k('2026-10-07T23:00:00Z'), stuck = await k('2026-10-08T04:00:00Z');
+  ok(!early.overdue && stuck.overdue && stuck.lastRun === '2026-10-06T14:53:00Z',
+    'runs that were cancelled, or never finished (pending, waiting), do not count: an hourly job stuck since its last finished run at 14:53 is missed 36 h later, though new runs were created every hour');
+  // the page slides: each check sees the 30 newest runs, all cancelled, the oldest only 29 h back
+  let slid = true;
+  for (const iso of ['2026-10-08T01:00:00Z', '2026-10-09T09:00:00Z', '2026-10-12T09:00:00Z']) { keep.runs = hourly(new Date(at(iso) - 7 * 60000).toISOString(), 30); const x = await k(iso); slid &&= x.overdue && x.noneFinished === 30; }
+  ok(slid && /none of its last 30 runs finished \(cancelled or stuck\)/.test(missedText('o/r', { workflow: 'keep', noneFinished: 30 })),
+    'a full page of 30 runs with none finished is missed at once, however far the page has slid, and says so');
+  keep.runs = [{ event: 'schedule', created_at: '2026-10-07T23:53:00Z', status: 'completed', conclusion: 'skipped' }];
+  ok(!(await k('2026-10-08T01:00:00Z')).overdue, 'a finished run whose job was skipped by its own condition still ran its schedule');
   wfs.pop();
 }
 for (const k of ['ALERTS_BOT_TOKEN', 'ALERTS_CHAT_ID']) delete process.env[k];

@@ -256,6 +256,41 @@ const run = (srv, args, env = {}) => new Promise((done) => {
   rmSync(proj, { recursive: true, force: true });
 }
 
+// an older kit PR left open never merges and hides the new one (website, kit 0.10.0, Oct 2026): opening a
+// new kit PR closes every other open kit PR of the App's in that repository, and only those
+{
+  const kitRoot = new URL('..', import.meta.url).pathname;
+  const lines = readFileSync(join(kitRoot, '.harness/templates/hands/hands-update.yml'), 'utf8').split('\n');
+  const from = lines.findIndex((l) => l.includes('# --- superseded (test-hands runs this block) ---'));
+  const to = lines.findIndex((l) => l.includes('# --- end superseded ---'));
+  if (from < 0 || to < from) throw new Error('hands-update.yml has no superseded block');
+  const indent = lines[from].match(/^ */)[0].length;
+  const block = lines.slice(from, to + 1).map((l) => l.slice(indent)).join('\n');
+  const proj = mkdtempSync(join(tmpdir(), 'hands-superseded-'));
+  mkdirSync(join(proj, 'bin'));
+  // the stand-in gh answers the list as gh would after --jq: one "number branch" line per open PR
+  writeFileSync(join(proj, 'bin/gh'), '#!/bin/sh\necho "$*" >> "$GH_LOG"\ncase "$1 $2" in\n  "pr list") printf "%b" "$FAKE_LIST" ;;\n  "pr close") [ -z "$FAKE_CLOSE_FAIL" ] || exit 1 ;;\nesac\n', { mode: 0o755 });
+  const run = (list, env = {}) => {
+    writeFileSync(join(proj, 'gh.log'), '');
+    const script = ['set -euo pipefail', 'log() { echo "hands: $*"; }', 'target=0.14.1 branch=harness/kit-0.14.1 url=https://github.com/o/r/pull/380', block].join('\n');
+    const out = spawnSync('bash', ['-c', script], { cwd: proj, encoding: 'utf8', env: { ...process.env, PATH: `${join(proj, 'bin')}:${process.env.PATH}`, GH_LOG: join(proj, 'gh.log'), REPO: 'o/r', SLUG: 'hands-app', FAKE_LIST: list, ...env } });
+    return { ...out, gh: readFileSync(join(proj, 'gh.log'), 'utf8') };
+  };
+  let r = run('374 harness/kit-0.10.0\n380 harness/kit-0.14.1\n381 harness/settings-mirror\n382 harness/kit-0.9.x\n');
+  const closed = r.gh.split('\n').filter((l) => l.startsWith('pr close'));
+  ok(r.status === 0 && /^pr list --repo o\/r --state open --author app\/hands-app /m.test(r.gh) && closed.length === 1
+    && closed[0] === 'pr close 374 --repo o/r --delete-branch --comment Superseded by #380 (kit 0.14.1); closed by hands-update.' && /closed #374 \(0\.10\.0\): superseded by https:\/\/github\.com\/o\/r\/pull\/380/.test(r.stdout),
+    'opening the 0.14.1 PR closes the App\'s open 0.10.0 kit PR with a comment naming the new one and deletes its branch; the new PR, other harness/ branches and malformed names are left open');
+  r = run('');
+  ok(r.status === 0 && !/pr close/.test(r.gh), 'no other kit PR open: nothing is closed');
+  r = run('374 harness/kit-0.10.0\n', { FAKE_CLOSE_FAIL: '1' });
+  ok(r.status !== 0, 'a close GitHub refused fails the step (one problem under the alert standard), never a silent pass');
+  rmSync(proj, { recursive: true, force: true });
+  const hk = parseYaml(readFileSync(join(kitRoot, '.harness/templates/hands/hands-keep.yml'), 'utf8'));
+  ok(hk.concurrency.group === 'hands-keep' && String(hk.concurrency['cancel-in-progress']) === 'true',
+    'hands-keep: the newest run replaces an older one, so one run stuck before it starts never holds every later run back');
+}
+
 // keeping kit update PRs current (K012): behind ones are brought up to date through the App
 {
   const now = Date.parse('2026-10-05T18:00:00Z');
@@ -361,7 +396,7 @@ const run = (srv, args, env = {}) => new Promise((done) => {
   rmSync(dir, { recursive: true, force: true });
   const hu = parseYaml(files['hands-update.yml']).jobs.update;
   const on = hu.steps.find((x) => /hands-keep/.test(x.name || ''));
-  ok(on && on.if === "steps.open.outputs.pr != ''" && /hands-keep\.yml\/enable/.test(on.run) && /hands-keep\.yml\/dispatches/.test(on.run) && on.env.GH_TOKEN === '${{ github.token }}' && hu.permissions.actions === 'write',
+  ok(on && on.if === "always() && steps.open.outputs.pr != ''" && /hands-keep\.yml\/enable/.test(on.run) && /hands-keep\.yml\/dispatches/.test(on.run) && on.env.GH_TOKEN === '${{ github.token }}' && hu.permissions.actions === 'write',
     'hands-update turns hands-keep on and runs it once whenever a kit PR is open, with this repository\'s own token');
   ok((files['hands-update.yml'].match(/echo "pr=/g) || []).length === 2, 'both paths that leave a PR open (opened now, or found open) say so');
 }

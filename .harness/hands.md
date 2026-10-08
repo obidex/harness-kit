@@ -69,7 +69,12 @@ runs it once whenever it opens or finds a kit update PR; it then runs hourly and
 once none is open. A PR open longer than `HANDS_KEEP_HOURS` (the control repository's Actions
 variable, default 72) is left to the stale-work check. Each update is a line in the hands log; a
 refused update fails the run, one problem under the alert standard. A conflicted or draft PR is never
-touched.
+touched. The newest `hands-keep` run replaces an older one (`cancel-in-progress`), so a run stuck
+before it starts never holds the later ones back. When `hands-update` opens a kit PR it closes every
+other open kit PR of the App's in that repository as superseded, with a comment naming the new one,
+and deletes its branch: one kit PR is open per project. `stale.mjs schedules` counts only runs that
+finished and were not cancelled, so runs created and cancelled behind a stuck one still raise
+"Scheduled run missed".
 
 ## GitHub-hosted minutes (O13)
 

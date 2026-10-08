@@ -19,9 +19,13 @@ on:
 permissions:
   contents: read
 
+# The newest run replaces an older one. A run can stick before it starts (GitHub left one "waiting"
+# for two days in October 2026); with cancel-in-progress off, every later run queued behind it and was
+# cancelled in turn, so nothing was kept current. A run only reads PRs and updates behind ones, so
+# stopping one part-way loses nothing: the next does the same work.
 concurrency:
   group: hands-keep
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   keep:
