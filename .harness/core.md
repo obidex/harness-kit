@@ -73,3 +73,26 @@
   twice or is costly; a one-off small mistake is fixed, not ruled. Owner review is not a prevention
   level; independent AI review counts only for risky areas. Each prevention is recorded once, with
   where it lives; the audit reports corrections that recurred.
+
+## Finishing, waiting and cleanup
+
+Assigned work always finishes on its own; automations never run forever.
+
+- **C20 Finish line.** A coordinator finishes the approved initiative or batch, with its fixes,
+  reviews, merges and dependent cards; no improvement rounds after the finish line. Next items start
+  by board order when a slot opens; owner-ready, Ideas and Later items wait.
+- **C21 Full handoff.** A CI result arrives → check the current commit and its required review
+  (re-review if commits came after it) → clear the gate → merge → close the card → tell the
+  coordinator → continue the batch. "Ready for you" only for a decision only the owner can make.
+- **C22 Wait record.** A card that waits says so on the card: condition, owner (thread or
+  coordinator), PR and commit, next action, deadline. A stall goes to that owner; missing cards go
+  to the coordinator.
+- **C23 Cleanup is part of done.** Every reminder, check-in, routine and PR watch records the card
+  or batch it serves, what makes it act, what retires it and the coordinator responsible. It retires
+  when that work finishes, is cancelled or is superseded (history kept, future runs off). A card
+  closes only after its follow-ups are off; one-time items never re-create themselves; with no work
+  in progress nothing Claude is scheduled.
+- **C24 Failure caps.** Caps count failed recovery, not waiting: CI running and usage-limit resets
+  are waits. Three wakes with no answer, or the same failed fix repeated → the coordinator takes over
+  or changes approach, with the attempts recorded across threads. Truly stuck → one exception to the
+  owner; independent work continues.
