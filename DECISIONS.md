@@ -485,3 +485,22 @@ Platform project on 2026-10-08 at 08:45 UTC (three repairs).
    The audit skips that commit only, so a new one still fails.
 
 **Status:** STANDING.
+
+## K018 · 2026-10-08 · STANDING — the inbox wakes through a pull-request comment
+
+**Source:** the owner's strategist-line message in the Platform project on 2026-10-08 at 14:09 UTC,
+item 4: "Every target project gets a proven free wake for inbox items." Seen: an ERP request sat
+queued 8 hours with no pickup (no wake at all), and the website's routine fire was accepted while
+its session never ran (two requests since 7 Oct got no pickup).
+
+1. **Channel.** Each receiving repository keeps one draft pull request from the branch `inbox-wake`,
+   never merged. The sender comments the wake on it; the coordinator's session subscribes to it as
+   its first step, so the wake is a GitHub event at no cost (the same pattern as the Platform
+   roadmap's wake channel).
+2. **Delivery is recorded only when it lands.** "Woke" goes on the request only after GitHub
+   accepted the comment; otherwise one "Not delivered" note and a non-zero exit, and the request
+   stays queued for a resend or the coordinator's own check. Never a person in the loop (O15).
+3. **Routines.** The routine fire stays only for a project without the channel; it is not proof of
+   a pickup.
+
+**Status:** STANDING.

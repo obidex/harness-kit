@@ -26,6 +26,9 @@ ok(threw === 2, 'a request needs a cover and a clean stable id');
 const issues = [];
 let lag = false;
 const fires = [];
+const wakes = [];          // comments on the wake-channel pull request (#99)
+let channel = false, refuse = false;
+const opened = [];
 const srv = createServer((q, res) => {
   let data = '';
   q.on('data', (c) => { data += c; });
@@ -33,6 +36,14 @@ const srv = createServer((q, res) => {
     const u = new URL(q.url, 'http://x');
     const send = (code, j) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(j)); };
     if (u.pathname.endsWith('/fire')) { fires.push({ auth: q.headers.authorization, body: JSON.parse(data) }); return send(200, { type: 'routine_fire' }); }
+    if (u.pathname === '/repos/o/r' && q.method === 'GET') return send(200, { default_branch: 'main' });
+    if (u.pathname === '/repos/o/r/git/ref/heads/main') return send(200, { object: { sha: 'abc' } });
+    if (u.pathname === '/repos/o/r/git/refs' && q.method === 'POST') { opened.push(['ref', JSON.parse(data)]); return send(201, {}); }
+    if (u.pathname.startsWith('/repos/o/r/contents/') && q.method === 'GET') return send(404, {});
+    if (u.pathname.startsWith('/repos/o/r/contents/') && q.method === 'PUT') { opened.push(['file', u.pathname, JSON.parse(data)]); return send(201, {}); }
+    if (u.pathname === '/repos/o/r/pulls' && q.method === 'POST') { opened.push(['pr', JSON.parse(data)]); channel = true; return send(201, { number: 99, draft: true, html_url: 'https://gh.test/o/r/pull/99' }); }
+    if (u.pathname === '/repos/o/r/pulls' && q.method === 'GET') return send(200, channel && u.searchParams.get('head') === 'o:inbox-wake' ? [{ number: 99, draft: true, html_url: 'https://gh.test/o/r/pull/99' }] : []);
+    if (u.pathname === '/repos/o/r/issues/99/comments' && q.method === 'POST') { if (refuse) return send(403, { message: 'refused' }); wakes.push(JSON.parse(data).body); return send(201, { id: 500 + wakes.length }); }
     if (u.pathname === '/repos/o/r/issues' && q.method === 'GET') {
       // like GitHub, the label listing lags a new issue: with lag on, it misses it on the next four listings
       const seen = issues.filter((i) => i.labels.some((l) => l.name === u.searchParams.get('labels')) && !(i.hidden-- > 0));
@@ -42,7 +53,8 @@ const srv = createServer((q, res) => {
     const m = u.pathname.match(/^\/repos\/o\/r\/issues\/(\d+)(\/comments)?$/);
     const i = m && issues[Number(m[1]) - 1];
     if (!i) return send(404, {});
-    if (m[2]) { i.comments.push(JSON.parse(data).body); return send(201, {}); }
+    if (m[2] && q.method === 'GET') return send(200, u.searchParams.get('page') === '1' ? i.comments.map((body) => ({ body })) : []);
+    if (m[2]) { i.comments.push(JSON.parse(data).body); return send(201, { id: 1 }); }
     if (q.method === 'PATCH') { Object.assign(i, JSON.parse(data)); return send(200, i); }
     return send(200, i);
   });
@@ -55,9 +67,27 @@ const send = ['send', '--repo', 'o/r', '--id', req.id, '--title', 'Proof', '--ou
 const wired = { INBOX_ROUTINE_URL: `${base}/v1/claude_code/routines/trig_01ABC/fire`, INBOX_ROUTINE_TOKEN: 'sk-test' };
 
 const s1 = await run(send);
-ok(s1.code === 0 && /filed kit\/proof-1/.test(s1.out) && issues.length === 1 && issues[0].labels[0].name === 'inbox', 'send files one issue labelled inbox');
+ok(s1.code === 3 && /filed kit\/proof-1/.test(s1.out) && issues.length === 1 && issues[0].labels[0].name === 'inbox', 'send files one issue labelled inbox');
+ok(/NOT delivered: no open inbox-wake pull request/.test(s1.out) && issues[0].comments.length === 1 && issues[0].comments[0].startsWith('<!-- inbox-wake-undelivered -->') && !issues[0].comments.some((c) => c.includes('Woke')), 'with no wake channel the send says NOT delivered, exits non-zero and leaves one note, never "Woke"');
 const s2 = await run(send);
-ok(s2.code === 0 && /already/.test(s2.out) && issues.length === 1, 'sending the same id again files nothing (a redelivery makes no duplicate)');
+ok(s2.code === 3 && /already/.test(s2.out) && issues.length === 1 && issues[0].comments.length === 1, 'sending the same id again files nothing and adds no second note (a redelivery makes no duplicate)');
+refuse = true; channel = true;
+const s3 = await run(send);
+ok(s3.code === 3 && /NOT delivered: the wake comment was refused/.test(s3.out) && wakes.length === 0 && issues[0].comments.length === 1, 'a refused wake comment is not a delivery either');
+refuse = false;
+const s4 = await run(send);
+ok(s4.code === 0 && /woke the receiving coordinator \(delivered on #99\)/.test(s4.out) && wakes.length === 1 && /request kit\/proof-1 is queued: https:\/\/gh\.test\/o\/r\/issues\/1/.test(wakes[0]) && issues[0].comments.at(-1) === '<!-- inbox-woke -->\nWoke the receiving coordinator (delivered on #99).', 'once the channel is open, a resend of the queued request wakes the coordinator on the channel PR, then writes "Woke"');
+const s5 = await run(send);
+ok(s5.code === 0 && /already woken/.test(s5.out) && wakes.length === 1, 'a request already woken is never woken twice by a resend');
+ok((await run(['wake', '--repo', 'o/r', '--issue', '1'], {})).code === 0 && wakes.length === 1 && fires.length === 0, 'the workflow\'s wake after a delivered send wakes nobody again');
+ok(/wake channel is https:\/\/gh\.test\/o\/r\/pull\/99;/.test((await run(['channel', '--repo', 'o/r'])).out), 'channel names the open wake-channel PR');
+channel = false;
+ok((await run(['channel', '--repo', 'o/r'])).code === 3 && !opened.length, 'channel fails when no wake-channel PR is open, and opens nothing by itself');
+const op = await run(['channel', '--repo', 'o/r', '--open']);
+const pr = opened.find((x) => x[0] === 'pr')?.[1];
+ok(op.code === 0 && opened[0][1].ref === 'refs/heads/inbox-wake' && opened[0][1].sha === 'abc' && opened[1][1] === '/repos/o/r/contents/.github/INBOX_WAKE.md' && opened[1][2].branch === 'inbox-wake' && pr.draft === true && pr.head === 'inbox-wake' && pr.base === 'main' && /Never merge/.test(pr.body), 'channel --open makes the inbox-wake branch with one note and a draft PR into the default branch');
+channel = false;
+issues[0].comments = []; // the routine cases below start from a request never woken
 ok(JSON.parse((await run(['pending', '--repo', 'o/r'])).out)[0].id === 'kit/proof-1', 'pending lists the queued request');
 {
   // two quick sends while GitHub's listing lags: the second files, sees the first, closes itself
@@ -73,7 +103,8 @@ ok(JSON.parse((await run(['pending', '--repo', 'o/r'])).out)[0].id === 'kit/proo
 }
 
 const unwired = await run(['wake', '--repo', 'o/r', '--issue', '1']);
-ok(unwired.code === 1 && /not wired/.test(unwired.out) && fires.length === 0, 'a queued request with no routine secrets fails loudly');
+ok(unwired.code === 3 && /NOT delivered/.test(unwired.out) && fires.length === 0, 'a queued request with no channel and no routine fails loudly');
+issues[0].comments = [];
 const w1 = await run(['wake', '--repo', 'o/r', '--issue', '1'], wired);
 ok(w1.code === 0 && fires.length === 1 && fires[0].auth === 'Bearer sk-test' && /kit\/proof-1 is queued/.test(fires[0].body.text), 'wake fires the routine once, with the issue in the fire text');
 const bad = await run(['wake', '--repo', 'o/r', '--issue', '1'], { ...wired, INBOX_ROUTINE_URL: 'https://evil.test/fire' });

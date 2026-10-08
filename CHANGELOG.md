@@ -3,6 +3,19 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.16.0 · 2026-10-08 · the inbox wakes through a pull-request comment
+
+- `inbox.mjs` (K018): `send` wakes the receiving coordinator by commenting on that repository's
+  wake channel, its open draft pull request from `inbox-wake` (never merged), which the coordinator's
+  session subscribes to: free, no schedule, no routine. "Woke" is written on the request only after
+  GitHub accepted the comment; otherwise one "Not delivered" note and exit 3, and a resend of the
+  same ID tries again. A request is woken once. `wake` (the workflow) wakes nobody for a request
+  already woken and keeps the routine fire only for a project without the channel. New
+  `channel [--open]` checks or opens the channel.
+- `inbox.md` and the `inbox` skill: the coordinator subscribes to the channel as the first step of
+  every session; setup is one command and one proof. `test-inbox` covers delivery, refusal, no
+  channel, no double wake and opening the channel.
+
 ## 0.15.0 · 2026-10-08 · alerts hold 10 minutes and end with "You:"; precise audit exceptions
 
 - `notify.mjs` (K017): in a host's file store a new problem is held and sent only if still open 10

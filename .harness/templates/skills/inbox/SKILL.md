@@ -1,6 +1,6 @@
 ---
 name: inbox
-description: "Cross-project requests (owner default O14): send one to the repository that does the work as an `inbox` issue with a stable ID, or, as that project's coordinator, pick up queued requests, verify the owner decision that covers each, do the work, and post the evidence on the issue. Use for /inbox, when a routine wakes you for an inbox request, and whenever work belongs to another project."
+description: "Cross-project requests (owner default O14): send one to the repository that does the work as an `inbox` issue with a stable ID, or, as that project's coordinator, pick up queued requests, verify the owner decision that covers each, do the work, and post the evidence on the issue. Use for /inbox, when an inbox wake (a comment on the inbox-wake pull request) or a routine wakes you, and whenever work belongs to another project."
 ---
 
 # Inbox
@@ -18,11 +18,18 @@ on that issue, and the sender reads the result there. Setup and cost: `.harness/
 3. Run `inbox.mjs send --repo <owner/name> --id <id> --title <t> --outcome <what done looks like>
    --source <link to where it was asked> --coordinator <that project's coordinator> --covered-by <cover>`.
    Sending again with the same ID files nothing and prints the existing issue.
+   `send` then wakes that project's coordinator on its wake channel. `NOT delivered` (exit 3) means
+   the request is filed but nobody was woken: it stays queued, a resend tries again, and you record
+   it for your next scheduled check. Never ask the owner to wake or relay (O15).
 4. Read the result on the issue. Do not do the work yourself in the other repository.
 
 ## Picking up requests (the receiving coordinator)
 
-When a routine wakes you, or at the start of a coordinator turn:
+**First step of every coordinator session:** subscribe to this repository's wake channel (the open
+`inbox-wake` pull request; `inbox.mjs channel --repo <this repo>` names it, `--open` opens it once).
+A comment on it is an inbox wake.
+
+When an inbox wake or a routine wakes you, or at the start of a coordinator turn:
 
 1. Run `inbox.mjs pending --repo <this repo>`. If it prints `[]`, stop: there is nothing to do and
    nothing to report.
