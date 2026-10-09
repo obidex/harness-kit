@@ -9,6 +9,8 @@
 //   node .harness/tools/panel.mjs status --dir <d>         print /status as the owner would see it
 //   node .harness/tools/panel.mjs serve --dir <d> [--actions <file>] [--once]
 //                                                          read presses from the channel and answer them
+//        CONTROL_CHANNEL=file (default) or telegram (ALERTS_BOT_TOKEN, ALERTS_CHAT_ID; the group's chat
+//        id must also be in CONTROL_CHATS)
 //
 // The shape (no lock-in):
 // - The core owns all state: problems (open, acknowledged, muted, resolved), decisions (asked, answered),

@@ -100,6 +100,8 @@ async function half2(core, ch, clock) {
   ok(/Laptop & VPS:\n {2}problem: Disk under 8 GB on the VPS \(muted\)/.test(ch.shown().at(-1).text), '/status lists the open problem, marked muted');
   ch.say(OWNER, '/status', GROUP + 1); await step(core, ch.adapter);
   ok(core.log().at(-1).result === 'not an allowed chat', 'the owner in a chat not on the list is refused');
+  ch.tap(OWNER, button(ch, 'A'), GROUP + 1); await step(core, ch.adapter);
+  ok(core.log().at(-1).result === 'not an allowed chat', 'a press by the owner in a chat not on the list is refused');
   clock.t += 25 * 3600e3; await step(core, ch.adapter);
   ok(core.state().problems['vps-disk'].state === 'open' && /mute ended/.test(ch.shown().at(-1).text), 'after 24 h a muted problem comes back');
   await deliver(core, ch.adapter, [core.resolve('vps-disk')]);

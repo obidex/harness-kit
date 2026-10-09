@@ -3,6 +3,18 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.24.0 · 2026-10-09 · the control panel on Telegram
+
+- `panel.mjs` (K025): the Telegram adapter. A view becomes a message with inline buttons (callback
+  data is only the short button id), problems go to their topic and decisions to "Needs you" (topic
+  ids from the pinned alerts config), answers go to the chat the press came from. It reads presses by
+  long polling (outgoing only, no open port) and keeps only its update offset. `serve` with
+  `CONTROL_CHANNEL=telegram` uses the alerts bot (`ALERTS_BOT_TOKEN`, `ALERTS_CHAT_ID`); while it
+  runs, `notify.mjs find` must not (one reader per bot).
+- `test-panel` runs the same scenario against a stand-in Telegram: same core state and log as the
+  file channel, and leaving Telegram halfway (telegram -> file) keeps the whole history. A press in a
+  chat not on the list is refused.
+
 ## 0.23.0 · 2026-10-09 · the control panel core (no lock-in)
 
 - `panel.mjs` (K025): the owner's control panel core. Problems carry a fixed set of buttons
