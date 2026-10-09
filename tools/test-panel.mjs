@@ -169,7 +169,7 @@ ok(away.log().some((e) => e.channel === 'telegram') && away.log().some((e) => e.
   ok(tg.sent.filter((m) => /^STATUS/.test(m.text)).length === 1 && core.log().filter((e) => e.what === 'status').length === 2, 'a reply Telegram refuses is skipped, and the next one in the batch is still sent');
   const long = '😀'.repeat(5000);
   const ref = await ch.adapter.show({ id: 'vx', text: long, buttons: [] }, null, { chat: OWNER });
-  ok(ref.msg && !/\uD83D$/.test(tg.sent.at(-1).text.slice(0, -2)) && [...tg.sent.at(-1).text].length <= 4096, 'a long text is cut on whole characters, under Telegram\'s limit');
+  ok(ref.msg && !/\uD83D$/.test(tg.sent.at(-1).text.slice(0, -2)) && tg.sent.at(-1).text.length <= 4096 && tg.sent.at(-1).text.length > 3900, 'a long text is cut on whole characters, under Telegram\'s limit');
 }
 server.close();
 

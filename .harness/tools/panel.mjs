@@ -255,7 +255,8 @@ export function telegramAdapter({ dir, tg, wait = 0 }) {
   return {
     name: 'telegram',
     async show(v, replyRef, ev) {
-      const cps = [...v.text], text = cps.length > 4000 ? `${cps.slice(0, 3990).join('')}\n…` : v.text; // whole characters, never half a pair
+      let text = v.text; // Telegram counts UTF-16 units; cut on whole characters, never half a pair
+      if (text.length > 4000) { let cut = ''; for (const c of text) { if (cut.length + c.length > 3990) break; cut += c; } text = `${cut}\n…`; }
       const base = { text, link_preview_options: { is_disabled: true }, ...keyboard(v.buttons) };
       let m;
       if (replyRef) m = await tg.call('sendMessage', { ...base, chat_id: replyRef.chat, ...(replyRef.thread ? { message_thread_id: replyRef.thread } : {}), disable_notification: true, reply_parameters: { message_id: replyRef.msg, allow_sending_without_reply: true } });
