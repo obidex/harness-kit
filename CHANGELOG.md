@@ -10,6 +10,8 @@ Each version is the tag `v<version>` on this repository, never moved (K003). Pro
 - `panel.mjs`: `onChange` tells the alert's sender of Acknowledge and Mute (a failure is logged with
   the press; the panel's state holds); `problem({ shownAt })` puts the buttons silently under the
   sender's own alert message instead of a second alert.
+- `panel.mjs`: a `t.me/<bot>?start=<code>` link binds the owner with two taps (`/start <code>`), and
+  `bindOwner` lets a host bind an owner it already knows, only while none is bound.
 - `test-notify` and `test-panel` cover both; each fails with the change undone.
 
 ## 0.24.0 · 2026-10-09 · the control panel on Telegram

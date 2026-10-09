@@ -4,8 +4,9 @@
 // No dependencies.
 //
 //   node .harness/tools/panel.mjs bind-code --dir <d>      print a one-time code (valid 1 h); the first
-//                                                          account to send "/bind <code>" in a private
-//                                                          chat with the panel becomes its owner
+//                                                          account to send "/bind <code>" (or "/start
+//                                                          <code>", what a t.me/<bot>?start=<code> link
+//                                                          sends) in a private chat becomes its owner
 //   node .harness/tools/panel.mjs status --dir <d>         print /status as the owner would see it
 //   node .harness/tools/panel.mjs serve --dir <d> [--actions <file>] [--once]
 //                                                          read presses from the channel and answer them
@@ -133,15 +134,22 @@ export function openCore({ dir, actions = [], chats = [], now = () => Date.now()
     },
     /** Make a one-time binding code (the first account to send it becomes the owner). */
     bindCode() { const code = randomBytes(4).toString('hex'); writeFileSync(`${codePath}.tmp`, JSON.stringify({ code, until: now() + HOUR }), { mode: 0o600 }); renameSync(`${codePath}.tmp`, codePath); return code; },
+    /** The host binds the owner it already knows (for example the private chat that answered an earlier
+     * one-time code on this host); only while no owner is bound. */
+    bindOwner(account, how) {
+      if (st.owner || !/^\d{1,20}$/.test(String(account))) return false;
+      st.owner = String(account); save(); log({ who: 'host', what: 'bind', target: String(account), result: one(how) });
+      return true;
+    },
     /** Where an adapter showed a view (its own note; the core never reads it back for itself). */
     note(viewId, channel, ref) { if (st.views[viewId]) { st.views[viewId].shown[channel] = ref; save(); } },
     shownOn(viewId, channel) { return st.views[viewId]?.shown[channel] ?? null; },
     /** Handle one event from a channel. Returns the views to show in answer. */
     async handle(ev, channel) {
       const who = String(ev.account);
-      const refuse = (why) => { log({ who, channel, what: 'refused', target: ev.button || one(ev.text).replace(/^(\/bind)\b.*/, '$1').slice(0, 40), result: why }); save(); return []; };
-      const code = !st.owner && ev.kind === 'text' && /^\/bind\b/.test(one(ev.text)) ? pendingCode() : null;
-      if (code && ev.private && one(ev.text) === `/bind ${code}`) {
+      const refuse = (why) => { log({ who, channel, what: 'refused', target: ev.button || one(ev.text).replace(/^(\/bind|\/start)\b.*/, '$1').slice(0, 40), result: why }); save(); return []; };
+      const code = !st.owner && ev.kind === 'text' && /^\/(bind|start)\b/.test(one(ev.text)) ? pendingCode() : null;
+      if (code && ev.private && (one(ev.text) === `/bind ${code}` || one(ev.text) === `/start ${code}`)) {
         st.owner = who; rmSync(codePath, { force: true }); save(); log({ who, channel, what: 'bind' });
         return [view('bind', 'This account is now the panel owner.')];
       }

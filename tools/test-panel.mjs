@@ -171,6 +171,16 @@ ok(away.log().some((e) => e.channel === 'telegram') && away.log().some((e) => e.
   const ref = await ch.adapter.show({ id: 'vx', text: long, buttons: [] }, null, { chat: OWNER });
   ok(ref.msg && !/\uD83D$/.test(tg.sent.at(-1).text.slice(0, -2)) && tg.sent.at(-1).text.length <= 4096 && tg.sent.at(-1).text.length > 3900, 'a long text is cut on whole characters, under Telegram\'s limit');
 }
+// binding: a t.me start link sends "/start <code>"; the host may bind an owner it already knows
+{
+  const ch = fileChannel(join(tmp, 'start', 'ch'));
+  const core = openCore({ dir: join(tmp, 'start', 'core') });
+  ch.say(OWNER, `/start ${core.bindCode()}`); await step(core, ch.adapter);
+  ok(core.state().owner === String(OWNER) && !core.log().some((e) => /[0-9a-f]{8}/.test(e.target || '')), '"/start <code>" from a start link binds the owner; the code is never logged');
+  const other = openCore({ dir: join(tmp, 'start2', 'core') });
+  ok(!other.bindOwner('not-a-number', 'x') && other.bindOwner(OWNER, 'earlier one-time code on this host') && other.state().owner === String(OWNER) && other.log().at(-1).who === 'host', 'the host binds an owner it knows, logged as the host');
+}
+
 // buttons under the sender's own alert message, and the sender told of Acknowledge and Mute
 {
   tg.updates.length = 0; tg.sent.length = 0; tg.fail = 0;
@@ -184,6 +194,7 @@ ok(away.log().some((e) => e.channel === 'telegram') && away.log().some((e) => e.
   ch.tap(OWNER, button(ch, 'Acknowledge')); await step(core, ch.adapter);
   ch.tap(OWNER, button(ch, 'Mute 24h')); await step(core, ch.adapter);
   ok(told.length === 2 && told[0].what === 'acknowledge' && told[1].what === 'mute' && told[1].until > Date.now(), 'Acknowledge and Mute are passed to the alert\'s sender');
+  ok(!core.bindOwner(999, 'test') && core.state().owner === String(OWNER), 'the host cannot rebind a panel that has an owner');
   failTell = true;
   await deliver(core, ch.adapter, [core.problem({ key: 'vps/x', topic: 'ops', text: 'x' })]);
   ch.tap(OWNER, button(ch, 'Acknowledge')); await step(core, ch.adapter);
