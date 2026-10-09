@@ -25,8 +25,11 @@
 // - Button ids are `<op>:<view>` (at most 64 bytes, Telegram's limit): a press can only name a view and
 //   one of the ops below. It never carries a command.
 //     i details · a acknowledge · m mute 24 h · p pause the job · u resume it · r retry it · d<n> option n
-// - Only the bound owner account counts, and only in a private chat or a chat in `chats`; anything else
-//   is refused and logged.
+// - Only the owner's account bound on that channel counts (one per channel: a Telegram account is not
+//   a Discord one), and only in a private chat or a chat in `chats`; anything else is refused and
+//   logged. An owner bound before 0.26.0 (one for every channel) is kept for the first channel he uses.
+// - A decision's answer goes to the host's `onAnswer({ id, project, issue, option, by, at, channel })`
+//   (the kit's ask.mjs writes it on the card it was asked on); one it refuses is not kept.
 // - Pause, resume and retry exist only for an alert the action list names ({ id, alerts: [key or
 //   "prefix*"], job, retry }); the host's `run({ op, action, problem })` does them.
 
@@ -43,12 +46,13 @@ const LABEL = { i: 'Details', a: 'Acknowledge', m: 'Mute 24h', p: 'Pause automat
 const one = (s) => String(s ?? '').replace(/\s*\n\s*/g, ' ').trim();
 
 // --- the core -------------------------------------------------------------------------------------
-export function openCore({ dir, actions = [], chats = [], now = () => Date.now(), run = async () => ({ ok: false, text: 'no runner on this host' }), statusExtra = async () => [], onChange = async () => {} }) {
+export function openCore({ dir, actions = [], chats = [], now = () => Date.now(), run = async () => ({ ok: false, text: 'no runner on this host' }), statusExtra = async () => [], onChange = async () => {}, onAnswer = async () => {} }) {
   mkdirSync(dir, { recursive: true });
   const statePath = join(dir, 'state.json');
   const logPath = join(dir, 'log.jsonl');
   const st = existsSync(statePath) ? JSON.parse(readFileSync(statePath, 'utf8'))
-    : { owner: null, seq: 0, views: {}, problems: {}, decisions: {} };
+    : { owners: {}, seq: 0, views: {}, problems: {}, decisions: {} };
+  if (!st.owners) { st.owners = st.owner ? { '*': String(st.owner) } : {}; delete st.owner; } // before 0.26.0: one owner, no channel
   const save = () => { writeFileSync(`${statePath}.tmp`, `${JSON.stringify(st, null, 2)}\n`); renameSync(`${statePath}.tmp`, statePath); };
   const log = (entry) => appendFileSync(logPath, `${JSON.stringify({ at: new Date(now()).toISOString(), ...entry })}\n`);
   const view = (about, text, buttons = [], replyTo = null, topic = null) => {
@@ -101,6 +105,7 @@ export function openCore({ dir, actions = [], chats = [], now = () => Date.now()
       if (st.decisions[id]) return null;
       st.decisions[id] = { id, project, question: one(question), options: options.map(one), recommended, issue, asked: now(), answer: null };
       const lines = st.decisions[id].options.map((o, n) => `${String.fromCharCode(65 + n)}. ${o}${n === recommended ? ' (recommended)' : ''}`);
+      if (/^https:\/\/\S+$/.test(String(issue || ''))) lines.push(String(issue));
       const v = view(`d:${id}`, `DECISION · ${TOPIC_NAMES[project] || project}\n${st.decisions[id].question}\n${lines.join('\n')}`,
         st.decisions[id].options.map((_, n) => [`d${n}`, String.fromCharCode(65 + n)]), null, 'needs');
       st.decisions[id].view = v.id;
@@ -134,11 +139,13 @@ export function openCore({ dir, actions = [], chats = [], now = () => Date.now()
     },
     /** Make a one-time binding code (the first account to send it becomes the owner). */
     bindCode() { const code = randomBytes(4).toString('hex'); writeFileSync(`${codePath}.tmp`, JSON.stringify({ code, until: now() + HOUR }), { mode: 0o600 }); renameSync(`${codePath}.tmp`, codePath); return code; },
-    /** The host binds the owner it already knows (for example the private chat that answered an earlier
-     * one-time code on this host); only while no owner is bound. */
-    bindOwner(account, how) {
-      if (st.owner || !/^\d{1,20}$/.test(String(account))) return false;
-      st.owner = String(account); save(); log({ who: 'host', what: 'bind', target: String(account), result: one(how) });
+    /** The owner's account on a channel, or null. */
+    ownerOn: (channel) => st.owners[channel] ?? null,
+    /** The host binds the owner it already knows on a channel (for example the private chat that answered
+     * an earlier one-time code on this host); only while that channel has none. */
+    bindOwner(account, how, channel) {
+      if (!channel || st.owners[channel] || !/^\d{1,20}$/.test(String(account))) return false;
+      st.owners[channel] = String(account); delete st.owners['*']; save(); log({ who: 'host', channel, what: 'bind', target: String(account), result: one(how) });
       return true;
     },
     /** Where an adapter showed a view (its own note; the core never reads it back for itself). */
@@ -148,12 +155,13 @@ export function openCore({ dir, actions = [], chats = [], now = () => Date.now()
     async handle(ev, channel) {
       const who = String(ev.account);
       const refuse = (why) => { log({ who, channel, what: 'refused', target: ev.button || one(ev.text).replace(/^(\/bind|\/start)\b.*/, '$1').slice(0, 40), result: why }); save(); return []; };
-      const code = !st.owner && ev.kind === 'text' && /^\/(bind|start)\b/.test(one(ev.text)) ? pendingCode() : null;
+      if (!st.owners[channel] && st.owners['*'] === who) { st.owners[channel] = who; delete st.owners['*']; save(); log({ who, channel, what: 'bind', result: 'the owner bound before 0.26.0, first seen on this channel' }); }
+      const code = !st.owners[channel] && ev.kind === 'text' && /^\/(bind|start)\b/.test(one(ev.text)) ? pendingCode() : null;
       if (code && ev.private && (one(ev.text) === `/bind ${code}` || one(ev.text) === `/start ${code}`)) {
-        st.owner = who; rmSync(codePath, { force: true }); save(); log({ who, channel, what: 'bind' });
-        return [view('bind', 'This account is now the panel owner.')];
+        st.owners[channel] = who; rmSync(codePath, { force: true }); save(); log({ who, channel, what: 'bind' });
+        return [view('bind', 'This account is now the panel owner on this channel.')];
       }
-      if (!st.owner || who !== st.owner) return refuse('not the owner');
+      if (!st.owners[channel] || who !== st.owners[channel]) return refuse('not the owner');
       if (!ev.private && !chats.map(String).includes(String(ev.chat))) return refuse('not an allowed chat');
       if (ev.kind === 'text') {
         if (/^\/status\b/.test(one(ev.text))) { log({ who, channel, what: 'status' }); save(); return [view('status', await core.statusText())]; }
@@ -168,6 +176,8 @@ export function openCore({ dir, actions = [], chats = [], now = () => Date.now()
         const n = Number(op.slice(1));
         if (!d || n >= d.options.length) return refuse('unknown button');
         if (d.answer !== null) { log({ who, channel, what: 'answer', target: d.id, result: 'already answered' }); save(); return [view(`d:${d.id}`, `Already answered: ${String.fromCharCode(65 + d.answer.option)}. ${d.options[d.answer.option]}`, [], vid)]; }
+        try { await onAnswer({ id: d.id, project: d.project, issue: d.issue, option: n, by: `${channel}:${who}`, at: new Date(now()).toISOString(), channel }); }
+        catch (e) { log({ who, channel, what: 'answer', target: d.id, result: `failed: ${one(e.message)}` }); save(); return [view(`d:${d.id}`, `Not recorded: ${one(e.message)}. Press again.`, [], vid)]; }
         d.answer = { option: n, by: who, at: now(), channel };
         save(); log({ who, channel, what: 'answer', target: d.id, result: String.fromCharCode(65 + n) });
         return [view(`d:${d.id}`, `Answered ${String.fromCharCode(65 + n)}: ${d.options[n]}. Sent back to ${TOPIC_NAMES[d.project] || d.project}.`, [], vid)];

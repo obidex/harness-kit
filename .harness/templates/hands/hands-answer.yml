@@ -1,0 +1,97 @@
+# Harness Kit control repository (K026): copied into the owner's control repository, never into a project.
+# The owner's answer from the control panel: the panel host records the press and dispatches this with
+# the card, the question's id, the option, who pressed (<channel>:<account>) and when. This job writes
+# the answer on the card with the hands App, never as the owner's account, so a session watching that
+# pull request is woken by it (a session never receives its own account's comment, K024); an answer on
+# an issue also wakes the repository's coordinator through its wake channel. The first answer counts;
+# the host checks every answer the App posted against its own presses. The token is minted for that
+# one repository, with only issues and pull requests to write. Nothing runs on a schedule.
+# It runs the kit at HANDS_KIT_VERSION, which must be 0.26.0 or later (the first with ask.mjs).
+# Cost (O13): one job of about half a minute (one GitHub-hosted minute) per answer.
+name: hands-answer
+
+on:
+  workflow_dispatch:
+    inputs:
+      repo:
+        description: The card's repository (owner/name)
+        required: true
+      issue:
+        description: The card's issue or pull request number
+        required: true
+      id:
+        description: The question's id
+        required: true
+      option:
+        description: The option pressed (0-3)
+        required: true
+      by:
+        description: Who pressed, as <channel>:<account id>
+        required: true
+      at:
+        description: When, as an ISO time
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  # one run per question: GitHub keeps one pending run per group, so a group per card would cancel an
+  # answer pressed while two others on that card wait
+  group: hands-answer-${{ inputs.repo }}-${{ inputs.issue }}-${{ inputs.id }}
+  cancel-in-progress: false
+
+jobs:
+  answer:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    environment: hands
+    steps:
+      - id: input
+        env:
+          REPO: ${{ inputs.repo }}
+          ISSUE: ${{ inputs.issue }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          [[ "$REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "hands-answer: repo must be owner/name"; exit 1; }
+          [[ "${REPO%%/*}" == "$OWNER" ]] || { echo "hands-answer: only this owner's repositories"; exit 1; }
+          [[ "$ISSUE" =~ ^[0-9]+$ ]] || { echo "hands-answer: issue must be a number"; exit 1; }
+          echo "name=${REPO#*/}" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - id: kit
+        run: |
+          set -euo pipefail
+          v="$(tr -d '[:space:]' < HANDS_KIT_VERSION)"
+          [ "$(printf '%s\n0.26.0\n' "$v" | sort -V | head -1)" = "0.26.0" ] || { echo "hands-answer: HANDS_KIT_VERSION $v is older than 0.26.0, the first with ask.mjs"; exit 1; }
+          echo "ref=v$v" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: ${{ vars.HARNESS_KIT_REPO || 'obidex/harness-kit' }}
+          ref: ${{ steps.kit.outputs.ref }}
+          path: kit
+          persist-credentials: false
+      - id: token
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1.12.0
+        with:
+          app-id: ${{ vars.HARNESS_APP_ID }}
+          private-key: ${{ secrets.HARNESS_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ steps.input.outputs.name }}
+          permission-metadata: read
+          permission-issues: write
+          permission-pull-requests: write
+      - name: Write the owner's answer on the card and wake whoever waits
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          ASK_APP_LOGIN: ${{ steps.token.outputs.app-slug }}[bot]
+          REPO: ${{ inputs.repo }}
+          ISSUE: ${{ inputs.issue }}
+          ID: ${{ inputs.id }}
+          OPTION: ${{ inputs.option }}
+          BY: ${{ inputs.by }}
+          AT: ${{ inputs.at }}
+        run: node kit/.harness/tools/ask.mjs answer --repo "$REPO" --issue "$ISSUE" --id "$ID" --option "$OPTION" --by "$BY" --at "$AT"

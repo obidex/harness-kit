@@ -638,3 +638,24 @@ mechanism on the Platform board, fed by a workflow, always woke its coordinator.
    account counts; refusals are logged.
 
 **Status:** STANDING.
+
+## K026 · 2026-10-09 · STANDING — the owner's answer is written by the App, on the card that asked
+
+**Source:** the owner's request of 2026-10-05 (decision buttons, plan section 4.4) and the Platform
+strategist's S-026 item 1, accepted by the Platform coordinator on 2026-10-09 (pre-written answers:
+a press recorded on the card through the hands App, with the channel account and the time).
+
+1. **Where.** A question lives on the card that needs it (an issue or a pull request), as one marked
+   comment by the card's own people; the card is labelled `needs-owner` until every question on it
+   is answered. Chat holds nothing the answer needs.
+2. **Who writes the answer.** Only the control repository's `hands-answer` job, with the hands App,
+   started by the panel host after the owner's press. Only the hands App's comment counts as an answer; the
+   first one counts. The host checks each against its own record of presses and reports one it has
+   none for (a session can start the job too).
+3. **Who is woken.** A session watching the pull request the question is on (it receives the App's
+   comment, K024); for an issue, the repository's coordinator through its wake channel (K018).
+4. **Scope.** A press answers only the question asked: it never lifts a safety refusal, approves a
+   gate or stands for the owner's approval of anything else (O05).
+5. **Identity.** The owner's account is stored per channel.
+
+**Status:** STANDING.
