@@ -3,8 +3,9 @@
 // decisions answered with a tap, kept in a core that knows nothing about the channel showing it.
 // No dependencies.
 //
-//   node .harness/tools/panel.mjs bind-code --dir <d>      print a one-time code; the first account that
-//                                                          sends it to the panel becomes its owner
+//   node .harness/tools/panel.mjs bind-code --dir <d>      print a one-time code (valid 1 h); the first
+//                                                          account to send "/bind <code>" in a private
+//                                                          chat with the panel becomes its owner
 //   node .harness/tools/panel.mjs status --dir <d>         print /status as the owner would see it
 //   node .harness/tools/panel.mjs serve --dir <d> [--actions <file>] [--once]
 //                                                          read presses from the channel and answer them
@@ -12,7 +13,8 @@
 // The shape (no lock-in):
 // - The core owns all state: problems (open, acknowledged, muted, resolved), decisions (asked, answered),
 //   the fixed action list, and an append-only log of every action. State is `<dir>/state.json`, the log
-//   `<dir>/log.jsonl`, both plain files. The service is the one writer.
+//   `<dir>/log.jsonl`, both plain files. The service is the one writer of both; `bind-code` writes only
+//   `<dir>/bind-code`, which the service reads when someone sends /bind and deletes once used.
 // - An adapter only shows a view ({ text, buttons: [{ id, label }], replyTo }) and turns a press or a
 //   message back into an event ({ kind: 'press' | 'text', account, chat, private, button | text }). It
 //   keeps nothing the core needs; where it showed a view is noted in the core per channel, so switching
@@ -25,7 +27,7 @@
 // - Pause, resume and retry exist only for an alert the action list names ({ id, alerts: [key or
 //   "prefix*"], job, retry }); the host's `run({ op, action, problem })` does them.
 
-import { readFileSync, writeFileSync, appendFileSync, mkdirSync, existsSync, renameSync } from 'node:fs';
+import { readFileSync, writeFileSync, appendFileSync, mkdirSync, existsSync, renameSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
@@ -42,18 +44,25 @@ export function openCore({ dir, actions = [], chats = [], now = () => Date.now()
   const statePath = join(dir, 'state.json');
   const logPath = join(dir, 'log.jsonl');
   const st = existsSync(statePath) ? JSON.parse(readFileSync(statePath, 'utf8'))
-    : { owner: null, bindCode: null, seq: 0, views: {}, problems: {}, decisions: {} };
+    : { owner: null, seq: 0, views: {}, problems: {}, decisions: {} };
   const save = () => { writeFileSync(`${statePath}.tmp`, `${JSON.stringify(st, null, 2)}\n`); renameSync(`${statePath}.tmp`, statePath); };
   const log = (entry) => appendFileSync(logPath, `${JSON.stringify({ at: new Date(now()).toISOString(), ...entry })}\n`);
   const view = (about, text, buttons = [], replyTo = null) => {
     const id = `v${++st.seq}`;
-    st.views[id] = { about, shown: {} };
+    const p = about.startsWith('p:') && st.problems[about.slice(2)];
+    st.views[id] = { about, shown: {}, ...(p ? { opened: p.opened } : {}) };
     return { id, text, buttons: buttons.map(([op, label]) => ({ id: `${op}:${id}`, label: label || LABEL[op] })), replyTo };
   };
   const actionFor = (key) => actions.find((a) => (a.alerts || []).some((p) => (p.endsWith('*') ? key.startsWith(p.slice(0, -1)) : key === p)));
   const problemButtons = (p) => {
     const a = actionFor(p.key);
     return [['i'], ['a'], ['m'], ...(a ? [p.paused ? ['u'] : ['p']] : []), ...(a?.retry ? [['r']] : [])];
+  };
+  const codePath = join(dir, 'bind-code');
+  const pendingCode = () => {
+    if (!existsSync(codePath)) return null;
+    const c = JSON.parse(readFileSync(codePath, 'utf8'));
+    return c.until > now() ? c.code : null;
   };
   const muted = (p) => p.mutedUntil && p.mutedUntil > now();
   const firstView = (about) => Object.keys(st.views).find((v) => st.views[v].about === about) || null;
@@ -117,16 +126,17 @@ export function openCore({ dir, actions = [], chats = [], now = () => Date.now()
       return ['STATUS', ...(lines.length ? lines : ['nothing open, no decision waiting']), ...extra].join('\n');
     },
     /** Make a one-time binding code (the first account to send it becomes the owner). */
-    bindCode() { st.bindCode = randomBytes(4).toString('hex'); save(); log({ who: 'host', what: 'bind-code' }); return st.bindCode; },
+    bindCode() { const code = randomBytes(4).toString('hex'); writeFileSync(codePath, JSON.stringify({ code, until: now() + HOUR }), { mode: 0o600 }); return code; },
     /** Where an adapter showed a view (its own note; the core never reads it back for itself). */
     note(viewId, channel, ref) { if (st.views[viewId]) { st.views[viewId].shown[channel] = ref; save(); } },
     shownOn(viewId, channel) { return st.views[viewId]?.shown[channel] ?? null; },
     /** Handle one event from a channel. Returns the views to show in answer. */
     async handle(ev, channel) {
       const who = String(ev.account);
-      const refuse = (why) => { log({ who, channel, what: 'refused', target: ev.button || one(ev.text).slice(0, 40), result: why }); save(); return []; };
-      if (ev.kind === 'text' && st.bindCode && !st.owner && one(ev.text) === `/bind ${st.bindCode}` && ev.private) {
-        st.owner = who; st.bindCode = null; save(); log({ who, channel, what: 'bind' });
+      const refuse = (why) => { log({ who, channel, what: 'refused', target: ev.button || one(ev.text).replace(/^(\/bind)\b.*/, '$1').slice(0, 40), result: why }); save(); return []; };
+      const code = !st.owner && ev.kind === 'text' && /^\/bind\b/.test(one(ev.text)) ? pendingCode() : null;
+      if (code && ev.private && one(ev.text) === `/bind ${code}`) {
+        st.owner = who; rmSync(codePath, { force: true }); save(); log({ who, channel, what: 'bind' });
         return [view('bind', 'This account is now the panel owner.')];
       }
       if (!st.owner || who !== st.owner) return refuse('not the owner');
@@ -150,6 +160,7 @@ export function openCore({ dir, actions = [], chats = [], now = () => Date.now()
       }
       const p = about.startsWith('p:') && st.problems[about.slice(2)];
       if (!p) return refuse('unknown button');
+      if (st.views[vid].opened !== undefined && st.views[vid].opened !== p.opened) { log({ who, channel, what: 'press', target: p.key, result: 'old message' }); save(); return [view(`p:${p.key}`, 'This message is about an earlier, resolved problem.', [], vid)]; }
       const reply = (text) => [view(`p:${p.key}`, text, [], vid)];
       if (op === 'i') {
         log({ who, channel, what: 'details', target: p.key }); save();

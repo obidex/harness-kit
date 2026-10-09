@@ -28,9 +28,12 @@ const button = (ch, label) => ch.shown().findLast((v) => v.buttons.some((b) => b
 
 /** The scenario, in two halves so a run can switch channel between them. */
 async function half1(core, ch, clock, actions) {
-  const code = core.bindCode();
+  const code = openCore({ dir: core.dir, now: () => clock.t }).bindCode(); // a second process, as on the host
   ch.say(OTHER, `/bind wrong`); await step(core, ch.adapter);
+  ch.say(OTHER, `/bind ${code}`, GROUP); await step(core, ch.adapter);
+  ok(core.state().owner === null, 'the right code sent in a group binds nobody');
   ch.say(OWNER, `/bind ${code}`); await step(core, ch.adapter);
+  ok(core.state().owner === String(OWNER), 'a code made by a second process while the service runs binds the owner');
   clock.t += 60e3;
   await deliver(core, ch.adapter, [core.problem({ key: 'vps-disk', topic: 'ops', text: 'Disk under 8 GB on the VPS', link: 'https://example.invalid/run/1' })]);
   ok(core.problem({ key: 'vps-disk', topic: 'ops', text: 'Disk under 8 GB on the VPS' }) === null, 'a repeat of an open problem shows nothing and only counts');
@@ -44,12 +47,20 @@ async function half1(core, ch, clock, actions) {
   ok(core.state().problems['vps-disk'].state === 'muted', 'Mute 24h mutes it');
   ch.tap(OWNER, 'x:v1;rm -rf /'); await step(core, ch.adapter);
   ok(core.log().at(-1).result === 'unknown button', 'a made-up button is refused and logged; it never runs anything');
+  const before = actions.length;
+  ch.tap(OWNER, button(ch, 'Details').replace(/^i:/, 'p:')); await step(core, ch.adapter);
+  ok(actions.length === before && core.log().at(-1).result === 'no such action for this alert', 'Pause forged for an alert the list does not name is refused and runs nothing');
   if (actions) {
     await deliver(core, ch.adapter, [core.problem({ key: 'job-backup', topic: 'ops', text: 'Backup failed' })]);
     ch.tap(OWNER, button(ch, 'Pause automation')); await step(core, ch.adapter);
     ok(actions.at(-1)?.op === 'pause' && core.state().problems['job-backup'].paused, 'Pause runs only the listed job, through the host');
     ch.tap(OWNER, button(ch, 'Retry')); await step(core, ch.adapter);
     ok(actions.at(-1)?.op === 'retry', 'Retry is offered and runs where the list marks the job safe');
+    await deliver(core, ch.adapter, [core.problem({ key: 'once-deploy', topic: 'ops', text: 'Deploy failed' })]);
+    const n0 = actions.length;
+    ok(!ch.shown().at(-1).buttons.some((b) => b.label === 'Retry'), 'no Retry button where the job is not safe to retry');
+    ch.tap(OWNER, button(ch, 'Details').replace(/^i:/, 'r:')); await step(core, ch.adapter);
+    ok(actions.length === n0 && core.log().at(-1).result === 'no such action for this alert', 'a forged Retry on a job not safe to retry is refused and runs nothing');
   }
 }
 async function half2(core, ch, clock) {
@@ -65,24 +76,29 @@ async function half2(core, ch, clock) {
   clock.t += 25 * 3600e3; await step(core, ch.adapter);
   ok(core.state().problems['vps-disk'].state === 'open' && /mute ended/.test(ch.shown().at(-1).text), 'after 24 h a muted problem comes back');
   await deliver(core, ch.adapter, [core.resolve('vps-disk')]);
+  const oldAck = button(ch, 'Acknowledge');
   ok(/✅ Fixed after/.test(ch.shown().at(-1).text) && core.state().problems['vps-disk'].state === 'resolved', 'RESOLVED replies under the problem');
   ch.tap(OWNER, button(ch, 'Acknowledge')); await step(core, ch.adapter);
   ok(core.log().at(-1).result === 'already resolved', 'a button on a resolved problem says so and changes nothing');
+  await deliver(core, ch.adapter, [core.problem({ key: 'vps-disk', topic: 'ops', text: 'Disk under 8 GB on the VPS' })]);
+  ch.tap(OWNER, oldAck); await step(core, ch.adapter);
+  ok(core.state().problems['vps-disk'].state === 'open' && core.log().at(-1).result === 'old message', 'a button on the old message of a problem that opened again does not act on the new one');
 }
 
 const run = async (name, channels) => {
   const clock = { t: T0 }; const done = [];
-  const core = openCore({ dir: join(tmp, name, 'core'), chats: [GROUP], now: () => clock.t,
-    actions: [{ id: 'backup', alerts: ['job-*'], job: 'backup.timer', retry: true }],
-    run: async (x) => { done.push(x); return { ok: true, text: `${x.op} ${x.action.job}` }; } });
+  const open = () => Object.assign(openCore({ dir: join(tmp, name, 'core'), chats: [GROUP], now: () => clock.t,
+    actions: [{ id: 'backup', alerts: ['job-*'], job: 'backup.timer', retry: true }, { id: 'deploy', alerts: ['once-*'], job: 'deploy.yml', retry: false }],
+    run: async (x) => { done.push(x); return { ok: true, text: `${x.op} ${x.action.job}` }; } }), { dir: join(tmp, name, 'core') });
   const [a, b] = channels(join(tmp, name));
-  await half1(core, a, clock, done);
+  await half1(open(), a, clock, done);
+  const core = open(); // the service restarts between halves (as a channel switch does): state comes from disk
   await half2(core, b, clock);
   return core;
 };
 const canon = (core) => ({
   state: { ...core.state(), views: Object.fromEntries(Object.entries(core.state().views).map(([k, v]) => [k, v.about])),
-    decisions: Object.fromEntries(Object.entries(core.state().decisions).map(([k, d]) => [k, { ...d, answer: d.answer && { ...d.answer, channel: '-' } }])), bindCode: null },
+    decisions: Object.fromEntries(Object.entries(core.state().decisions).map(([k, d]) => [k, { ...d, answer: d.answer && { ...d.answer, channel: '-' } }])) },
   log: core.log().map(({ channel, ...e }) => e),
 });
 
@@ -101,7 +117,8 @@ ok(switched.log().some((e) => e.channel === 'file') && switched.log().some((e) =
 
 ok((() => { try { pickAdapter('carrier-pigeon'); return false; } catch (e) { return /not a known channel/.test(e.message); } })(), 'an unknown CONTROL_CHANNEL fails, naming the known ones');
 ok(pickAdapter('file', { dir: join(tmp, 'pick') }).name === 'file', 'CONTROL_CHANNEL picks the adapter');
-ok(new TextEncoder().encode('d3:v99999999').length <= 64, 'button ids stay within 64 bytes');
+const ids = fileChannel(join(tmp, 'a', 'ch')).shown().flatMap((v) => v.buttons.map((b) => b.id));
+ok(ids.length > 10 && ids.every((id) => Buffer.byteLength(id) <= 64 && /^(i|a|m|p|u|r|d[0-3]):v\d+$/.test(id)), 'every button id shown is a short op:view, within 64 bytes');
 
 rmSync(tmp, { recursive: true, force: true });
 console.log(`test-panel: OK · ${n} cases`);
