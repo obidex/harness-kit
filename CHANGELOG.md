@@ -3,6 +3,19 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.23.0 · 2026-10-09 · the control panel core (no lock-in)
+
+- `panel.mjs` (K025): the owner's control panel core. Problems carry a fixed set of buttons
+  (Details, Acknowledge, Mute 24h, and Pause/Resume/Retry only where the host's action list names a
+  job), `/status` lists open problems and waiting decisions per project, and a decision is answered
+  with one tap (the first answer counts). Only the bound owner account counts, in a private chat or a
+  listed chat; every press and every refusal goes to an append-only log.
+- All state is the core's, in plain files; a channel is a thin adapter that shows a view and returns
+  presses. `CONTROL_CHANNEL` picks it. This version ships the file adapter, the second channel that
+  proves no lock-in; the Telegram adapter follows.
+- `test-panel` runs one scenario through the channel: same state and log on every run, and a run
+  that switches channel halfway keeps the whole history.
+
 ## 0.22.0 · 2026-10-09 · inbox wakes reach the receiving coordinator
 
 - `inbox.mjs send` (K024) no longer posts the wake comment itself: a session subscribed to the wake
