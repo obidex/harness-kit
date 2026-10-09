@@ -602,3 +602,22 @@ owner-sentence stop and fix each at its cause (count on the Platform maintenance
    weekly until the owner decides something already inside his rules.
 
 **Status:** STANDING.
+
+## K024 · 2026-10-09 · STANDING — an inbox wake is posted by a job, never by a session
+
+**Source:** the Platform maintenance repair of 2026-10-09 (Platform roadmap maintenance card): no
+inbox request sent through a wake channel was ever picked up, in either product, while the same
+mechanism on the Platform board, fed by a workflow, always woke its coordinator.
+
+1. **Cause.** Every session acts as the owner's own GitHub account, and a session subscribed to a
+   pull request never receives a comment its own account posted (tested: a comment by the session's
+   account on a subscribed pull request produced no event; a check run 2 s later did). So a wake
+   comment posted by `inbox.mjs send` from a session never reached the receiving coordinator.
+2. **Fix.** An Actions job posts the wake: the receiver's `harness-inbox` job (started by the `inbox`
+   label), or, for a repository without that job, the control repository's `hands-inbox` job with
+   the hands App, dispatched by `send` (O13: about one hosted minute per such wake). `send` waits
+   for the job's answer on the request; `--again` wakes a still-queued request once more.
+3. **Access.** A cloud session reaches a repository's API only when the repository is attached to
+   it with push access; a 401 or 403 says so.
+
+**Status:** STANDING.
