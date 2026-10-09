@@ -79,8 +79,15 @@ async function api(method, path, data) {
   const text = await r.text();
   let json = null;
   try { json = text ? JSON.parse(text) : null; } catch { json = text; }
-  if (r.status < 200 || r.status > 299) throw new Error(`${method} ${path} answered ${r.status}: ${JSON.stringify(json).slice(0, 300)}`);
+  if (r.status < 200 || r.status > 299) throw new Error(`${method} ${path} answered ${r.status}: ${JSON.stringify(json).slice(0, 300)}${r.status === 401 || r.status === 403 ? accessHint(path) : ''}`);
   return json;
+}
+
+/** What to do when GitHub refuses the token: in a cloud session the proxy lends credentials only for
+ *  repositories attached to the session, and GH_TOKEN there is not a working token. */
+export function accessHint(path) {
+  const repo = (String(path).match(/^\/repos\/([\w.-]+\/[\w.-]+)/) || [])[1] || 'the repository';
+  return `. The session's GitHub access does not reach ${repo}: in a cloud session attach it first (add_repo ${repo} with access "push"), then run the same command again; elsewhere set GH_TOKEN to a token that can write its issues`;
 }
 
 /** Every inbox issue of the repository, open and closed, as { number, state, url, fields }. */
