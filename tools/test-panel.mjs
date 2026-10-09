@@ -8,7 +8,7 @@
 // with the same core state and the same log on every channel, and a run that switches channel halfway
 // must end with the whole history.
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createServer } from 'node:http';
@@ -55,13 +55,13 @@ async function half1(core, ch, clock, actions) {
   const stale = openCore({ dir: core.dir, now: () => clock.t }).bindCode();
   clock.t += 61 * 60e3;
   ch.say(OWNER, `/bind ${stale}`); await step(core, ch.adapter);
-  ok(core.state().owner === null && core.log().at(-1).result === 'not the owner', 'a code older than 1 h binds nobody, and the refusal is logged');
+  ok(core.ownerOn(ch.adapter.name) === null && core.log().at(-1).result === 'not the owner', 'a code older than 1 h binds nobody, and the refusal is logged');
   const code = openCore({ dir: core.dir, now: () => clock.t }).bindCode(); // a second process, as on the host
   ch.say(OTHER, `/bind wrong`); await step(core, ch.adapter);
   ch.say(OTHER, `/bind ${code}`, GROUP); await step(core, ch.adapter);
-  ok(core.state().owner === null, 'the right code sent in a group binds nobody');
+  ok(core.ownerOn(ch.adapter.name) === null, 'the right code sent in a group binds nobody');
   ch.say(OWNER, `/bind ${code}`); await step(core, ch.adapter);
-  ok(core.state().owner === String(OWNER), 'a code made by a second process while the service runs binds the owner');
+  ok(core.ownerOn(ch.adapter.name) === String(OWNER), 'a code made by a second process while the service runs binds the owner');
   clock.t += 60e3;
   await deliver(core, ch.adapter, [core.problem({ key: 'vps-disk', topic: 'ops', text: 'Disk under 8 GB on the VPS', link: 'https://example.invalid/run/1' })]);
   ok(core.problem({ key: 'vps-disk', topic: 'ops', text: 'Disk under 8 GB on the VPS' }) === null, 'a repeat of an open problem shows nothing and only counts');
@@ -92,6 +92,8 @@ async function half1(core, ch, clock, actions) {
   }
 }
 async function half2(core, ch, clock) {
+  // a new channel: the owner binds once on it (an account id belongs to one channel; the legacy case below shows the refusal)
+  if (!core.ownerOn(ch.adapter.name)) core.bindOwner(OWNER, 'the owner, on the channel switched to', ch.adapter.name);
   await deliver(core, ch.adapter, [core.ask({ id: 'kit/demo-1', project: 'kit', question: 'Which name for the new check?', options: ['short-name', 'long-descriptive-name'], recommended: 0, issue: 'owner/repo#1' })]);
   ch.tap(OWNER, button(ch, 'B'), OWNER); await step(core, ch.adapter);
   ok(core.state().decisions['kit/demo-1'].answer.option === 1, 'a tap answers the decision');
@@ -126,10 +128,11 @@ const run = async (name, channels) => {
   await half2(core, b, clock);
   return core;
 };
+// the owner binds once per channel, so a switched run has one more bind: compared without them
 const canon = (core) => ({
-  state: { ...core.state(), views: Object.fromEntries(Object.entries(core.state().views).map(([k, v]) => [k, v.about])),
+  state: { ...core.state(), owners: '-', views: Object.fromEntries(Object.entries(core.state().views).map(([k, v]) => [k, v.about])),
     decisions: Object.fromEntries(Object.entries(core.state().decisions).map(([k, d]) => [k, { ...d, answer: d.answer && { ...d.answer, channel: '-' } }])) },
-  log: core.log().map(({ channel, ...e }) => e),
+  log: core.log().filter((e) => e.what !== 'bind').map(({ channel, ...e }) => e),
 });
 
 const fileA = await run('a', (d) => { const c = fileChannel(join(d, 'ch')); return [c, c]; });
@@ -144,6 +147,7 @@ const other = (dir) => { const c = fileChannel(dir); c.adapter.name = 'file-2'; 
 const switched = await run('s', (d) => [fileChannel(join(d, 'one')), other(join(d, 'two'))]);
 ok(JSON.stringify(canon(switched)) === JSON.stringify(canon(fileA)), 'switching channel halfway keeps the whole history: same state and log');
 ok(switched.log().some((e) => e.channel === 'file') && switched.log().some((e) => e.channel === 'file-2'), 'the log names the channel each press came from');
+ok(switched.ownerOn('file') === String(OWNER) && switched.ownerOn('file-2') === String(OWNER) && fileA.ownerOn('file-2') === null, 'the owner is stored per channel');
 
 // the same scenario through Telegram (a stand-in), and switching Telegram -> file halfway
 const tgRun = await run('t', (d) => { const c = tgChannel(join(d, 'tg')); return [c, c]; });
@@ -163,7 +167,7 @@ ok(away.log().some((e) => e.channel === 'telegram') && away.log().some((e) => e.
   tg.fail = 1; ch.say(OWNER, `/bind ${code}`);
   let passes = 0;
   const failed = await serveLoop(core, ch.adapter, { stop: () => passes++ >= 3, backoff: 1 });
-  ok(failed === 1 && core.state().owner === String(OWNER), 'a failed getUpdates (502) is logged and the next pass still binds the owner');
+  ok(failed === 1 && core.ownerOn('telegram') === String(OWNER), 'a failed getUpdates (502) is logged and the next pass still binds the owner');
   tg.fail = 1; tg.failOn = 'sendMessage'; ch.say(OWNER, '/status'); ch.say(OWNER, '/status');
   passes = 0; await serveLoop(core, ch.adapter, { stop: () => passes++ >= 1, backoff: 1 });
   ok(tg.sent.filter((m) => /^STATUS/.test(m.text)).length === 1 && core.log().filter((e) => e.what === 'status').length === 2, 'a reply Telegram refuses is skipped, and the next one in the batch is still sent');
@@ -176,9 +180,9 @@ ok(away.log().some((e) => e.channel === 'telegram') && away.log().some((e) => e.
   const ch = fileChannel(join(tmp, 'start', 'ch'));
   const core = openCore({ dir: join(tmp, 'start', 'core') });
   ch.say(OWNER, `/start ${core.bindCode()}`); await step(core, ch.adapter);
-  ok(core.state().owner === String(OWNER) && !core.log().some((e) => /[0-9a-f]{8}/.test(e.target || '')), '"/start <code>" from a start link binds the owner; the code is never logged');
+  ok(core.ownerOn('file') === String(OWNER) && !core.log().some((e) => /[0-9a-f]{8}/.test(e.target || '')), '"/start <code>" from a start link binds the owner; the code is never logged');
   const other = openCore({ dir: join(tmp, 'start2', 'core') });
-  ok(!other.bindOwner('not-a-number', 'x') && other.bindOwner(OWNER, 'earlier one-time code on this host') && other.state().owner === String(OWNER) && other.log().at(-1).who === 'host', 'the host binds an owner it knows, logged as the host');
+  ok(!other.bindOwner('not-a-number', 'x', 'telegram') && !other.bindOwner(OWNER, 'no channel') && other.bindOwner(OWNER, 'earlier one-time code on this host', 'telegram') && other.ownerOn('telegram') === String(OWNER) && other.ownerOn('file') === null && other.log().at(-1).who === 'host', 'the host binds an owner it knows on one channel, logged as the host');
 }
 
 // buttons under the sender's own alert message, and the sender told of Acknowledge and Mute
@@ -194,11 +198,40 @@ ok(away.log().some((e) => e.channel === 'telegram') && away.log().some((e) => e.
   ch.tap(OWNER, button(ch, 'Acknowledge')); await step(core, ch.adapter);
   ch.tap(OWNER, button(ch, 'Mute 24h')); await step(core, ch.adapter);
   ok(told.length === 2 && told[0].what === 'acknowledge' && told[1].what === 'mute' && told[1].mutedUntil > Date.now() && told[0].ack === true && told[1].ack === false, 'Acknowledge and Mute pass their whole new state to the sender (a mute lifts an earlier acknowledge)');
-  ok(!core.bindOwner(999, 'test') && core.state().owner === String(OWNER), 'the host cannot rebind a panel that has an owner');
+  ok(!core.bindOwner(999, 'test', 'telegram') && core.ownerOn('telegram') === String(OWNER), 'the host cannot rebind a panel that has an owner');
   failTell = true;
   await deliver(core, ch.adapter, [core.problem({ key: 'vps/x', topic: 'ops', text: 'x' })]);
   ch.tap(OWNER, button(ch, 'Acknowledge')); await step(core, ch.adapter);
   ok(core.state().problems['vps/x'].state === 'acknowledged' && /not told: store locked/.test(core.log().at(-1).result), 'a sender that cannot be told is logged with the press; the panel state holds');
+}
+// an owner bound before 0.26.0 (one for all channels) is kept for the first channel he uses
+{
+  const dir = join(tmp, 'legacy', 'core');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'state.json'), JSON.stringify({ owner: String(OWNER), seq: 0, views: {}, problems: {}, decisions: {} }));
+  const tgc = tgChannel(join(tmp, 'legacy', 'tg')), fc = fileChannel(join(tmp, 'legacy', 'file'));
+  const core = openCore({ dir, chats: [GROUP] });
+  tg.updates.length = 0; tgc.say(OTHER, '/status', OTHER); await step(core, tgc.adapter);
+  ok(core.ownerOn('telegram') === null && core.log().at(-1).result === 'not the owner', 'an old single owner: another account claims nothing');
+  tgc.say(OWNER, '/status', OWNER); await step(core, tgc.adapter);
+  ok(core.ownerOn('telegram') === String(OWNER) && core.log().at(-1).what === 'status', 'an old single owner is bound to the first channel he uses, and his press counts');
+  fc.say(OWNER, '/status', OWNER); await step(core, fc.adapter);
+  ok(core.ownerOn('file') === null && core.log().at(-1).result === 'not the owner', 'and only to that one: another channel needs its own bind');
+}
+// a decision's answer goes to the host; one it cannot take is not kept
+{
+  const ch = fileChannel(join(tmp, 'ans', 'ch'));
+  const got = []; let refuse = true;
+  const core = openCore({ dir: join(tmp, 'ans', 'core'), now: () => T0, onAnswer: async (a) => { if (refuse) throw new Error('outbox full'); got.push(a); } });
+  core.bindOwner(OWNER, 'test', 'file');
+  await deliver(core, ch.adapter, [core.ask({ id: 'o/r#5/name', project: 'erp', question: 'Which name?', options: ['x', 'y'], issue: 'https://github.com/o/r/issues/5' })]);
+  ok(/https:\/\/github\.com\/o\/r\/issues\/5$/.test(ch.shown().at(-1).text), 'a decision shows the link to its card');
+  ch.tap(OWNER, button(ch, 'B'), OWNER); await step(core, ch.adapter);
+  ok(core.state().decisions['o/r#5/name'].answer === null && /Not recorded: outbox full\. Press again/.test(ch.shown().at(-1).text) && /^failed: outbox full$/.test(core.log().at(-1).result), 'an answer the host refuses is not kept, and the owner is told to press again');
+  refuse = false; ch.tap(OWNER, button(ch, 'B'), OWNER); await step(core, ch.adapter);
+  ok(got.length === 1 && got[0].id === 'o/r#5/name' && got[0].option === 1 && got[0].by === `file:${OWNER}` && got[0].at === new Date(T0).toISOString() && got[0].issue === 'https://github.com/o/r/issues/5' && core.state().decisions['o/r#5/name'].answer.option === 1, 'the answer goes to the host with the card, the option, the channel account and the time');
+  ch.tap(OWNER, button(ch, 'A'), OWNER); await step(core, ch.adapter);
+  ok(got.length === 1, 'a second press never reaches the host');
 }
 server.close();
 

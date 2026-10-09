@@ -3,6 +3,21 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.26.0 · 2026-10-09 · questions answered with a button, written back on the card
+
+- `ask.mjs` (K026): a session puts a question for the owner on a card (an issue or a pull request) as
+  one marked comment, labelled `needs-owner`; the panel host lists every open question (`open`) and
+  shows it with one button per option. A press is written back on the card by the control
+  repository's new `hands-answer` job with the hands App, with the option, the channel account and
+  the time. On a pull request that wakes the session watching it directly; on an issue it also wakes
+  the repository's coordinator through its wake channel. The first answer counts. Only a question
+  from the card's own people is shown, and only an App's comment is an answer.
+- `panel.mjs`: the owner is bound per channel (an account id belongs to one channel); an owner bound
+  before 0.26.0 is kept for the first channel he uses. `onAnswer` hands each answer to the host; one
+  the host refuses is not kept and the owner is told to press again. A decision shows its card's link.
+- `templates/hands/hands-answer.yml`: about one hosted minute per answer (`hands.md`).
+- `test-ask` and `test-panel` cover it; each fails with the change undone.
+
 ## 0.25.0 · 2026-10-09 · the panel's buttons act on the alerts themselves
 
 - `notify.mjs hush` (K025): the control panel's Acknowledge stops a problem's escalation and daily

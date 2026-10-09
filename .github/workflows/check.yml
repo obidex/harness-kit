@@ -40,5 +40,7 @@ jobs:
         run: node tools/test-notify.mjs
       - name: Control panel (one scenario, every channel)
         run: node tools/test-panel.mjs
+      - name: Questions answered from the panel
+        run: node tools/test-ask.mjs
       - name: Stale-work check and the kit workflows' runner lane
         run: node tools/test-stale.mjs
