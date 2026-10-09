@@ -61,8 +61,7 @@ export function openCore({ dir, actions = [], chats = [], now = () => Date.now()
   const codePath = join(dir, 'bind-code');
   const pendingCode = () => {
     if (!existsSync(codePath)) return null;
-    const c = JSON.parse(readFileSync(codePath, 'utf8'));
-    return c.until > now() ? c.code : null;
+    try { const c = JSON.parse(readFileSync(codePath, 'utf8')); return c.until > now() ? c.code : null; } catch { return null; }
   };
   const muted = (p) => p.mutedUntil && p.mutedUntil > now();
   const firstView = (about) => Object.keys(st.views).find((v) => st.views[v].about === about) || null;
@@ -126,7 +125,7 @@ export function openCore({ dir, actions = [], chats = [], now = () => Date.now()
       return ['STATUS', ...(lines.length ? lines : ['nothing open, no decision waiting']), ...extra].join('\n');
     },
     /** Make a one-time binding code (the first account to send it becomes the owner). */
-    bindCode() { const code = randomBytes(4).toString('hex'); writeFileSync(codePath, JSON.stringify({ code, until: now() + HOUR }), { mode: 0o600 }); return code; },
+    bindCode() { const code = randomBytes(4).toString('hex'); writeFileSync(`${codePath}.tmp`, JSON.stringify({ code, until: now() + HOUR }), { mode: 0o600 }); renameSync(`${codePath}.tmp`, codePath); return code; },
     /** Where an adapter showed a view (its own note; the core never reads it back for itself). */
     note(viewId, channel, ref) { if (st.views[viewId]) { st.views[viewId].shown[channel] = ref; save(); } },
     shownOn(viewId, channel) { return st.views[viewId]?.shown[channel] ?? null; },

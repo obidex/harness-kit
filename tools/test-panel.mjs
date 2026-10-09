@@ -28,6 +28,10 @@ const button = (ch, label) => ch.shown().findLast((v) => v.buttons.some((b) => b
 
 /** The scenario, in two halves so a run can switch channel between them. */
 async function half1(core, ch, clock, actions) {
+  const stale = openCore({ dir: core.dir, now: () => clock.t }).bindCode();
+  clock.t += 61 * 60e3;
+  ch.say(OWNER, `/bind ${stale}`); await step(core, ch.adapter);
+  ok(core.state().owner === null && core.log().at(-1).result === 'not the owner', 'a code older than 1 h binds nobody, and the refusal is logged');
   const code = openCore({ dir: core.dir, now: () => clock.t }).bindCode(); // a second process, as on the host
   ch.say(OTHER, `/bind wrong`); await step(core, ch.adapter);
   ch.say(OTHER, `/bind ${code}`, GROUP); await step(core, ch.adapter);
