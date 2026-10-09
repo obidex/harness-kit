@@ -43,7 +43,9 @@ A new project gets its own topic: add it to `TOPICS` in `notify.mjs` (a kit rele
    commands (a fix belongs to whoever does it, never to the reader), and any time in them is
    Asia/Damascus time.
 4. **Escalation.** A silent problem open 3 hours is posted in "Needs you", loud, with a link to the
-   original. In quiet hours it waits for 08:00, so it is heard.
+   original. In quiet hours it waits for 08:00, so it is heard. A problem the owner acknowledged in
+   the control panel (`panel.mjs`, K025) is never escalated or reminded; a muted one not until its mute
+   ends (`hush`). Its RESOLVED still goes out.
 5. **Quiet hours** are 23:00-08:00 Asia/Damascus: every message is silent, "Needs you" included,
    except `--outage` (a production outage), which is always loud.
 6. **Caps.** At most 5 new messages per topic per hour (10 in "Needs you"); the rest are kept and sent

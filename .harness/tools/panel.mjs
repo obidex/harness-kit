@@ -4,8 +4,9 @@
 // No dependencies.
 //
 //   node .harness/tools/panel.mjs bind-code --dir <d>      print a one-time code (valid 1 h); the first
-//                                                          account to send "/bind <code>" in a private
-//                                                          chat with the panel becomes its owner
+//                                                          account to send "/bind <code>" (or "/start
+//                                                          <code>", what a t.me/<bot>?start=<code> link
+//                                                          sends) in a private chat becomes its owner
 //   node .harness/tools/panel.mjs status --dir <d>         print /status as the owner would see it
 //   node .harness/tools/panel.mjs serve --dir <d> [--actions <file>] [--once]
 //                                                          read presses from the channel and answer them
@@ -42,7 +43,7 @@ const LABEL = { i: 'Details', a: 'Acknowledge', m: 'Mute 24h', p: 'Pause automat
 const one = (s) => String(s ?? '').replace(/\s*\n\s*/g, ' ').trim();
 
 // --- the core -------------------------------------------------------------------------------------
-export function openCore({ dir, actions = [], chats = [], now = () => Date.now(), run = async () => ({ ok: false, text: 'no runner on this host' }), statusExtra = async () => [] }) {
+export function openCore({ dir, actions = [], chats = [], now = () => Date.now(), run = async () => ({ ok: false, text: 'no runner on this host' }), statusExtra = async () => [], onChange = async () => {} }) {
   mkdirSync(dir, { recursive: true });
   const statePath = join(dir, 'state.json');
   const logPath = join(dir, 'log.jsonl');
@@ -70,12 +71,16 @@ export function openCore({ dir, actions = [], chats = [], now = () => Date.now()
   const firstView = (about) => Object.keys(st.views).find((v) => st.views[v].about === about) || null;
 
   const core = {
-    /** A problem opened or repeated. Returns the view to show, or null for a repeat or a muted one. */
-    problem({ key, topic = 'ops', title, text, link }) {
+    /** A problem opened or repeated. Returns the view to show, or null for a repeat. With `shownAt`
+     * ({ <channel>: ref }: where the sender's own alert message is), the view is only the buttons, as a
+     * reply under that message. */
+    problem({ key, topic = 'ops', title, text, link, shownAt = null }) {
       const p = st.problems[key];
       if (p && p.state !== 'resolved') { p.repeats++; save(); log({ who: 'sender', what: 'repeat', target: key }); return null; }
       st.problems[key] = { key, topic, title: one(title || text).slice(0, 80), text: String(text ?? ''), link: link || null, opened: now(), repeats: 0, state: 'open', mutedUntil: null, paused: false };
-      const v = view(`p:${key}`, `PROBLEM · ${TOPIC_NAMES[topic] || topic}\n${one(title || text)}`, problemButtons(st.problems[key]), null, topic);
+      let anchor = null;
+      if (shownAt) { anchor = view(`alert:${key}`, '').id; st.views[anchor].shown = { ...shownAt }; }
+      const v = view(`p:${key}`, anchor ? `Actions · ${one(title || text).slice(0, 80)}` : `PROBLEM · ${TOPIC_NAMES[topic] || topic}\n${one(title || text)}`, problemButtons(st.problems[key]), anchor, topic);
       st.problems[key].view = v.id;
       save(); log({ who: 'sender', what: 'open', target: key });
       return v;
@@ -129,15 +134,22 @@ export function openCore({ dir, actions = [], chats = [], now = () => Date.now()
     },
     /** Make a one-time binding code (the first account to send it becomes the owner). */
     bindCode() { const code = randomBytes(4).toString('hex'); writeFileSync(`${codePath}.tmp`, JSON.stringify({ code, until: now() + HOUR }), { mode: 0o600 }); renameSync(`${codePath}.tmp`, codePath); return code; },
+    /** The host binds the owner it already knows (for example the private chat that answered an earlier
+     * one-time code on this host); only while no owner is bound. */
+    bindOwner(account, how) {
+      if (st.owner || !/^\d{1,20}$/.test(String(account))) return false;
+      st.owner = String(account); save(); log({ who: 'host', what: 'bind', target: String(account), result: one(how) });
+      return true;
+    },
     /** Where an adapter showed a view (its own note; the core never reads it back for itself). */
     note(viewId, channel, ref) { if (st.views[viewId]) { st.views[viewId].shown[channel] = ref; save(); } },
     shownOn(viewId, channel) { return st.views[viewId]?.shown[channel] ?? null; },
     /** Handle one event from a channel. Returns the views to show in answer. */
     async handle(ev, channel) {
       const who = String(ev.account);
-      const refuse = (why) => { log({ who, channel, what: 'refused', target: ev.button || one(ev.text).replace(/^(\/bind)\b.*/, '$1').slice(0, 40), result: why }); save(); return []; };
-      const code = !st.owner && ev.kind === 'text' && /^\/bind\b/.test(one(ev.text)) ? pendingCode() : null;
-      if (code && ev.private && one(ev.text) === `/bind ${code}`) {
+      const refuse = (why) => { log({ who, channel, what: 'refused', target: ev.button || one(ev.text).replace(/^(\/bind|\/start)\b.*/, '$1').slice(0, 40), result: why }); save(); return []; };
+      const code = !st.owner && ev.kind === 'text' && /^\/(bind|start)\b/.test(one(ev.text)) ? pendingCode() : null;
+      if (code && ev.private && (one(ev.text) === `/bind ${code}` || one(ev.text) === `/start ${code}`)) {
         st.owner = who; rmSync(codePath, { force: true }); save(); log({ who, channel, what: 'bind' });
         return [view('bind', 'This account is now the panel owner.')];
       }
@@ -169,8 +181,12 @@ export function openCore({ dir, actions = [], chats = [], now = () => Date.now()
         return reply(`${p.text}\nOpened ${new Date(p.opened).toISOString().slice(0, 16).replace('T', ' ')} UTC · repeated ${p.repeats} times${p.link ? `\n${p.link}` : ''}`);
       }
       if (p.state === 'resolved') { log({ who, channel, what: LABEL[op].toLowerCase(), target: p.key, result: 'already resolved' }); save(); return reply('Already resolved.'); }
-      if (op === 'a') { p.state = 'acknowledged'; save(); log({ who, channel, what: 'acknowledge', target: p.key, result: 'ok' }); return reply('Acknowledged: no escalation, no reminder; still in /status.'); }
-      if (op === 'm') { p.state = 'muted'; p.mutedUntil = now() + MUTE_HOURS * HOUR; save(); log({ who, channel, what: 'mute', target: p.key, result: 'ok' }); return reply(`Muted for ${MUTE_HOURS} h.`); }
+      // the sender's own store learns it too (onChange: { what, key, ack, mutedUntil }, the whole new
+      // state, so a mute after an acknowledge lifts the acknowledge), so its escalation and reminders stop; the panel's
+      // state holds either way, and a failure to tell the sender is logged with the press
+      const tell = async (change) => { try { await onChange(change); return 'ok'; } catch (e) { return `ok; the alert's sender was not told: ${one(e.message)}`; } };
+      if (op === 'a') { p.state = 'acknowledged'; save(); log({ who, channel, what: 'acknowledge', target: p.key, result: await tell({ what: 'acknowledge', key: p.key, ack: true, mutedUntil: null }) }); return reply('Acknowledged: no escalation, no reminder; still in /status.'); }
+      if (op === 'm') { p.state = 'muted'; p.mutedUntil = now() + MUTE_HOURS * HOUR; save(); log({ who, channel, what: 'mute', target: p.key, result: await tell({ what: 'mute', key: p.key, ack: false, mutedUntil: p.mutedUntil }) }); return reply(`Muted for ${MUTE_HOURS} h.`); }
       const action = actionFor(p.key);
       if (!action || (op === 'r' && !action.retry)) return refuse('no such action for this alert');
       const what = { p: 'pause', u: 'resume', r: 'retry' }[op];

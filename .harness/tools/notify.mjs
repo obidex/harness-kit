@@ -262,6 +262,22 @@ export async function resolveKey(st, tg, o) {
   });
 }
 
+/** The control panel's Acknowledge and Mute (K025): an acknowledged problem is never escalated or
+ * reminded; a muted one not until `mutedUntil`. Its RESOLVED still goes out. For a file store (its lock
+ * holds across processes); a GitHub store's lock is its senders' concurrency group, so a host outside it
+ * must not call this. */
+export async function hush(st, key, { ack, mutedUntil } = {}) {
+  return st.locked(async () => {
+    const inc = await st.get(key);
+    if (!inc) return { status: 'none' };
+    if (ack !== undefined) inc.ack = !!ack;
+    if (mutedUntil !== undefined) inc.mutedUntil = mutedUntil === null ? null : Number(mutedUntil);
+    await st.save(inc);
+    return { status: 'hushed', inc };
+  });
+}
+const hushed = (inc, t) => !!inc.ack || (inc.mutedUntil && inc.mutedUntil > t);
+
 /** Escalate, remind and send what waits; returns what it did, one line each. */
 export async function tick(st, tg) {
   const r = rules(), t = now(), quiet = isQuiet(t, r), did = [];
@@ -270,7 +286,8 @@ export async function tick(st, tg) {
     for (const inc of list.filter((i) => i.open)) {
       let changed = false;
       if (!inc.msg && due(st, inc, t)) { if (await sendProblem(tg, inc, list, t, r)) { changed = true; did.push(`sent ${inc.key}`); } }
-      if (inc.msg && inc.topic !== 'needs' && !inc.escalated && t - inc.opened >= r.escalateAfter && !quiet && !capped(list, { topic: 'needs' }, t, r)) {
+      if (inc.msg && hushed(inc, t)) { /* acknowledged or muted in the control panel */ }
+      else if (inc.msg && inc.topic !== 'needs' && !inc.escalated && t - inc.opened >= r.escalateAfter && !quiet && !capped(list, { topic: 'needs' }, t, r)) {
         const original = await tg.link(inc.topic, inc.msg);
         const you = youOf(inc).startsWith('Needs you:') ? youOf(inc) : 'Needs you: it has not cleared in 3 hours; pass this message to its project\'s coordinator';
         inc.escMsg = await tg.send('needs', `⏰ STILL OPEN after ${age(t - inc.opened)}, nobody resolved it · ${one(inc.text)}${inc.link ? `\n${inc.link}` : ''}\n${original}\nYou: ${you}`, { t });

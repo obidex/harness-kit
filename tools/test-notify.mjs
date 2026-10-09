@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { createServer } from 'node:http';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { telegram, store, problem, resolveKey, tick, digestText, setup, isQuiet, loud, TOPICS } from '../.harness/tools/notify.mjs';
+import { telegram, store, problem, resolveKey, tick, hush, digestText, setup, isQuiet, loud, TOPICS } from '../.harness/tools/notify.mjs';
 
 let n = 0;
 const ok = (cond, what) => { n++; if (!cond) { console.log(`test-notify: FAIL ${n}. ${what}`); process.exit(1); } console.log(`test-notify: ok ${n}. ${what}`); };
@@ -160,6 +160,20 @@ const escMsg = (await st.get('erp/ci')).escMsg;
 i0 = mark(); await resolveKey(st, tg, { key: 'erp/ci', text: 'fixed by #12' });
 const replies = since(i0).map((c) => [c.message_thread_id, c.reply_parameters.message_id]);
 ok(escMsg && JSON.stringify(replies) === JSON.stringify([[T('erp'), erpMsg], [T('needs'), escMsg]]), 'RESOLVED replies to the original and to the escalation');
+
+// the control panel: an acknowledged problem is never escalated or reminded; a muted one not until the mute ends
+at('2026-10-05T10:00:00Z');
+await problem(st, tg, { key: 'erp/acked', topic: 'erp', text: 'acked' });
+await problem(st, tg, { key: 'erp/muted', topic: 'erp', text: 'muted' });
+await hush(st, 'erp/acked', { ack: true });
+await hush(st, 'erp/muted', { mutedUntil: at('2026-10-06T13:00:00Z') });
+at('2026-10-05T13:00:00Z'); did = await tick(st, tg);
+ok(!did.some((d) => /erp\/(acked|muted)/.test(d)), 'an acknowledged or muted problem is not escalated');
+at('2026-10-06T13:30:00Z'); did = await tick(st, tg);
+ok(!did.some((d) => /erp\/acked/.test(d)) && did.includes('escalated erp/muted'), 'once the mute ends it is escalated; the acknowledged one never');
+ok((await hush(st, 'erp/none', { ack: true })).status === 'none', 'hushing a problem that is not open does nothing');
+i0 = mark(); await resolveKey(st, tg, { key: 'erp/acked' }); await resolveKey(st, tg, { key: 'erp/muted' });
+ok(since(i0).filter((c) => /Fixed after/.test(c.text)).length >= 2, 'an acknowledged or muted problem still gets its RESOLVED');
 
 // escalation waits for the end of quiet hours, so it is loud
 at('2026-10-05T19:00:00Z');
