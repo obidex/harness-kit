@@ -6,26 +6,32 @@
 //                                         file one request in the repository that does the work; the
 //                                         same id twice never makes a second open issue (prints the
 //                                         first; a copy filed in a race closes as its duplicate), then
-//                                         wake that repository's coordinator (below); a resend of a
-//                                         queued request not yet woken tries the wake again
+//        [--again]                        start that repository's wake (below) and wait for its answer;
+//                                         a resend of a queued request not yet woken tries again, and
+//                                         --again wakes a queued request once more after an earlier wake
 //   node .harness/tools/inbox.mjs pending --repo owner/name     the queued requests (JSON)
 //   node .harness/tools/inbox.mjs state --repo owner/name --issue <n> --to working|blocked|done
 //        [--note <text>]                  move a request; `done` needs --note with the evidence and
 //                                         closes the issue, `blocked` needs --note with the reason
 //   node .harness/tools/inbox.mjs wake --repo owner/name --issue <n>
-//                                         in Actions (harness-inbox.yml): if that issue is a queued
-//                                         request not yet woken, wake the receiving coordinator
+//                                         in Actions only (harness-inbox.yml, or hands-inbox.yml in the
+//                                         control repository): if that issue is a queued request not
+//                                         yet woken, wake the receiving coordinator
 //   node .harness/tools/inbox.mjs channel --repo owner/name [--open]
 //                                         is the wake channel open; --open opens it (the receiving
 //                                         coordinator, once, in its own repository)
 //
-// The wake (K018): a comment on the repository's open wake-channel pull request (head branch
-// `inbox-wake`, or `wake-channel` where the repository already keeps one; a draft never merged), which the receiving coordinator's session subscribes to, so
-// it arrives as a GitHub event at no cost. "Woke" is written on the request only after GitHub
+// The wake (K018, K024): a comment on the repository's open wake-channel pull request (head branch
+// `inbox-wake`, or `wake-channel` where the repository already keeps one; a draft never merged), which
+// the receiving coordinator's session subscribes to, so it arrives as a GitHub event. The comment is
+// posted by an Actions job, never by a session: every session acts as the owner's own GitHub account,
+// and a subscribed session never receives a comment its own account posted (K024). The receiver's
+// harness-inbox job posts it, started by the `inbox` label; for a repository without that job (no kit,
+// or a kit older than 0.22.0) the control repository's hands-inbox job posts it with the hands App
+// (INBOX_HANDS_REPO, default <owner>/harness-hands). "Woke" is written on the request only after GitHub
 // accepted that comment; otherwise one "Not delivered" note, a non-zero exit, and a resend or the
-// receiver's own `pending` check picks it up. The sender wakes: `wake` (the read-only workflow job)
-// only reports when a channel is open, and fires a routine (INBOX_ROUTINE_URL, INBOX_ROUTINE_TOKEN)
-// only for a project without one. Nothing ever asks a person.
+// receiver's own `pending` check picks it up. With no channel, the job fires a routine
+// (INBOX_ROUTINE_URL, INBOX_ROUTINE_TOKEN) if the project has one. Nothing ever asks a person.
 //
 // A request is an issue labelled `inbox`. Its body carries one hidden marker `<!-- inbox-id: … -->`
 // and these lines, which only this tool edits: ID, Source, Outcome, Responsible coordinator,
@@ -112,17 +118,32 @@ export const WAKE_BRANCH = 'inbox-wake';
 export const WAKE_BRANCHES = [WAKE_BRANCH, 'wake-channel'];   // the second: a repository's existing general wake channel
 export const WOKE_MARK = '<!-- inbox-woke -->';
 export const UNDELIVERED_MARK = '<!-- inbox-wake-undelivered -->';
+export const REWAKE_MARK = '<!-- inbox-rewake -->';   // `send --again`: the request may be woken once more
+export const RECEIVER_WAKES = '0.22.0';               // the first kit whose harness-inbox job posts the wake
+
+/** Where the request's wake stands, from its comments (oldest first): woken since the last --again? */
+export function wakeState(notes) {
+  const last = (m) => notes.reduce((at, b, i) => (String(b).startsWith(m) ? i : at), -1);
+  const again = last(REWAKE_MARK);
+  return { woken: last(WOKE_MARK) > again, undelivered: last(UNDELIVERED_MARK) > again };
+}
+
+async function comments(call, repo, n) {
+  const notes = [];
+  for (let page = 1; page < 50; page++) {
+    const cs = await call('GET', `/repos/${repo}/issues/${n}/comments?per_page=100&page=${page}`);
+    notes.push(...cs.map((c) => String(c.body)));
+    if (cs.length < 100) break;
+  }
+  return notes;
+}
 
 /** Wake the receiving coordinator for one queued request, through the wake-channel pull request.
  *  Returns { delivered, where | why, already }. `call` is the GitHub API (injected by the tests). */
 export async function deliver(call, repo, r) {
-  const notes = [];
-  for (let page = 1; page < 50; page++) {
-    const cs = await call('GET', `/repos/${repo}/issues/${r.number}/comments?per_page=100&page=${page}`);
-    notes.push(...cs.map((c) => String(c.body)));
-    if (cs.length < 100) break;
-  }
-  if (notes.some((b) => b.startsWith(WOKE_MARK))) return { delivered: true, already: true };
+  const notes = await comments(call, repo, r.number);
+  const st = wakeState(notes);
+  if (st.woken) return { delivered: true, already: true };
   let why, pr = null;
   try { pr = await findChannel(call, repo); } catch (e) { why = `could not look for the wake channel (${e.message.slice(0, 120)})`; }
   if (!pr && !why) why = `no open ${WAKE_BRANCH} pull request in ${repo}`;
@@ -137,8 +158,8 @@ export async function deliver(call, repo, r) {
       return { delivered: true, where: `#${pr.number}` };
     }
   }
-  if (!notes.some((b) => b.startsWith(UNDELIVERED_MARK))) {
-    // best effort: a read-only caller (the harness-inbox job) still reports, and exits non-zero
+  {
+    // one answer per wake attempt: the sender waits for it on the request (best effort)
     await call('POST', `/repos/${repo}/issues/${r.number}/comments`, { body: `${UNDELIVERED_MARK}\nNot delivered to the receiving coordinator: ${why}. Nothing is lost: the request stays queued, and the next send or the coordinator's own inbox check picks it up.` }).catch(() => {});
   }
   return { delivered: false, why };
@@ -177,6 +198,55 @@ export async function openChannel(call, repo) {
     body: 'Never merge this pull request. A comment on it wakes this repository\'s coordinator for a queued inbox request (Harness Kit inbox, O14, K018); the coordinator subscribes to it at the start of every session. It carries one note and no code.' });
 }
 
+const newer = (a, b) => { const x = a.split('.').map(Number), y = b.split('.').map(Number); for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0); return true; };
+
+/** Does the receiving repository's own harness-inbox job post the wake (kit 0.22.0 or later)? */
+export async function receiverWakes(call, repo) {
+  try {
+    const v = await call('GET', `/repos/${repo}/contents/.harness/VERSION`);
+    return newer(Buffer.from(String(v.content || ''), 'base64').toString().trim() || '0', RECEIVER_WAKES);
+  } catch { return false; }
+}
+
+/** Start the wake job for one request: the receiver's own job through the `inbox` label (a label set
+ *  again is a new event), or the control repository's hands-inbox job. Returns where it started. */
+export async function startWake(call, repo, n, { fresh } = {}) {
+  if (await receiverWakes(call, repo)) {
+    if (!fresh) {
+      await call('DELETE', `/repos/${repo}/issues/${n}/labels/${LABEL}`).catch(() => {});
+      await call('POST', `/repos/${repo}/issues/${n}/labels`, { labels: [LABEL] });
+    }
+    return `${repo} harness-inbox`;
+  }
+  const hands = process.env.INBOX_HANDS_REPO || `${repo.split('/')[0]}/harness-hands`;
+  await call('POST', `/repos/${hands}/actions/workflows/hands-inbox.yml/dispatches`, { ref: 'main', inputs: { repo, issue: String(n) } });
+  return `${hands} hands-inbox`;
+}
+
+/** Wait for the wake job's answer on the request ("Woke" or "Not delivered"). */
+async function awaitWake(call, repo, n, job, from) {
+  const wait = Number(process.env.INBOX_WAIT_MS ?? 180000), step = Number(process.env.INBOX_POLL_MS ?? 10000);
+  for (let t = 0; ; t += step) {
+    const notes = (await comments(call, repo, n)).slice(from);   // only the answer to this attempt
+    const st = wakeState(notes);
+    if (st.woken) return { delivered: true, where: `the wake channel, by ${job}` };
+    if (st.undelivered) return { delivered: false, why: ((notes.findLast((b) => b.startsWith(UNDELIVERED_MARK)) || '').match(/coordinator: (.*)\. Nothing is lost/s) || [])[1] || 'the wake job could not deliver' };
+    if (t >= wait) return { delivered: false, why: `${job} has not answered on the request after ${Math.round(wait / 1000)} s; it may still run: read the request for "Woke", and resend to try again` };
+    await pause(step);
+  }
+}
+
+/** File-side wake for `send`: mark --again, start the job, wait for its answer. */
+async function wakeFromSend(repo, r, { fresh, again }) {
+  const before = await comments(api, repo, r.number);
+  if (!again && wakeState(before).woken) return { delivered: true, already: true };
+  if (again) await api('POST', `/repos/${repo}/issues/${r.number}/comments`, { body: `${REWAKE_MARK}\nWaking the receiving coordinator again: the request is still queued.` });
+  let job;
+  try { job = await startWake(api, repo, r.number, { fresh }); }
+  catch (e) { return { delivered: false, why: `the wake job could not start (${e.message.slice(0, 160)})` }; }
+  return awaitWake(api, repo, r.number, job, before.length);
+}
+
 // --- commands -------------------------------------------------------------------------------------
 /** Print a wake result; an undelivered wake ends the command non-zero (the request itself is safe). */
 function report(w) {
@@ -198,7 +268,7 @@ async function main() {
     const have = canonical(await requests(repo)).find((x) => x.fields.id === r.id);
     if (have) {
       console.log(`inbox: ${r.id} is already ${have.url} (${have.state}, ${have.fields.State}); nothing filed`);
-      if (queued(have)) report(await deliver(api, repo, have));
+      if (queued(have)) report(await wakeFromSend(repo, have, { again: argv.includes('--again') }));
       return;
     }
     const i = await api('POST', `/repos/${repo}/issues`, { title: opt('--title') || r.outcome.slice(0, 80), body: text, labels: [LABEL] });
@@ -216,7 +286,7 @@ async function main() {
       if (first) break;
     }
     console.log(`inbox: filed ${r.id} as ${i.html_url}`);
-    report(await deliver(api, repo, { number: i.number, url: i.html_url, fields: parse(text) }));
+    report(await wakeFromSend(repo, { number: i.number, url: i.html_url, fields: parse(text) }, { fresh: true }));
     return;
   }
   if (cmd === 'pending') {
@@ -242,10 +312,10 @@ async function main() {
     const mine = canonical(await requests(repo)).find((x) => x.number === n);
     // only a queued request wakes anyone: a request already picked up or done never re-runs the AI
     if (!mine || !queued(mine)) { console.log(`inbox: #${n} is not a queued request; nobody woken`); return; }
-    // The sender wakes (send); this job only reads. A lookup this token may not make counts as no channel.
+    // This job posts the wake: its author is a bot, which a subscribed session receives (K024).
+    // A lookup this token may not make counts as no channel.
     const channel = await findChannel(api, repo).catch(() => null);
-    if (channel) { console.log(`inbox: the wake channel is open (#${channel.number}); the sender's send wakes the coordinator there, and a resend tries again`); return; }
-    if (!process.env.INBOX_ROUTINE_URL) { report(await deliver(api, repo, mine)); return; }
+    if (channel || !process.env.INBOX_ROUTINE_URL) { report(await deliver(api, repo, mine)); return; }
     const url = process.env.INBOX_ROUTINE_URL, token = process.env.INBOX_ROUTINE_TOKEN;
     if (!url || !token) throw new Error('pickup is not wired: open the inbox-wake channel, or set the INBOX_ROUTINE_URL and INBOX_ROUTINE_TOKEN secrets (.harness/inbox.md)');
     const base = (process.env.INBOX_FIRE_BASE || 'https://api.anthropic.com').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

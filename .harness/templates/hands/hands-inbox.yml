@@ -1,0 +1,72 @@
+# Harness Kit control repository (K007, K024): copied into the owner's control repository, never into a project.
+# Inbox wake for a repository whose own harness-inbox job cannot post it (no kit, or a kit older than
+# 0.22.0): `inbox.mjs send` dispatches this with the repository and the request's issue number, and
+# this job posts the wake comment on that repository's wake-channel pull request with the hands App.
+# A session never posts the wake itself: sessions act as the owner's account, and a subscribed
+# session never receives a comment its own account posted. The token is minted for that one
+# repository, with only issues and pull requests to write. Nothing runs on a schedule.
+# Cost (O13): one job of about half a minute (one GitHub-hosted minute) per dispatched wake.
+name: hands-inbox
+
+on:
+  workflow_dispatch:
+    inputs:
+      repo:
+        description: The receiving repository (owner/name)
+        required: true
+      issue:
+        description: The inbox request's issue number
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hands-inbox-${{ inputs.repo }}-${{ inputs.issue }}
+  cancel-in-progress: false
+
+jobs:
+  wake:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    environment: hands
+    steps:
+      - id: input
+        env:
+          REPO: ${{ inputs.repo }}
+          ISSUE: ${{ inputs.issue }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          [[ "$REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "hands-inbox: repo must be owner/name"; exit 1; }
+          [[ "${REPO%%/*}" == "$OWNER" ]] || { echo "hands-inbox: only this owner's repositories"; exit 1; }
+          [[ "$ISSUE" =~ ^[0-9]+$ ]] || { echo "hands-inbox: issue must be a number"; exit 1; }
+          echo "name=${REPO#*/}" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - id: kit
+        run: echo "ref=v$(tr -d '[:space:]' < HANDS_KIT_VERSION)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: ${{ vars.HARNESS_KIT_REPO || 'obidex/harness-kit' }}
+          ref: ${{ steps.kit.outputs.ref }}
+          path: kit
+          persist-credentials: false
+      - id: token
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1.12.0
+        with:
+          app-id: ${{ vars.HARNESS_APP_ID }}
+          private-key: ${{ secrets.HARNESS_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ steps.input.outputs.name }}
+          permission-metadata: read
+          permission-issues: write
+          permission-pull-requests: write
+      - name: Wake the receiving coordinator if this is a queued request
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          REPO: ${{ inputs.repo }}
+          ISSUE: ${{ inputs.issue }}
+        run: node kit/.harness/tools/inbox.mjs wake --repo "$REPO" --issue "$ISSUE"

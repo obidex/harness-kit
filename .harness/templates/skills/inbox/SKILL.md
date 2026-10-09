@@ -18,9 +18,11 @@ on that issue, and the sender reads the result there. Setup and cost: `.harness/
 3. Run `inbox.mjs send --repo <owner/name> --id <id> --title <t> --outcome <what done looks like>
    --source <link to where it was asked> --coordinator <that project's coordinator> --covered-by <cover>`.
    Sending again with the same ID files nothing and prints the existing issue.
-   `send` then wakes that project's coordinator on its wake channel. `NOT delivered` (exit 3) means
-   the request is filed but nobody was woken: it stays queued, a resend tries again, and you record
-   it for your next scheduled check. Never ask the owner to wake or relay (O15).
+   `send` then starts the Actions job that wakes that project's coordinator on its wake channel and
+   waits for its answer; never post the wake comment yourself (K024). `NOT delivered` (exit 3) means
+   the request is filed but nobody was woken: it stays queued, a resend tries again (`--again` for
+   one already woken), and you record it for your next scheduled check. A 401 or 403 in a cloud
+   session: attach the repository with push access first. Never ask the owner to wake or relay (O15).
 4. Read the result on the issue. Do not do the work yourself in the other repository.
 
 ## Picking up requests (the receiving coordinator)

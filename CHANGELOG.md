@@ -3,6 +3,18 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.22.0 · 2026-10-09 · inbox wakes reach the receiving coordinator
+
+- `inbox.mjs send` (K024) no longer posts the wake comment itself: a session subscribed to the wake
+  channel never receives a comment from its own account, and every session acts as the owner's
+  account. The receiver's `harness-inbox` job now posts it (its token writes comments only), and
+  for a repository without that job (no kit, or a kit before 0.22.0) `send` dispatches the new
+  control workflow `hands-inbox` (hands App, one repository, comments only; about one GitHub-hosted
+  minute per such wake, O13). `send` waits for the job's answer; `--again` wakes once more.
+- A 401 or 403 from GitHub names the fix: attach the repository to the session with push access.
+- `test-inbox` runs the real tool as the jobs and covers both routes, the resend, `--again` and the
+  access hint.
+
 ## 0.21.0 · 2026-10-08 · two remaining owner stops removed at their causes
 
 - A16 (K023, Claude Code adapter): in a session without repository settings, files change through
