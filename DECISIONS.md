@@ -621,3 +621,20 @@ mechanism on the Platform board, fed by a workflow, always woke its coordinator.
    it with push access; a 401 or 403 says so.
 
 **Status:** STANDING.
+
+## K025 · 2026-10-09 · STANDING — the control panel's state is never the channel's
+
+**Source:** the owner's request of 2026-10-05 (Telegram as a control panel) and his order of
+2026-10-09, 12:03 UTC, to build it "so leaving Telegram later stays easy" (Platform roadmap card
+"Telegram control panel").
+
+1. **Core.** Problems, decisions, the fixed action list, status and the log of every action live in
+   the core (`panel.mjs`), as plain files on the host. A channel adapter only shows a view and turns
+   a press into an event; it stores nothing the core needs.
+2. **Switching.** The channel is one setting (`CONTROL_CHANNEL`) plus its adapter. A scenario test
+   must end with the same state and log on every shipped channel, and with the whole history when the
+   channel changes halfway.
+3. **Safety.** A press names a view and one fixed operation, never a command; only the bound owner
+   account counts; refusals are logged.
+
+**Status:** STANDING.
