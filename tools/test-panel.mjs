@@ -11,7 +11,9 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { openCore, deliver, step, fileAdapter, pickAdapter } from '../.harness/tools/panel.mjs';
+import { createServer } from 'node:http';
+import { openCore, deliver, step, fileAdapter, telegramAdapter, pickAdapter } from '../.harness/tools/panel.mjs';
+import { telegram } from '../.harness/tools/notify.mjs';
 
 let n = 0;
 const ok = (cond, what) => { n++; if (!cond) { console.log(`test-panel: FAIL ${n}. ${what}`); process.exit(1); } console.log(`test-panel: ok ${n}. ${what}`); };
@@ -23,6 +25,27 @@ const T0 = Date.parse('2026-10-09T09:00:00Z');
 const fileChannel = (dir) => {
   const a = fileAdapter({ dir });
   return { adapter: a, say: (account, text, chat = account) => a.push({ kind: 'text', account, chat, private: chat === account, text }), tap: (account, button, chat = GROUP) => a.push({ kind: 'press', account, chat, private: chat === account, button }), shown: () => a.shown() };
+};
+// a stand-in Telegram: a forum group with topics, presses and messages queued as updates
+const tg = { updates: [], sent: [], answered: 0, nextUpdate: 1, msg: 1000 };
+const json = (res, data) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ ok: true, result: data })); };
+const server = await new Promise((done) => { const sv = createServer((req, res) => { let b = ''; req.on('data', (c) => { b += c; }); req.on('end', () => {
+  const p = b ? JSON.parse(b) : {}; const method = req.url.split('/').pop();
+  if (!req.url.startsWith('/botTEST-TOKEN/')) { res.writeHead(401); return res.end('{"ok":false}'); }
+  if (method === 'getUpdates') { const ups = tg.updates.filter((u) => u.update_id >= (p.offset || 0)); return json(res, ups); }
+  if (method === 'answerCallbackQuery') { tg.answered++; return json(res, true); }
+  if (method === 'sendMessage') { const m = { message_id: ++tg.msg, chat: { id: p.chat_id }, message_thread_id: p.message_thread_id }; tg.sent.push({ ...p, message_id: m.message_id }); return json(res, m); }
+  res.writeHead(400); res.end('{"ok":false}');
+}); }); sv.listen(0, '127.0.0.1', () => done(sv)); });
+process.env.ALERTS_TOPICS = JSON.stringify({ needs: 2, ops: 5, kit: 4 });
+const client = telegram({ token: 'TEST-TOKEN', chat: String(GROUP), base: `http://127.0.0.1:${server.address().port}` });
+const tgChannel = (dir) => {
+  const a = telegramAdapter({ dir, tg: client });
+  const chatOf = (account, chat) => ({ id: chat, type: chat === account ? 'private' : 'supergroup' });
+  return { adapter: a,
+    say: (account, text, chat = account) => tg.updates.push({ update_id: tg.nextUpdate++, message: { message_id: ++tg.msg, from: { id: account }, chat: chatOf(account, chat), text } }),
+    tap: (account, button, chat = GROUP) => tg.updates.push({ update_id: tg.nextUpdate++, callback_query: { id: `q${tg.nextUpdate}`, from: { id: account }, data: button, message: { message_id: 1, chat: chatOf(account, chat) } } }),
+    shown: () => tg.sent.map((m) => ({ ref: m.message_id, text: m.text, buttons: (m.reply_markup?.inline_keyboard || []).flat().map((k) => ({ id: k.callback_data, label: k.text })), reply: m.reply_parameters?.message_id ?? null })) };
 };
 const button = (ch, label) => ch.shown().findLast((v) => v.buttons.some((b) => b.label === label)).buttons.find((b) => b.label === label).id;
 
@@ -118,6 +141,17 @@ const other = (dir) => { const c = fileChannel(dir); c.adapter.name = 'file-2'; 
 const switched = await run('s', (d) => [fileChannel(join(d, 'one')), other(join(d, 'two'))]);
 ok(JSON.stringify(canon(switched)) === JSON.stringify(canon(fileA)), 'switching channel halfway keeps the whole history: same state and log');
 ok(switched.log().some((e) => e.channel === 'file') && switched.log().some((e) => e.channel === 'file-2'), 'the log names the channel each press came from');
+
+// the same scenario through Telegram (a stand-in), and switching Telegram -> file halfway
+const tgRun = await run('t', (d) => { const c = tgChannel(join(d, 'tg')); return [c, c]; });
+ok(JSON.stringify(canon(tgRun)) === JSON.stringify(canon(fileA)), 'Telegram ends with the same core state and log as the file channel');
+ok(tg.answered > 0 && tg.sent.some((m) => m.message_thread_id === 5 && /PROBLEM/.test(m.text)) && tg.sent.some((m) => m.message_thread_id === 2 && /DECISION/.test(m.text)), 'problems go to their topic, decisions to "Needs you", each press is answered');
+ok(tg.sent.filter((m) => m.reply_markup).every((m) => m.reply_markup.inline_keyboard.flat().every((k) => Buffer.byteLength(k.callback_data) <= 64)), 'every button sent to Telegram carries only its short id');
+tg.updates.length = 0; tg.sent.length = 0;
+const away = await run('w', (d) => [tgChannel(join(d, 'tg')), fileChannel(join(d, 'file'))]);
+ok(JSON.stringify(canon(away)) === JSON.stringify(canon(fileA)), 'leaving Telegram halfway (CONTROL_CHANNEL telegram -> file) keeps the whole history');
+ok(away.log().some((e) => e.channel === 'telegram') && away.log().some((e) => e.channel === 'file'), 'the log shows the presses from both channels');
+server.close();
 
 ok((() => { try { pickAdapter('carrier-pigeon'); return false; } catch (e) { return /not a known channel/.test(e.message); } })(), 'an unknown CONTROL_CHANNEL fails, naming the known ones');
 ok(pickAdapter('file', { dir: join(tmp, 'pick') }).name === 'file', 'CONTROL_CHANNEL picks the adapter');

@@ -31,6 +31,7 @@ import { readFileSync, writeFileSync, appendFileSync, mkdirSync, existsSync, ren
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { telegram } from './notify.mjs';
 
 export const MUTE_HOURS = 24;
 const HOUR = 3600e3;
@@ -47,11 +48,11 @@ export function openCore({ dir, actions = [], chats = [], now = () => Date.now()
     : { owner: null, seq: 0, views: {}, problems: {}, decisions: {} };
   const save = () => { writeFileSync(`${statePath}.tmp`, `${JSON.stringify(st, null, 2)}\n`); renameSync(`${statePath}.tmp`, statePath); };
   const log = (entry) => appendFileSync(logPath, `${JSON.stringify({ at: new Date(now()).toISOString(), ...entry })}\n`);
-  const view = (about, text, buttons = [], replyTo = null) => {
+  const view = (about, text, buttons = [], replyTo = null, topic = null) => {
     const id = `v${++st.seq}`;
     const p = about.startsWith('p:') && st.problems[about.slice(2)];
     st.views[id] = { about, shown: {}, ...(p ? { opened: p.opened } : {}) };
-    return { id, text, buttons: buttons.map(([op, label]) => ({ id: `${op}:${id}`, label: label || LABEL[op] })), replyTo };
+    return { id, text, buttons: buttons.map(([op, label]) => ({ id: `${op}:${id}`, label: label || LABEL[op] })), replyTo, topic };
   };
   const actionFor = (key) => actions.find((a) => (a.alerts || []).some((p) => (p.endsWith('*') ? key.startsWith(p.slice(0, -1)) : key === p)));
   const problemButtons = (p) => {
@@ -72,7 +73,7 @@ export function openCore({ dir, actions = [], chats = [], now = () => Date.now()
       const p = st.problems[key];
       if (p && p.state !== 'resolved') { p.repeats++; save(); log({ who: 'sender', what: 'repeat', target: key }); return null; }
       st.problems[key] = { key, topic, title: one(title || text).slice(0, 80), text: String(text ?? ''), link: link || null, opened: now(), repeats: 0, state: 'open', mutedUntil: null, paused: false };
-      const v = view(`p:${key}`, `PROBLEM · ${TOPIC_NAMES[topic] || topic}\n${one(title || text)}`, problemButtons(st.problems[key]));
+      const v = view(`p:${key}`, `PROBLEM · ${TOPIC_NAMES[topic] || topic}\n${one(title || text)}`, problemButtons(st.problems[key]), null, topic);
       st.problems[key].view = v.id;
       save(); log({ who: 'sender', what: 'open', target: key });
       return v;
@@ -83,7 +84,7 @@ export function openCore({ dir, actions = [], chats = [], now = () => Date.now()
       if (!p || p.state === 'resolved') return null;
       p.state = 'resolved'; p.resolved = now(); p.mutedUntil = null;
       const min = Math.max(1, Math.round((now() - p.opened) / 60e3));
-      const v = view(`r:${key}`, `RESOLVED · ${p.title}${text ? `\n${one(text)}` : ''}\n✅ Fixed after ${min} min`, [], p.view);
+      const v = view(`r:${key}`, `RESOLVED · ${p.title}${text ? `\n${one(text)}` : ''}\n✅ Fixed after ${min} min`, [], p.view, p.topic);
       save(); log({ who: 'sender', what: 'resolve', target: key });
       return v;
     },
@@ -94,7 +95,7 @@ export function openCore({ dir, actions = [], chats = [], now = () => Date.now()
       st.decisions[id] = { id, project, question: one(question), options: options.map(one), recommended, issue, asked: now(), answer: null };
       const lines = st.decisions[id].options.map((o, n) => `${String.fromCharCode(65 + n)}. ${o}${n === recommended ? ' (recommended)' : ''}`);
       const v = view(`d:${id}`, `DECISION · ${TOPIC_NAMES[project] || project}\n${st.decisions[id].question}\n${lines.join('\n')}`,
-        st.decisions[id].options.map((_, n) => [`d${n}`, String.fromCharCode(65 + n)]));
+        st.decisions[id].options.map((_, n) => [`d${n}`, String.fromCharCode(65 + n)]), null, 'needs');
       st.decisions[id].view = v.id;
       save(); log({ who: 'sender', what: 'ask', target: id });
       return v;
@@ -105,7 +106,7 @@ export function openCore({ dir, actions = [], chats = [], now = () => Date.now()
       for (const p of Object.values(st.problems)) {
         if (p.state !== 'muted' || p.mutedUntil > now()) continue;
         p.state = 'open'; p.mutedUntil = null;
-        out.push(view(`p:${p.key}`, `STILL OPEN · ${TOPIC_NAMES[p.topic] || p.topic}\n${p.title}\n(mute ended)`, problemButtons(p), p.view));
+        out.push(view(`p:${p.key}`, `STILL OPEN · ${TOPIC_NAMES[p.topic] || p.topic}\n${p.title}\n(mute ended)`, problemButtons(p), p.view, p.topic));
         log({ who: 'panel', what: 'unmute', target: p.key });
       }
       if (out.length) save();
@@ -184,16 +185,18 @@ export function openCore({ dir, actions = [], chats = [], now = () => Date.now()
 }
 
 // --- delivery: show views on a channel, note where they went ---------------------------------------
-export async function deliver(core, adapter, views) {
+// An answer to an event goes to the chat the event came from (`ev`), unless it replies to a view this
+// channel showed; any other view goes to the channel's own place for its topic.
+export async function deliver(core, adapter, views, ev = null) {
   for (const v of views) {
-    const ref = await adapter.show(v, v.replyTo ? core.shownOn(v.replyTo, adapter.name) : null);
+    const ref = await adapter.show(v, v.replyTo ? core.shownOn(v.replyTo, adapter.name) : null, ev);
     core.note(v.id, adapter.name, ref);
   }
 }
 /** One pass: read the channel's new events, answer each. Returns the number of events. */
 export async function step(core, adapter) {
   const events = await adapter.poll();
-  for (const ev of events) await deliver(core, adapter, await core.handle(ev, adapter.name));
+  for (const ev of events) await deliver(core, adapter, await core.handle(ev, adapter.name), ev);
   await deliver(core, adapter, core.tick());
   return events.length;
 }
@@ -223,8 +226,57 @@ export function fileAdapter({ dir }) {
   };
 }
 
+// --- the Telegram adapter ---------------------------------------------------------------------------
+// Shows a view as a message with one inline button per view button (callback data = the button id),
+// in the group (ALERTS_CHAT_ID) under the view's topic, or in the chat an event came from. Reads presses
+// and messages by asking Telegram for updates (getUpdates, going out only: no open port). Its only
+// note is the next update offset, in <dir>/.offset; a shown view's ref is { chat, msg }.
+// One reader per bot: while this runs, `notify.mjs find` must not.
+export function telegramAdapter({ dir, tg, wait = 0 }) {
+  mkdirSync(dir, { recursive: true });
+  const off = join(dir, '.offset');
+  const keyboard = (buttons) => {
+    const rows = [];
+    for (let i = 0; i < buttons.length; i += 3) rows.push(buttons.slice(i, i + 3).map((b) => ({ text: b.label, callback_data: b.id })));
+    return rows.length ? { reply_markup: { inline_keyboard: rows } } : {};
+  };
+  return {
+    name: 'telegram',
+    async show(v, replyRef, ev) {
+      const text = v.text.length > 4000 ? `${v.text.slice(0, 3990)}\n…` : v.text;
+      const base = { text, link_preview_options: { is_disabled: true }, ...keyboard(v.buttons) };
+      let m;
+      if (replyRef) m = await tg.call('sendMessage', { ...base, chat_id: replyRef.chat, ...(replyRef.thread ? { message_thread_id: replyRef.thread } : {}), disable_notification: true, reply_parameters: { message_id: replyRef.msg, allow_sending_without_reply: true } });
+      else if (ev) m = await tg.call('sendMessage', { ...base, chat_id: ev.chat, ...(ev.thread ? { message_thread_id: ev.thread } : {}), disable_notification: true });
+      else {
+        const ids = await tg.topics();
+        const thread = ids[v.topic || 'ops'] ?? ids.ops;
+        m = await tg.call('sendMessage', { ...base, chat_id: tg.chat, ...(thread ? { message_thread_id: thread } : {}), disable_notification: v.topic !== 'needs' });
+      }
+      return { chat: m.chat?.id ?? (replyRef?.chat ?? ev?.chat ?? tg.chat), msg: m.message_id, thread: m.message_thread_id ?? null };
+    },
+    async poll() {
+      const offset = existsSync(off) ? Number(readFileSync(off, 'utf8')) : 0;
+      const ups = await tg.call('getUpdates', { offset, timeout: wait, allowed_updates: ['message', 'callback_query'] });
+      const out = [];
+      for (const u of ups) {
+        writeFileSync(off, String(u.update_id + 1));
+        if (u.callback_query) {
+          const q = u.callback_query, chat = q.message?.chat;
+          await tg.call('answerCallbackQuery', { callback_query_id: q.id }).catch(() => {});
+          if (chat) out.push({ kind: 'press', account: q.from.id, chat: chat.id, private: chat.type === 'private', thread: q.message.message_thread_id ?? null, button: q.data });
+        } else if (u.message?.text && u.message.from) {
+          const msg = u.message;
+          out.push({ kind: 'text', account: msg.from.id, chat: msg.chat.id, private: msg.chat.type === 'private', thread: msg.message_thread_id ?? null, text: msg.text });
+        }
+      }
+      return out;
+    },
+  };
+}
+
 /** The channels this kit ships; CONTROL_CHANNEL picks one. */
-export const ADAPTERS = { file: fileAdapter };
+export const ADAPTERS = { file: fileAdapter, telegram: telegramAdapter };
 export function pickAdapter(name = process.env.CONTROL_CHANNEL || 'file', opts = {}) {
   const make = ADAPTERS[name];
   if (!make) throw new Error(`CONTROL_CHANNEL "${name}" is not a known channel (${Object.keys(ADAPTERS).join(', ')})`);
@@ -243,7 +295,8 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   if (cmd === 'bind-code') console.log(core.bindCode());
   if (cmd === 'status') console.log(await core.statusText());
   if (cmd === 'serve') {
-    const adapter = pickAdapter(undefined, { dir: process.env.CONTROL_FILE_DIR || join(dir, 'file-channel') });
-    do { await step(core, adapter); if (!rest.includes('--once')) await new Promise((ok) => setTimeout(ok, 2000)); } while (!rest.includes('--once'));
+    const name = process.env.CONTROL_CHANNEL || 'file';
+    const adapter = pickAdapter(name, { dir: join(dir, `channel-${name}`), tg: name === 'telegram' ? telegram() : undefined, wait: rest.includes('--once') ? 0 : 25 });
+    do { await step(core, adapter); if (!rest.includes('--once') && name !== 'telegram') await new Promise((ok) => setTimeout(ok, 2000)); } while (!rest.includes('--once'));
   }
 }
