@@ -181,11 +181,12 @@ export function openCore({ dir, actions = [], chats = [], now = () => Date.now()
         return reply(`${p.text}\nOpened ${new Date(p.opened).toISOString().slice(0, 16).replace('T', ' ')} UTC · repeated ${p.repeats} times${p.link ? `\n${p.link}` : ''}`);
       }
       if (p.state === 'resolved') { log({ who, channel, what: LABEL[op].toLowerCase(), target: p.key, result: 'already resolved' }); save(); return reply('Already resolved.'); }
-      // the sender's own store learns it too (onChange), so its escalation and reminders stop; the panel's
+      // the sender's own store learns it too (onChange: { what, key, ack, mutedUntil }, the whole new
+      // state, so a mute after an acknowledge lifts the acknowledge), so its escalation and reminders stop; the panel's
       // state holds either way, and a failure to tell the sender is logged with the press
       const tell = async (change) => { try { await onChange(change); return 'ok'; } catch (e) { return `ok; the alert's sender was not told: ${one(e.message)}`; } };
-      if (op === 'a') { p.state = 'acknowledged'; save(); log({ who, channel, what: 'acknowledge', target: p.key, result: await tell({ what: 'acknowledge', key: p.key }) }); return reply('Acknowledged: no escalation, no reminder; still in /status.'); }
-      if (op === 'm') { p.state = 'muted'; p.mutedUntil = now() + MUTE_HOURS * HOUR; save(); log({ who, channel, what: 'mute', target: p.key, result: await tell({ what: 'mute', key: p.key, until: p.mutedUntil }) }); return reply(`Muted for ${MUTE_HOURS} h.`); }
+      if (op === 'a') { p.state = 'acknowledged'; save(); log({ who, channel, what: 'acknowledge', target: p.key, result: await tell({ what: 'acknowledge', key: p.key, ack: true, mutedUntil: null }) }); return reply('Acknowledged: no escalation, no reminder; still in /status.'); }
+      if (op === 'm') { p.state = 'muted'; p.mutedUntil = now() + MUTE_HOURS * HOUR; save(); log({ who, channel, what: 'mute', target: p.key, result: await tell({ what: 'mute', key: p.key, ack: false, mutedUntil: p.mutedUntil }) }); return reply(`Muted for ${MUTE_HOURS} h.`); }
       const action = actionFor(p.key);
       if (!action || (op === 'r' && !action.retry)) return refuse('no such action for this alert');
       const what = { p: 'pause', u: 'resume', r: 'retry' }[op];

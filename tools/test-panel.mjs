@@ -193,7 +193,7 @@ ok(away.log().some((e) => e.channel === 'telegram') && away.log().some((e) => e.
   ok(m.reply_parameters?.message_id === 777 && m.message_thread_id === 5 && /^Actions · Disk 86% full$/.test(m.text) && m.disable_notification === true, 'with shownAt the buttons go silently under the alert\'s own message, not as a second alert');
   ch.tap(OWNER, button(ch, 'Acknowledge')); await step(core, ch.adapter);
   ch.tap(OWNER, button(ch, 'Mute 24h')); await step(core, ch.adapter);
-  ok(told.length === 2 && told[0].what === 'acknowledge' && told[1].what === 'mute' && told[1].until > Date.now(), 'Acknowledge and Mute are passed to the alert\'s sender');
+  ok(told.length === 2 && told[0].what === 'acknowledge' && told[1].what === 'mute' && told[1].mutedUntil > Date.now() && told[0].ack === true && told[1].ack === false, 'Acknowledge and Mute pass their whole new state to the sender (a mute lifts an earlier acknowledge)');
   ok(!core.bindOwner(999, 'test') && core.state().owner === String(OWNER), 'the host cannot rebind a panel that has an owner');
   failTell = true;
   await deliver(core, ch.adapter, [core.problem({ key: 'vps/x', topic: 'ops', text: 'x' })]);

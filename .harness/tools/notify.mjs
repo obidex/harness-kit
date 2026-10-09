@@ -263,7 +263,9 @@ export async function resolveKey(st, tg, o) {
 }
 
 /** The control panel's Acknowledge and Mute (K025): an acknowledged problem is never escalated or
- * reminded; a muted one not until `mutedUntil`. Its RESOLVED still goes out. */
+ * reminded; a muted one not until `mutedUntil`. Its RESOLVED still goes out. For a file store (its lock
+ * holds across processes); a GitHub store's lock is its senders' concurrency group, so a host outside it
+ * must not call this. */
 export async function hush(st, key, { ack, mutedUntil } = {}) {
   return st.locked(async () => {
     const inc = await st.get(key);
