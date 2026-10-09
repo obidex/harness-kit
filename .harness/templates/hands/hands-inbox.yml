@@ -5,6 +5,8 @@
 # A session never posts the wake itself: sessions act as the owner's account, and a subscribed
 # session never receives a comment its own account posted. The token is minted for that one
 # repository, with only issues and pull requests to write. Nothing runs on a schedule.
+# It runs the kit at HANDS_KIT_VERSION, which must be 0.22.0 or later (an older `wake` only reports);
+# the hands environment's main-only deployment rule is what keeps the App key off other branches.
 # Cost (O13): one job of about half a minute (one GitHub-hosted minute) per dispatched wake.
 name: hands-inbox
 
@@ -47,7 +49,11 @@ jobs:
         with:
           persist-credentials: false
       - id: kit
-        run: echo "ref=v$(tr -d '[:space:]' < HANDS_KIT_VERSION)" >> "$GITHUB_OUTPUT"
+        run: |
+          set -euo pipefail
+          v="$(tr -d '[:space:]' < HANDS_KIT_VERSION)"
+          [ "$(printf '%s\n0.22.0\n' "$v" | sort -V | head -1)" = "0.22.0" ] || { echo "hands-inbox: HANDS_KIT_VERSION $v is older than 0.22.0, whose wake posts the comment"; exit 1; }
+          echo "ref=v$v" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           repository: ${{ vars.HARNESS_KIT_REPO || 'obidex/harness-kit' }}

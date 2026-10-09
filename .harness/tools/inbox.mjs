@@ -244,7 +244,7 @@ async function wakeFromSend(repo, r, { fresh, again }) {
   let job;
   try { job = await startWake(api, repo, r.number, { fresh }); }
   catch (e) { return { delivered: false, why: `the wake job could not start (${e.message.slice(0, 160)})` }; }
-  return awaitWake(api, repo, r.number, job, before.length);
+  return awaitWake(api, repo, r.number, job, fresh ? 0 : before.length);   // a new issue: a fast job may answer first
 }
 
 // --- commands -------------------------------------------------------------------------------------
@@ -309,9 +309,14 @@ async function main() {
   }
   if (cmd === 'wake') {
     const n = Number(opt('--issue'));
-    const mine = canonical(await requests(repo)).find((x) => x.number === n);
+    // The issue itself, read directly: the label listing lags a new issue by seconds, and this job
+    // starts the moment the issue is filed. The listing only says whether an earlier issue has its ID.
+    const i = await api('GET', `/repos/${repo}/issues/${n}`);
+    const f = !i.pull_request && (i.labels || []).some((l) => (l.name ?? l) === LABEL) ? parse(i.body) : null;
+    const mine = f && { number: n, state: i.state, url: i.html_url, fields: f };
+    const first = mine && canonical(await requests(repo)).find((x) => x.fields.id === f.id);
     // only a queued request wakes anyone: a request already picked up or done never re-runs the AI
-    if (!mine || !queued(mine)) { console.log(`inbox: #${n} is not a queued request; nobody woken`); return; }
+    if (!mine || !queued(mine) || (first && first.number < n)) { console.log(`inbox: #${n} is not a queued request; nobody woken`); return; }
     // This job posts the wake: its author is a bot, which a subscribed session receives (K024).
     // A lookup this token may not make counts as no channel.
     const channel = await findChannel(api, repo).catch(() => null);

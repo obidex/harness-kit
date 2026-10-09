@@ -61,7 +61,7 @@ const srv = createServer((q, res) => {
       const seen = issues.filter((i) => i.labels.some((l) => l.name === u.searchParams.get('labels')) && !(i.hidden-- > 0));
       return send(200, u.searchParams.get('page') === '1' ? seen : []);
     }
-    if (u.pathname === '/repos/o/r/issues' && q.method === 'POST') { const j = JSON.parse(data); const i = { hidden: lag ? 4 : 0, number: issues.length + 1, state: 'open', html_url: `https://gh.test/o/r/issues/${issues.length + 1}`, body: j.body, labels: j.labels.map((name) => ({ name })), comments: [] }; issues.push(i); send(201, i); if (receiver && !lag) job(i.number); return; }
+    if (u.pathname === '/repos/o/r/issues' && q.method === 'POST') { const j = JSON.parse(data); const i = { hidden: lag ? 4 : 0, number: issues.length + 1, state: 'open', html_url: `https://gh.test/o/r/issues/${issues.length + 1}`, body: j.body, labels: j.labels.map((name) => ({ name })), comments: [] }; issues.push(i); send(201, i); if (receiver) job(i.number); return; }
     const lb = u.pathname.match(/^\/repos\/o\/r\/issues\/(\d+)\/labels(\/inbox)?$/);
     if (lb && q.method === 'DELETE') { issues[Number(lb[1]) - 1].labels = []; return send(200, []); }
     if (lb && q.method === 'POST') { issues[Number(lb[1]) - 1].labels = [{ name: 'inbox' }]; send(200, []); return job(lb[1]); }
@@ -116,6 +116,12 @@ ok(again.code === 0 && wakes.length === 2 && issues[0].comments.some((c) => c.st
   const r2 = await run([...own, '--again']);
   await settle();
   ok(r2.code === 0 && dispatches.length === d0 && wakes.length === w0 + 2, 'a resend there sets the label again, which starts its job again');
+  lag = true;   // the job starts the moment the issue is filed, while the label listing still misses it
+  const fast = await run(['send', '--repo', 'o/r', '--id', 'kit/fast-job', '--title', 'Fast', '--outcome', 'x', '--source', 's', '--coordinator', 'c', '--covered-by', 'K009']);
+  await settle();
+  lag = false;
+  ok(fast.code === 0 && /by o\/r harness-inbox/.test(fast.out) && wakes.length === w0 + 3, 'a job that starts before the label listing shows the new issue still wakes (it reads the issue itself)');
+  issues.find((i) => parse(i.body).id === 'kit/fast-job').labels = [];
   receiver = '0.21.0';
   const r3 = await run([...own, '--again']);
   await settle();
