@@ -191,9 +191,19 @@ export function openCore({ dir, actions = [], chats = [], now = () => Date.now()
 // channel showed; any other view goes to the channel's own place for its topic.
 export async function deliver(core, adapter, views, ev = null) {
   for (const v of views) {
-    const ref = await adapter.show(v, v.replyTo ? core.shownOn(v.replyTo, adapter.name) : null, ev);
-    core.note(v.id, adapter.name, ref);
+    try { core.note(v.id, adapter.name, await adapter.show(v, v.replyTo ? core.shownOn(v.replyTo, adapter.name) : null, ev)); }
+    catch (e) { console.error(`panel: could not show ${v.id} on ${adapter.name}: ${e.message}`); } // one failed view never skips the rest
   }
+}
+/** The service: passes until `stop()`; a failed pass (network, Telegram 4xx/5xx) is logged and retried
+ * after `backoff` ms, so the panel never dies on a channel error. Returns the number of failed passes. */
+export async function serveLoop(core, adapter, { stop = () => false, pause = 0, backoff = 5000 } = {}) {
+  let failed = 0;
+  while (!stop()) {
+    try { await step(core, adapter); if (pause) await new Promise((ok) => setTimeout(ok, pause)); }
+    catch (e) { failed++; console.error(`panel: ${adapter.name} pass failed: ${e.message}`); await new Promise((ok) => setTimeout(ok, backoff)); }
+  }
+  return failed;
 }
 /** One pass: read the channel's new events, answer each. Returns the number of events. */
 export async function step(core, adapter) {
@@ -245,7 +255,7 @@ export function telegramAdapter({ dir, tg, wait = 0 }) {
   return {
     name: 'telegram',
     async show(v, replyRef, ev) {
-      const text = v.text.length > 4000 ? `${v.text.slice(0, 3990)}\n…` : v.text;
+      const cps = [...v.text], text = cps.length > 4000 ? `${cps.slice(0, 3990).join('')}\n…` : v.text; // whole characters, never half a pair
       const base = { text, link_preview_options: { is_disabled: true }, ...keyboard(v.buttons) };
       let m;
       if (replyRef) m = await tg.call('sendMessage', { ...base, chat_id: replyRef.chat, ...(replyRef.thread ? { message_thread_id: replyRef.thread } : {}), disable_notification: true, reply_parameters: { message_id: replyRef.msg, allow_sending_without_reply: true } });
@@ -299,6 +309,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   if (cmd === 'serve') {
     const name = process.env.CONTROL_CHANNEL || 'file';
     const adapter = pickAdapter(name, { dir: join(dir, `channel-${name}`), tg: name === 'telegram' ? telegram() : undefined, wait: rest.includes('--once') ? 0 : 25 });
-    do { await step(core, adapter); if (!rest.includes('--once') && name !== 'telegram') await new Promise((ok) => setTimeout(ok, 2000)); } while (!rest.includes('--once'));
+    if (rest.includes('--once')) await step(core, adapter);
+    else await serveLoop(core, adapter, { pause: name === 'telegram' ? 0 : 2000 });
   }
 }

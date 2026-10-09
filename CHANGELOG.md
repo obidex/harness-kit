@@ -11,6 +11,8 @@ Each version is the tag `v<version>` on this repository, never moved (K003). Pro
   long polling (outgoing only, no open port) and keeps only its update offset. `serve` with
   `CONTROL_CHANNEL=telegram` uses the alerts bot (`ALERTS_BOT_TOKEN`, `ALERTS_CHAT_ID`); while it
   runs, `notify.mjs find` must not (one reader per bot).
+- `serve` never dies on a channel error: a failed pass (network, a Telegram 4xx or 5xx) is logged and
+  retried after a pause, and a reply Telegram refuses never stops the rest of its batch.
 - `test-panel` runs the same scenario against a stand-in Telegram: same core state and log as the
   file channel, and leaving Telegram halfway (telegram -> file) keeps the whole history. A press in a
   chat not on the list is refused.

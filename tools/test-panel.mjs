@@ -12,7 +12,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createServer } from 'node:http';
-import { openCore, deliver, step, fileAdapter, telegramAdapter, pickAdapter } from '../.harness/tools/panel.mjs';
+import { openCore, deliver, step, serveLoop, fileAdapter, telegramAdapter, pickAdapter } from '../.harness/tools/panel.mjs';
 import { telegram } from '../.harness/tools/notify.mjs';
 
 let n = 0;
@@ -27,11 +27,12 @@ const fileChannel = (dir) => {
   return { adapter: a, say: (account, text, chat = account) => a.push({ kind: 'text', account, chat, private: chat === account, text }), tap: (account, button, chat = GROUP) => a.push({ kind: 'press', account, chat, private: chat === account, button }), shown: () => a.shown() };
 };
 // a stand-in Telegram: a forum group with topics, presses and messages queued as updates
-const tg = { updates: [], sent: [], answered: 0, nextUpdate: 1, msg: 1000 };
+const tg = { updates: [], sent: [], answered: 0, nextUpdate: 1, msg: 1000, fail: 0, failOn: 'getUpdates' };
 const json = (res, data) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ ok: true, result: data })); };
 const server = await new Promise((done) => { const sv = createServer((req, res) => { let b = ''; req.on('data', (c) => { b += c; }); req.on('end', () => {
   const p = b ? JSON.parse(b) : {}; const method = req.url.split('/').pop();
   if (!req.url.startsWith('/botTEST-TOKEN/')) { res.writeHead(401); return res.end('{"ok":false}'); }
+  if (tg.fail > 0 && method === tg.failOn) { tg.fail--; res.writeHead(502, { 'content-type': 'application/json' }); return res.end('{"ok":false,"description":"Bad Gateway"}'); }
   if (method === 'getUpdates') { const ups = tg.updates.filter((u) => u.update_id >= (p.offset || 0)); return json(res, ups); }
   if (method === 'answerCallbackQuery') { tg.answered++; return json(res, true); }
   if (method === 'sendMessage') { const m = { message_id: ++tg.msg, chat: { id: p.chat_id }, message_thread_id: p.message_thread_id }; tg.sent.push({ ...p, message_id: m.message_id }); return json(res, m); }
@@ -153,6 +154,23 @@ tg.updates.length = 0; tg.sent.length = 0;
 const away = await run('w', (d) => [tgChannel(join(d, 'tg')), fileChannel(join(d, 'file'))]);
 ok(JSON.stringify(canon(away)) === JSON.stringify(canon(fileA)), 'leaving Telegram halfway (CONTROL_CHANNEL telegram -> file) keeps the whole history');
 ok(away.log().some((e) => e.channel === 'telegram') && away.log().some((e) => e.channel === 'file'), 'the log shows the presses from both channels');
+// a Telegram error never stops the service: the next pass handles the next press
+{
+  tg.updates.length = 0; tg.sent.length = 0;
+  const ch = tgChannel(join(tmp, 'flaky', 'tg'));
+  const core = openCore({ dir: join(tmp, 'flaky', 'core'), chats: [GROUP] });
+  const code = core.bindCode();
+  tg.fail = 1; ch.say(OWNER, `/bind ${code}`);
+  let passes = 0;
+  const failed = await serveLoop(core, ch.adapter, { stop: () => passes++ >= 3, backoff: 1 });
+  ok(failed === 1 && core.state().owner === String(OWNER), 'a failed getUpdates (502) is logged and the next pass still binds the owner');
+  tg.fail = 1; tg.failOn = 'sendMessage'; ch.say(OWNER, '/status'); ch.say(OWNER, '/status');
+  passes = 0; await serveLoop(core, ch.adapter, { stop: () => passes++ >= 1, backoff: 1 });
+  ok(tg.sent.filter((m) => /^STATUS/.test(m.text)).length === 1 && core.log().filter((e) => e.what === 'status').length === 2, 'a reply Telegram refuses is skipped, and the next one in the batch is still sent');
+  const long = '😀'.repeat(5000);
+  const ref = await ch.adapter.show({ id: 'vx', text: long, buttons: [] }, null, { chat: OWNER });
+  ok(ref.msg && !/\uD83D$/.test(tg.sent.at(-1).text.slice(0, -2)) && [...tg.sent.at(-1).text].length <= 4096, 'a long text is cut on whole characters, under Telegram\'s limit');
+}
 server.close();
 
 ok((() => { try { pickAdapter('carrier-pigeon'); return false; } catch (e) { return /not a known channel/.test(e.message); } })(), 'an unknown CONTROL_CHANNEL fails, naming the known ones');
