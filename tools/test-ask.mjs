@@ -8,7 +8,7 @@ import { createServer } from 'node:http';
 import { execFile } from 'node:child_process';
 import { join } from 'node:path';
 import { readFileSync } from 'node:fs';
-import { question, askBody, parse, api, ask, open, answer, dispatch, settle, LABEL } from '../.harness/tools/ask.mjs';
+import { question, askBody, answerBody, parse, api, ask, open, answer, dispatch, settle, appLogin, LABEL } from '../.harness/tools/ask.mjs';
 import { parseYaml } from '../.harness/tools/lib.mjs';
 import { controlProblems } from '../.harness/tools/hands.mjs';
 
@@ -25,7 +25,7 @@ ok(/^<!-- panel-ask \{[^<>]*\} -->$/.test(sneaky.split('\n')[0]) && !/<!--/.test
 // --- a stand-in GitHub: who posts is the token (OWNER: the owner's account, APP: the hands App) ----
 const cards = {};   // 'o/r#n' -> { pr, labels, comments }
 const dispatches = [];
-const who = { OWNER: { user: { login: 'obidex', type: 'User' }, author_association: 'OWNER' }, APP: { user: { login: 'hands[bot]', type: 'Bot' }, author_association: 'NONE' }, STRANGER: { user: { login: 'x', type: 'User' }, author_association: 'NONE' } };
+const who = { OWNER: { user: { login: 'obidex', type: 'User' }, author_association: 'OWNER' }, APP: { user: { login: 'hands[bot]', type: 'Bot' }, author_association: 'NONE' }, CI: { user: { login: 'github-actions[bot]', type: 'Bot' }, author_association: 'NONE' }, STRANGER: { user: { login: 'x', type: 'User' }, author_association: 'NONE' } };
 let channel = true;
 const card = (repo, num, pr = false) => { cards[`${repo}#${num}`] = { pr, labels: [], comments: [] }; };
 const srv = createServer((q, res) => {
@@ -61,6 +61,8 @@ const srv = createServer((q, res) => {
 });
 await new Promise((ok2) => srv.listen(0, '127.0.0.1', ok2));
 process.env.GITHUB_API_URL = `http://127.0.0.1:${srv.address().port}`;
+process.env.ASK_APP_LOGIN = 'hands[bot]';
+const APPL = 'hands[bot]';
 const as = (token) => { process.env.GH_TOKEN = token; };
 const run = (args, token = 'OWNER') => new Promise((done) => execFile('node', [join(new URL('..', import.meta.url).pathname, '.harness/tools/ask.mjs'), ...args], { env: { ...process.env, GH_TOKEN: token } }, (e, out, err) => done({ code: e ? e.code : 0, out: String(out), err: String(err) })));
 
@@ -76,7 +78,7 @@ as('STRANGER'); await api('POST', '/repos/o/r/issues/8/comments', { body: askBod
 as('OWNER');
 
 // --- the host's view --------------------------------------------------------------------------------
-let asks = await open(api, { owner: 'o' });
+let asks = await open(api, { owner: 'o', app: APPL });
 ok(asks.length === 2 && asks.find((a) => a.id === 'erp/name-1')?.issue === 5 && asks.find((a) => a.id === 'kit/pick')?.pr === true && asks.every((a) => a.answer === null), 'the host sees every open question with its card; a pull request is marked as one');
 ok(!asks.some((a) => a.id === 'x/stranger'), 'a question a stranger put on a card is never shown');
 
@@ -85,14 +87,21 @@ await dispatch(api, 'o/harness-hands', { repo: 'o/r', issue: 5, id: 'erp/name-1'
 const d = dispatches.at(-1);
 ok(d.ref === 'main' && d.inputs.repo === 'o/r' && d.inputs.issue === '5' && d.inputs.option === '1' && d.inputs.by === 'telegram:111' && Object.values(d.inputs).every((v) => typeof v === 'string'), 'the host starts hands-answer on main with what was pressed, every input a string');
 const viaOwner = await run(['answer', '--repo', 'o/r', '--issue', '5', '--id', 'erp/name-1', '--option', '0', '--by', 'telegram:111', '--at', '2026-10-09T23:39:00Z'], 'OWNER');
-ok(parse(cards['o/r#5'].comments).answers['erp/name-1'] === undefined, 'an answer posted by the owner\'s own account is not an answer (only an App\'s is)');
+ok(parse(cards['o/r#5'].comments, APPL).answers['erp/name-1'] === undefined, 'an answer posted by the owner\'s own account is not an answer (only an App\'s is)');
+// only the hands App's own comment, with the marker as its first line, is an answer
+as('CI'); await api('POST', '/repos/o/r/issues/5/comments', { body: answerBody(question(Q), { option: 0, by: 'telegram:1', at: '2026-10-09T23:39:30Z' }) });
+as('APP'); await api('POST', '/repos/o/r/issues/5/comments', { body: `lint output:\n${answerBody(question(Q), { option: 0, by: 'telegram:1', at: '2026-10-09T23:39:40Z' })}` });
+as('OWNER');
+ok(parse(cards['o/r#5'].comments, APPL).answers['erp/name-1'] === undefined && parse(cards['o/r#5'].comments, 'github-actions[bot]').answers['erp/name-1'] && parse(cards['o/r#5'].comments).answers['erp/name-1'] === undefined, 'another bot\'s comment is never an answer, nor the App\'s with the marker below its first line, nor any without the App\'s login');
+const noApp = await run(['open', '--owner', 'o'], 'OWNER');
+ok(await new Promise((done) => execFile('node', [join(new URL('..', import.meta.url).pathname, '.harness/tools/ask.mjs'), 'open', '--owner', 'o'], { env: { ...process.env, GH_TOKEN: 'OWNER', ASK_APP_LOGIN: '' } }, (e, out, err) => done(e?.code === 1 && /ASK_APP_LOGIN/.test(String(err))))) && noApp.code === 0, 'open and answer refuse to run without the App\'s login');
 const before = cards['o/r#5'].comments.length;
 const a1 = await run(['answer', '--repo', 'o/r', '--issue', '5', '--id', 'erp/name-1', '--option', '1', '--by', 'telegram:111', '--at', '2026-10-09T23:40:00Z'], 'APP');
 const posted = cards['o/r#5'].comments.at(-1);
 ok(a1.code === 0 && viaOwner.code === 0 && cards['o/r#5'].comments.length === before + 1 && posted.user.type === 'Bot' && /\*\*B\.\*\* Long/.test(posted.body) && /telegram account 111 at 2026-10-09 23:40 UTC/.test(posted.body), 'the answer goes on the card as the App, with the option, the channel account and the time');
 ok(/#99/.test(a1.out) && /The owner answered "Which name for the report\?" on https:\/\/gh\.test\/o\/r\/issues\/5: B\. Long/.test(cards['o/r#99'].comments.at(-1).body), 'an answer on an issue wakes the repository\'s coordinator on its wake channel');
 const a2 = await run(['answer', '--repo', 'o/r', '--issue', '5', '--id', 'erp/name-1', '--option', '0', '--by', 'telegram:111', '--at', '2026-10-09T23:41:00Z'], 'APP');
-ok(/already answered/.test(a2.out) && cards['o/r#5'].comments.length === before + 1 && parse(cards['o/r#5'].comments).answers['erp/name-1'].option === 1, 'the first answer counts; a later one writes nothing');
+ok(/already answered/.test(a2.out) && cards['o/r#5'].comments.length === before + 1 && parse(cards['o/r#5'].comments, APPL).answers['erp/name-1'].option === 1, 'the first answer counts; a later one writes nothing');
 const wakes = cards['o/r#99'].comments.length;
 const a3 = await run(['answer', '--repo', 'o/r', '--issue', '7', '--id', 'kit/pick', '--option', '2', '--by', 'telegram:111', '--at', '2026-10-09T23:42:00Z'], 'APP');
 ok(/the pull request itself/.test(a3.out) && cards['o/r#99'].comments.length === wakes && /\*\*C\.\*\* Later/.test(cards['o/r#7'].comments.at(-1).body), 'an answer on a pull request wakes the session watching it directly: no wake-channel comment');
@@ -109,16 +118,17 @@ ok(a4.code === 0 && /"woke":null/.test(a4.out), 'with no wake channel the answer
 
 // --- settling the card --------------------------------------------------------------------------------
 await ask(api, { repo: 'o/r', issue: 5, ...Q, id: 'erp/second' });
-ok(!(await settle(api, { repo: 'o/r', issue: 5 })) && cards['o/r#5'].labels.includes(LABEL), 'a card with a question still unanswered keeps its label');
+ok(!(await settle(api, { repo: 'o/r', issue: 5, app: APPL })) && cards['o/r#5'].labels.includes(LABEL), 'a card with a question still unanswered keeps its label');
 await run(['answer', '--repo', 'o/r', '--issue', '5', '--id', 'erp/second', '--option', '0', '--by', 'telegram:111', '--at', '2026-10-09T23:45:00Z'], 'APP');
-ok(await settle(api, { repo: 'o/r', issue: 5 }) && !cards['o/r#5'].labels.includes(LABEL) && (await settle(api, { repo: 'o/r', issue: 5 })), 'once every question is answered the label comes off (twice is harmless)');
-asks = await open(api, { owner: 'o' });
+ok(await settle(api, { repo: 'o/r', issue: 5, app: APPL }) && !cards['o/r#5'].labels.includes(LABEL) && (await settle(api, { repo: 'o/r', issue: 5, app: APPL })), 'once every question is answered the label comes off (twice is harmless)');
+asks = await open(api, { owner: 'o', app: APPL });
 ok(!asks.some((a) => a.issue === 5) && asks.find((a) => a.id === 'kit/pick')?.answer?.option === 2, 'a settled card drops out of the host\'s view; an answered one still labelled shows its answer');
 srv.close();
 
 // --- the control workflow --------------------------------------------------------------------------
 const text = readFileSync(join(new URL('..', import.meta.url).pathname, '.harness/templates/hands/hands-answer.yml'), 'utf8');
 const wf = parseYaml(text), job = wf.jobs.answer, tok = job.steps.find((x) => x.id === 'token').with;
+ok(/inputs\.id/.test(wf.concurrency.group) && String(wf.concurrency['cancel-in-progress']) === 'false' && /app-slug/.test(job.steps.at(-1).env.ASK_APP_LOGIN), 'one run per question (a run per card would cancel a waiting answer), and the job names its App as the only answerer');
 ok(Object.keys(wf.on).join() === 'workflow_dispatch' && /github\.ref == 'refs\/heads\/main'/.test(job.if) && job['timeout-minutes'] <= 3 && job.environment === 'hands' && !controlProblems({ 'hands-answer.yml': text }).length, 'hands-answer runs only when dispatched, only from main, and is short');
 ok(/steps\.input\.outputs\.name/.test(tok.repositories) && tok['permission-issues'] === 'write' && tok['permission-pull-requests'] === 'write' && !Object.keys(tok).some((k) => /permission-(contents|administration|workflows|actions)/.test(k)) && /only this owner/.test(job.steps[0].run), 'its App token is for the one named repository of this owner and writes only comments; the inputs are checked first');
 ok(!/\$\{\{\s*inputs\./.test(job.steps.at(-1).run) && /--by "\$BY"/.test(job.steps.at(-1).run), 'the pressed values reach the tool only through the environment, never pasted into the script');

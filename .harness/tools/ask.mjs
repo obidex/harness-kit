@@ -24,7 +24,8 @@
 // checks each answer the App posted against its own record of presses and takes the label off; an
 // answer it has no press for is reported to the owner, never trusted. A press never lifts a safety
 // refusal, approves a gate or stands for the owner's approval of anything but the question asked.
-// GH_TOKEN (or the session's own GitHub access) reads and writes the card.
+// GH_TOKEN (or the session's own GitHub access) reads and writes the card. `open` and `answer` need
+// ASK_APP_LOGIN, the hands App's login: no other author's comment is ever an answer.
 
 import { fileURLToPath } from 'node:url';
 import { findChannel } from './inbox.mjs';
@@ -37,7 +38,10 @@ const shown = (s) => String(s).replace(/</g, '&lt;');                // visible 
 const letter = (n) => String.fromCharCode(65 + n);
 // JSON inside an HTML comment: no "<" or ">" survives, so the comment can never be closed early
 const mark = (kind, data) => `<!-- ${kind} ${JSON.stringify(data).replace(/</g, '\\u003c').replace(/>/g, '\\u003e')} -->`;
-const read = (kind, body) => { const m = String(body || '').match(new RegExp(`^<!-- ${kind} (\\{.*\\}) -->$`, 'm')); try { return m ? JSON.parse(m[1]) : null; } catch { return null; } };
+// the marker is the comment's first line, never a line inside text it quotes (CI output, a pasted body)
+const read = (kind, body) => { const m = String(body || '').match(new RegExp(`^<!-- ${kind} (\\{[^\\n]*\\}) -->(\\n|$)`)); try { return m ? JSON.parse(m[1]) : null; } catch { return null; } };
+/** The hands App's login (`<slug>[bot]`), the only author whose comment is an answer: ASK_APP_LOGIN. */
+export const appLogin = (env = process.env) => { const l = String(env.ASK_APP_LOGIN || '').trim(); if (!/^[a-z0-9-]+\[bot\]$/.test(l)) throw new Error('ASK_APP_LOGIN must be the hands App\'s login (<slug>[bot])'); return l; };
 
 /** A question, checked: id, question, 2-4 options, the recommended one. */
 export function question({ id, question: q, options, recommended = 0 }) {
@@ -59,13 +63,14 @@ export const answerBody = (q, a) => [mark(ANSWER, { id: q.id, option: a.option, 
   `Pressed in the control panel by ${a.by.replace(':', ' account ')} at ${a.at.slice(0, 16).replace('T', ' ')} UTC. It answers this question only.`].join('\n');
 
 /** The questions and answers among a card's comments: a question only from the card's own people,
- *  an answer only from an App; the first of each id counts. */
-export function parse(comments) {
+ *  an answer only from the hands App (`app`, its login; none given: no answer counts); the first of
+ *  each id counts. */
+export function parse(comments, app = null) {
   const asks = {}, answers = {};
   for (const c of comments) {
     const q = TRUSTED.includes(c.author_association) && read(ASK, c.body);
     if (q && !asks[q.id]) { try { asks[q.id] = { ...question(q), url: c.html_url }; } catch { /* malformed: never shown */ } }
-    const a = c.user?.type === 'Bot' && read(ANSWER, c.body);
+    const a = app && c.user?.type === 'Bot' && c.user?.login === app && read(ANSWER, c.body);
     if (a && typeof a.id === 'string' && !answers[a.id] && Number.isInteger(a.option)) answers[a.id] = { option: a.option, by: String(a.by || ''), at: String(a.at || ''), author: c.user.login, url: c.html_url };
   }
   return { asks, answers };
@@ -92,7 +97,7 @@ const comments = async (call, repo, n) => {
 };
 
 /** Put a question on a card. The same id twice on one card is never a second question. */
-export async function ask(call, { repo, issue, ...q }) {
+export async function ask(call, { repo, issue, app = null, ...q }) {
   const qq = question(q);
   const seen = parse(await comments(call, repo, issue)).asks[qq.id];
   if (!seen) await call('POST', `/repos/${repo}/issues/${issue}/comments`, { body: askBody(qq) });
@@ -101,23 +106,23 @@ export async function ask(call, { repo, issue, ...q }) {
 }
 
 /** Every question on an open labelled card of the owner's repositories, with its answer if any. */
-export async function open(call, { owner, max = 30 }) {
+export async function open(call, { owner, app, max = 100 }) {
   const found = await call('GET', `/search/issues?q=${encodeURIComponent(`user:${owner} label:${LABEL} is:open`)}&per_page=${max}`);
   const out = [];
   for (const i of found.items || []) {
     const repo = i.repository_url.split('/repos/')[1];
-    const { asks, answers } = parse(await comments(call, repo, i.number));
+    const { asks, answers } = parse(await comments(call, repo, i.number), app);
     for (const q of Object.values(asks)) out.push({ repo, issue: i.number, card: i.html_url, pr: Boolean(i.pull_request), ...q, answer: answers[q.id] || null });
   }
   return out;
 }
 
 /** Write the owner's answer on the card (the hands App), then wake whoever waits. */
-export async function answer(call, { repo, issue, id, option, by, at }) {
+export async function answer(call, { repo, issue, id, option, by, at, app }) {
   if (!/^[a-z]+:\d{1,20}$/.test(String(by))) throw new Error('--by must be <channel>:<account id>');
   if (Number.isNaN(Date.parse(at))) throw new Error('--at must be a time');
   const card = await call('GET', `/repos/${repo}/issues/${issue}`);
-  const { asks, answers } = parse(await comments(call, repo, issue));
+  const { asks, answers } = parse(await comments(call, repo, issue), app);
   const q = asks[id];
   if (!q) throw new Error(`no question "${id}" on ${repo}#${issue}`);
   const n = Number(option);
@@ -137,8 +142,8 @@ export const dispatch = (call, hands, a) => call('POST', `/repos/${hands}/action
   { ref: 'main', inputs: { repo: a.repo, issue: String(a.issue), id: a.id, option: String(a.option), by: a.by, at: a.at } });
 
 /** The host: take the label off a card whose every question is answered. */
-export async function settle(call, { repo, issue }) {
-  const { asks, answers } = parse(await comments(call, repo, issue));
+export async function settle(call, { repo, issue, app }) {
+  const { asks, answers } = parse(await comments(call, repo, issue), app);
   if (Object.keys(asks).some((id) => !answers[id])) return false;
   await call('DELETE', `/repos/${repo}/issues/${issue}/labels/${LABEL}`).catch((e) => { if (!/ 404:/.test(e.message)) throw e; });
   return true;
@@ -151,8 +156,8 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const all = (k) => rest.flatMap((v, i) => (rest[i - 1] === `--${k}` ? [v] : []));
   try {
     if (cmd === 'ask') console.log(JSON.stringify(await ask(api, { repo: arg('repo'), issue: arg('issue'), id: arg('id'), question: arg('question'), options: all('option'), recommended: arg('recommended') ?? 0 })));
-    else if (cmd === 'open') console.log(JSON.stringify(await open(api, { owner: arg('owner') })));
-    else if (cmd === 'answer') console.log(JSON.stringify(await answer(api, { repo: arg('repo'), issue: arg('issue'), id: arg('id'), option: arg('option'), by: arg('by'), at: arg('at') })));
+    else if (cmd === 'open') console.log(JSON.stringify(await open(api, { owner: arg('owner'), app: appLogin() })));
+    else if (cmd === 'answer') console.log(JSON.stringify(await answer(api, { repo: arg('repo'), issue: arg('issue'), id: arg('id'), option: arg('option'), by: arg('by'), at: arg('at'), app: appLogin() })));
     else { console.error('usage: ask.mjs ask|open|answer (see the header)'); process.exit(2); }
   } catch (e) { console.error(`ask: ${e.message}`); process.exit(1); }
 }

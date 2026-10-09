@@ -36,7 +36,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: hands-answer-${{ inputs.repo }}-${{ inputs.issue }}
+  # one run per question: GitHub keeps one pending run per group, so a group per card would cancel an
+  # answer pressed while two others on that card wait
+  group: hands-answer-${{ inputs.repo }}-${{ inputs.issue }}-${{ inputs.id }}
   cancel-in-progress: false
 
 jobs:
@@ -85,6 +87,7 @@ jobs:
       - name: Write the owner's answer on the card and wake whoever waits
         env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
+          ASK_APP_LOGIN: ${{ steps.token.outputs.app-slug }}[bot]
           REPO: ${{ inputs.repo }}
           ISSUE: ${{ inputs.issue }}
           ID: ${{ inputs.id }}

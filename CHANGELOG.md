@@ -11,7 +11,7 @@ Each version is the tag `v<version>` on this repository, never moved (K003). Pro
   repository's new `hands-answer` job with the hands App, with the option, the channel account and
   the time. On a pull request that wakes the session watching it directly; on an issue it also wakes
   the repository's coordinator through its wake channel. The first answer counts. Only a question
-  from the card's own people is shown, and only an App's comment is an answer.
+  from the card's own people is shown, and only the hands App's comment (`ASK_APP_LOGIN`), its marker on the first line, is an answer.
 - `panel.mjs`: the owner is bound per channel (an account id belongs to one channel); an owner bound
   before 0.26.0 is kept for the first channel he uses. `onAnswer` hands each answer to the host; one
   the host refuses is not kept and the owner is told to press again. A decision shows its card's link.

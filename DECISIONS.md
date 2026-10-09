@@ -649,7 +649,7 @@ a press recorded on the card through the hands App, with the channel account and
    comment by the card's own people; the card is labelled `needs-owner` until every question on it
    is answered. Chat holds nothing the answer needs.
 2. **Who writes the answer.** Only the control repository's `hands-answer` job, with the hands App,
-   started by the panel host after the owner's press. Only an App's comment counts as an answer; the
+   started by the panel host after the owner's press. Only the hands App's comment counts as an answer; the
    first one counts. The host checks each against its own record of presses and reports one it has
    none for (a session can start the job too).
 3. **Who is woken.** A session watching the pull request the question is on (it receives the App's
