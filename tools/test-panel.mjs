@@ -171,6 +171,24 @@ ok(away.log().some((e) => e.channel === 'telegram') && away.log().some((e) => e.
   const ref = await ch.adapter.show({ id: 'vx', text: long, buttons: [] }, null, { chat: OWNER });
   ok(ref.msg && !/\uD83D$/.test(tg.sent.at(-1).text.slice(0, -2)) && tg.sent.at(-1).text.length <= 4096 && tg.sent.at(-1).text.length > 3900, 'a long text is cut on whole characters, under Telegram\'s limit');
 }
+// buttons under the sender's own alert message, and the sender told of Acknowledge and Mute
+{
+  tg.updates.length = 0; tg.sent.length = 0; tg.fail = 0;
+  const ch = tgChannel(join(tmp, 'anchor', 'tg'));
+  const told = []; let failTell = false;
+  const core = openCore({ dir: join(tmp, 'anchor', 'core'), chats: [GROUP], onChange: async (c) => { if (failTell) throw new Error('store locked'); told.push(c); } });
+  ch.say(OWNER, `/bind ${core.bindCode()}`); await step(core, ch.adapter);
+  await deliver(core, ch.adapter, [core.problem({ key: 'vps/disk', topic: 'ops', text: 'Disk 86% full', shownAt: { telegram: { chat: GROUP, msg: 777, thread: 5 } } })]);
+  const m = tg.sent.at(-1);
+  ok(m.reply_parameters?.message_id === 777 && m.message_thread_id === 5 && /^Actions · Disk 86% full$/.test(m.text) && m.disable_notification === true, 'with shownAt the buttons go silently under the alert\'s own message, not as a second alert');
+  ch.tap(OWNER, button(ch, 'Acknowledge')); await step(core, ch.adapter);
+  ch.tap(OWNER, button(ch, 'Mute 24h')); await step(core, ch.adapter);
+  ok(told.length === 2 && told[0].what === 'acknowledge' && told[1].what === 'mute' && told[1].until > Date.now(), 'Acknowledge and Mute are passed to the alert\'s sender');
+  failTell = true;
+  await deliver(core, ch.adapter, [core.problem({ key: 'vps/x', topic: 'ops', text: 'x' })]);
+  ch.tap(OWNER, button(ch, 'Acknowledge')); await step(core, ch.adapter);
+  ok(core.state().problems['vps/x'].state === 'acknowledged' && /not told: store locked/.test(core.log().at(-1).result), 'a sender that cannot be told is logged with the press; the panel state holds');
+}
 server.close();
 
 ok((() => { try { pickAdapter('carrier-pigeon'); return false; } catch (e) { return /not a known channel/.test(e.message); } })(), 'an unknown CONTROL_CHANNEL fails, naming the known ones');

@@ -3,6 +3,15 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.25.0 · 2026-10-09 · the panel's buttons act on the alerts themselves
+
+- `notify.mjs hush` (K025): the control panel's Acknowledge stops a problem's escalation and daily
+  STILL OPEN; Mute stops them until the mute ends. RESOLVED still goes out. `alerts.md` rule 4 says so.
+- `panel.mjs`: `onChange` tells the alert's sender of Acknowledge and Mute (a failure is logged with
+  the press; the panel's state holds); `problem({ shownAt })` puts the buttons silently under the
+  sender's own alert message instead of a second alert.
+- `test-notify` and `test-panel` cover both; each fails with the change undone.
+
 ## 0.24.0 · 2026-10-09 · the control panel on Telegram
 
 - `panel.mjs` (K025): the Telegram adapter. A view becomes a message with inline buttons (callback

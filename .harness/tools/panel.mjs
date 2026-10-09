@@ -42,7 +42,7 @@ const LABEL = { i: 'Details', a: 'Acknowledge', m: 'Mute 24h', p: 'Pause automat
 const one = (s) => String(s ?? '').replace(/\s*\n\s*/g, ' ').trim();
 
 // --- the core -------------------------------------------------------------------------------------
-export function openCore({ dir, actions = [], chats = [], now = () => Date.now(), run = async () => ({ ok: false, text: 'no runner on this host' }), statusExtra = async () => [] }) {
+export function openCore({ dir, actions = [], chats = [], now = () => Date.now(), run = async () => ({ ok: false, text: 'no runner on this host' }), statusExtra = async () => [], onChange = async () => {} }) {
   mkdirSync(dir, { recursive: true });
   const statePath = join(dir, 'state.json');
   const logPath = join(dir, 'log.jsonl');
@@ -70,12 +70,16 @@ export function openCore({ dir, actions = [], chats = [], now = () => Date.now()
   const firstView = (about) => Object.keys(st.views).find((v) => st.views[v].about === about) || null;
 
   const core = {
-    /** A problem opened or repeated. Returns the view to show, or null for a repeat or a muted one. */
-    problem({ key, topic = 'ops', title, text, link }) {
+    /** A problem opened or repeated. Returns the view to show, or null for a repeat. With `shownAt`
+     * ({ <channel>: ref }: where the sender's own alert message is), the view is only the buttons, as a
+     * reply under that message. */
+    problem({ key, topic = 'ops', title, text, link, shownAt = null }) {
       const p = st.problems[key];
       if (p && p.state !== 'resolved') { p.repeats++; save(); log({ who: 'sender', what: 'repeat', target: key }); return null; }
       st.problems[key] = { key, topic, title: one(title || text).slice(0, 80), text: String(text ?? ''), link: link || null, opened: now(), repeats: 0, state: 'open', mutedUntil: null, paused: false };
-      const v = view(`p:${key}`, `PROBLEM · ${TOPIC_NAMES[topic] || topic}\n${one(title || text)}`, problemButtons(st.problems[key]), null, topic);
+      let anchor = null;
+      if (shownAt) { anchor = view(`alert:${key}`, '').id; st.views[anchor].shown = { ...shownAt }; }
+      const v = view(`p:${key}`, anchor ? `Actions · ${one(title || text).slice(0, 80)}` : `PROBLEM · ${TOPIC_NAMES[topic] || topic}\n${one(title || text)}`, problemButtons(st.problems[key]), anchor, topic);
       st.problems[key].view = v.id;
       save(); log({ who: 'sender', what: 'open', target: key });
       return v;
@@ -169,8 +173,11 @@ export function openCore({ dir, actions = [], chats = [], now = () => Date.now()
         return reply(`${p.text}\nOpened ${new Date(p.opened).toISOString().slice(0, 16).replace('T', ' ')} UTC · repeated ${p.repeats} times${p.link ? `\n${p.link}` : ''}`);
       }
       if (p.state === 'resolved') { log({ who, channel, what: LABEL[op].toLowerCase(), target: p.key, result: 'already resolved' }); save(); return reply('Already resolved.'); }
-      if (op === 'a') { p.state = 'acknowledged'; save(); log({ who, channel, what: 'acknowledge', target: p.key, result: 'ok' }); return reply('Acknowledged: no escalation, no reminder; still in /status.'); }
-      if (op === 'm') { p.state = 'muted'; p.mutedUntil = now() + MUTE_HOURS * HOUR; save(); log({ who, channel, what: 'mute', target: p.key, result: 'ok' }); return reply(`Muted for ${MUTE_HOURS} h.`); }
+      // the sender's own store learns it too (onChange), so its escalation and reminders stop; the panel's
+      // state holds either way, and a failure to tell the sender is logged with the press
+      const tell = async (change) => { try { await onChange(change); return 'ok'; } catch (e) { return `ok; the alert's sender was not told: ${one(e.message)}`; } };
+      if (op === 'a') { p.state = 'acknowledged'; save(); log({ who, channel, what: 'acknowledge', target: p.key, result: await tell({ what: 'acknowledge', key: p.key }) }); return reply('Acknowledged: no escalation, no reminder; still in /status.'); }
+      if (op === 'm') { p.state = 'muted'; p.mutedUntil = now() + MUTE_HOURS * HOUR; save(); log({ who, channel, what: 'mute', target: p.key, result: await tell({ what: 'mute', key: p.key, until: p.mutedUntil }) }); return reply(`Muted for ${MUTE_HOURS} h.`); }
       const action = actionFor(p.key);
       if (!action || (op === 'r' && !action.retry)) return refuse('no such action for this alert');
       const what = { p: 'pause', u: 'resume', r: 'retry' }[op];
