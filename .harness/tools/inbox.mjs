@@ -147,6 +147,10 @@ export async function deliver(call, repo, r) {
   let why, pr = null;
   try { pr = await findChannel(call, repo); } catch (e) { why = `could not look for the wake channel (${e.message.slice(0, 120)})`; }
   if (!pr && !why) why = `no open ${WAKE_BRANCH} pull request in ${repo}`;
+  // K024: a wake posted as a person's account never reaches that person's subscribed sessions. Actions
+  // and App tokens cannot read /user (403); a token that can and is a User is refused before posting.
+  const me = pr ? await call('GET', '/user').catch(() => null) : null;
+  if (me?.type === 'User') { why = `this token is ${me.login}'s own account, whose wake no session receives; only the wake job (harness-inbox or hands-inbox) posts it`; pr = null; }
   if (pr) {
     let c = null;
     try { c = await call('POST', `/repos/${repo}/issues/${pr.number}/comments`, { body: `Inbox wake (O14) for the ${r.fields['Responsible coordinator'] || 'receiving coordinator'}: request ${r.fields.id} is queued: ${r.url}\nRun the inbox skill (pick up queued requests); this comment needs no reply.` }); }
