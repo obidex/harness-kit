@@ -61,6 +61,13 @@ export function openCore({ dir, actions = [], chats = [], now = () => Date.now()
     st.views[id] = { about, shown: {}, ...(p ? { opened: p.opened } : {}) };
     return { id, text, buttons: buttons.map(([op, label]) => ({ id: `${op}:${id}`, label: label || LABEL[op] })), replyTo, topic };
   };
+  // a decision's message: its question, options and card link, one button per option (also re-shown by /status)
+  const decisionView = (d) => {
+    const lines = d.options.map((o, n) => `${String.fromCharCode(65 + n)}. ${o}${n === d.recommended ? ' (recommended)' : ''}`);
+    if (/^https:\/\/\S+$/.test(String(d.issue || ''))) lines.push(String(d.issue));
+    return view(`d:${d.id}`, `DECISION · ${TOPIC_NAMES[d.project] || d.project}\n${d.question}\n${lines.join('\n')}`,
+      d.options.map((_, n) => [`d${n}`, String.fromCharCode(65 + n)]), null, 'needs');
+  };
   const actionFor = (key) => actions.find((a) => (a.alerts || []).some((p) => (p.endsWith('*') ? key.startsWith(p.slice(0, -1)) : key === p)));
   const problemButtons = (p) => {
     const a = actionFor(p.key);
@@ -104,10 +111,7 @@ export function openCore({ dir, actions = [], chats = [], now = () => Date.now()
       if (!id || !question || !Array.isArray(options) || options.length < 2 || options.length > 4) throw new Error('ask needs an id, a question and 2-4 options');
       if (st.decisions[id]) return null;
       st.decisions[id] = { id, project, question: one(question), options: options.map(one), recommended, issue, asked: now(), answer: null };
-      const lines = st.decisions[id].options.map((o, n) => `${String.fromCharCode(65 + n)}. ${o}${n === recommended ? ' (recommended)' : ''}`);
-      if (/^https:\/\/\S+$/.test(String(issue || ''))) lines.push(String(issue));
-      const v = view(`d:${id}`, `DECISION · ${TOPIC_NAMES[project] || project}\n${st.decisions[id].question}\n${lines.join('\n')}`,
-        st.decisions[id].options.map((_, n) => [`d${n}`, String.fromCharCode(65 + n)]), null, 'needs');
+      const v = decisionView(st.decisions[id]);
       st.decisions[id].view = v.id;
       save(); log({ who: 'sender', what: 'ask', target: id });
       return v;
@@ -164,7 +168,11 @@ export function openCore({ dir, actions = [], chats = [], now = () => Date.now()
       if (!st.owners[channel] || who !== st.owners[channel]) return refuse('not the owner');
       if (!ev.private && !chats.map(String).includes(String(ev.chat))) return refuse('not an allowed chat');
       if (ev.kind === 'text') {
-        if (/^\/status\b/.test(one(ev.text))) { log({ who, channel, what: 'status' }); save(); return [view('status', await core.statusText())]; }
+        if (/^\/status\b/.test(one(ev.text))) { // the status, then each waiting decision again with its buttons, so none is lost in the scroll
+          log({ who, channel, what: 'status' });
+          const out = [view('status', await core.statusText()), ...Object.values(st.decisions).filter((d) => d.answer === null).map(decisionView)];
+          save(); return out;
+        }
         return refuse('unknown command');
       }
       const m = /^(i|a|m|p|u|r|d[0-3]):(v\d+)$/.exec(String(ev.button || ''));
