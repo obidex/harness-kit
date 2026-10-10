@@ -3,6 +3,14 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.26.3 · 2026-10-10 · a session cannot run the wake job at all
+
+- `inbox.mjs wake` refuses to run outside GitHub Actions: the wake comes from the receiver's
+  harness-inbox job or the control repository's hands-inbox job, never from a session (K024).
+- `deliver` now fails closed: a token whose owner GET /user cannot confirm (an outage, an odd answer)
+  is refused like a person's account, instead of posting. An App or Actions token passes as before.
+- `test-inbox` covers both; each fails with the change undone.
+
 ## 0.26.2 · 2026-10-10 · a wake is never posted as a person's account
 
 - `inbox.mjs` `deliver` (K024): before posting a wake it asks GitHub whose token it holds. A person's
