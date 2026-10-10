@@ -226,12 +226,17 @@ ok(away.log().some((e) => e.channel === 'telegram') && away.log().some((e) => e.
   core.bindOwner(OWNER, 'test', 'file');
   await deliver(core, ch.adapter, [core.ask({ id: 'o/r#5/name', project: 'erp', question: 'Which name?', options: ['x', 'y'], issue: 'https://github.com/o/r/issues/5' })]);
   ok(/https:\/\/github\.com\/o\/r\/issues\/5$/.test(ch.shown().at(-1).text), 'a decision shows the link to its card');
+  ch.say(OWNER, '/status', OWNER); await step(core, ch.adapter);
+  const again = ch.shown().at(-1);
+  ok(/^DECISION · /.test(again.text) && again.buttons.map((b) => b.label).join() === 'A,B' && /decision waiting: Which name\?/.test(ch.shown().at(-2).text), '/status shows each waiting decision again, with its buttons');
   ch.tap(OWNER, button(ch, 'B'), OWNER); await step(core, ch.adapter);
   ok(core.state().decisions['o/r#5/name'].answer === null && /Not recorded: outbox full\. Press again/.test(ch.shown().at(-1).text) && /^failed: outbox full$/.test(core.log().at(-1).result), 'an answer the host refuses is not kept, and the owner is told to press again');
   refuse = false; ch.tap(OWNER, button(ch, 'B'), OWNER); await step(core, ch.adapter);
   ok(got.length === 1 && got[0].id === 'o/r#5/name' && got[0].option === 1 && got[0].by === `file:${OWNER}` && got[0].at === new Date(T0).toISOString() && got[0].issue === 'https://github.com/o/r/issues/5' && core.state().decisions['o/r#5/name'].answer.option === 1, 'the answer goes to the host with the card, the option, the channel account and the time');
   ch.tap(OWNER, button(ch, 'A'), OWNER); await step(core, ch.adapter);
   ok(got.length === 1, 'a second press never reaches the host');
+  ch.say(OWNER, '/status', OWNER); await step(core, ch.adapter);
+  ok(/^STATUS/.test(ch.shown().at(-1).text), 'an answered decision is not shown again by /status');
 }
 server.close();
 

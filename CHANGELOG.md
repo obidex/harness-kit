@@ -3,6 +3,13 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.26.1 · 2026-10-10 · /status shows each waiting question again, with its buttons
+
+- `panel.mjs`: `/status` follows the status with each decision still waiting, again with one button
+  per option, so a question posted hours earlier is never lost in the scroll (the owner could not find
+  the first real one). A press on either copy answers it; the first answer counts.
+- `test-panel` covers it; it fails with the change undone.
+
 ## 0.26.0 · 2026-10-09 · questions answered with a button, written back on the card
 
 - `ask.mjs` (K026): a session puts a question for the owner on a card (an issue or a pull request) as
