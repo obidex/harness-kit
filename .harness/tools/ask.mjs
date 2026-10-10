@@ -120,7 +120,7 @@ export async function withdraw(call, { repo, issue, id }) {
   const q = asks[id];
   if (!q) throw new Error(`no question "${id}" on ${repo}#${issue}`);
   if (!withdrawn[id]) await call('POST', `/repos/${repo}/issues/${issue}/comments`, { body: withdrawBody(q) });
-  await settle(call, { repo, issue, app: null });
+  await settle(call, { repo, issue, app: String(process.env.ASK_APP_LOGIN || '').trim() || null });
   return { status: withdrawn[id] ? 'already withdrawn' : 'withdrawn' };
 }
 
