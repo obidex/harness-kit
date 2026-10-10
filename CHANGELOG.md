@@ -3,6 +3,14 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.26.4 · 2026-10-10 · a withdrawn question can no longer be answered late
+
+- `ask.mjs withdraw`: takes a question back with one marked comment on the card (only from the card's
+  own people, like a question). The card loses its label once nothing is left to answer.
+- `open` no longer lists a withdrawn question, and `answer` returns `withdrawn` and posts nothing for
+  one, so a tap that arrives after the withdrawal changes nothing on the card.
+- `test-ask` covers each of the three; each fails with its change undone.
+
 ## 0.26.3 · 2026-10-10 · a session cannot run the wake job at all
 
 - `inbox.mjs wake` refuses to run outside GitHub Actions: the wake comes from the receiver's

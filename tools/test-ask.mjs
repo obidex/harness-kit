@@ -8,7 +8,7 @@ import { createServer } from 'node:http';
 import { execFile } from 'node:child_process';
 import { join } from 'node:path';
 import { readFileSync } from 'node:fs';
-import { question, askBody, answerBody, parse, api, ask, open, answer, dispatch, settle, appLogin, LABEL } from '../.harness/tools/ask.mjs';
+import { question, askBody, answerBody, withdrawBody, parse, api, ask, withdraw, open, answer, dispatch, settle, appLogin, LABEL } from '../.harness/tools/ask.mjs';
 import { parseYaml } from '../.harness/tools/lib.mjs';
 import { controlProblems } from '../.harness/tools/hands.mjs';
 
@@ -123,6 +123,24 @@ await run(['answer', '--repo', 'o/r', '--issue', '5', '--id', 'erp/second', '--o
 ok(await settle(api, { repo: 'o/r', issue: 5, app: APPL }) && !cards['o/r#5'].labels.includes(LABEL) && (await settle(api, { repo: 'o/r', issue: 5, app: APPL })), 'once every question is answered the label comes off (twice is harmless)');
 asks = await open(api, { owner: 'o', app: APPL });
 ok(!asks.some((a) => a.issue === 5) && asks.find((a) => a.id === 'kit/pick')?.answer?.option === 2, 'a settled card drops out of the host\'s view; an answered one still labelled shows its answer');
+
+// --- withdrawing a question ------------------------------------------------------------------------------
+card('o/r', 10);
+await ask(api, { repo: 'o/r', issue: 10, ...Q, id: 'erp/old' });
+await ask(api, { repo: 'o/r', issue: 10, ...Q, id: 'erp/keep' });
+as('STRANGER'); await api('POST', '/repos/o/r/issues/10/comments', { body: withdrawBody({ id: 'erp/keep', question: 'x' }) }); as('OWNER');
+ok(!parse(cards['o/r#10'].comments).withdrawn['erp/keep'], 'a withdrawal written by a stranger is not one');
+const w1 = await withdraw(api, { repo: 'o/r', issue: 10, id: 'erp/old' });
+const wc = cards['o/r#10'].comments.length;
+const w2 = await withdraw(api, { repo: 'o/r', issue: 10, id: 'erp/old' });
+ok(w1.status === 'withdrawn' && w2.status === 'already withdrawn' && cards['o/r#10'].comments.length === wc && /^<!-- panel-withdraw \{[^<>]*\} -->$/.test(cards['o/r#10'].comments.at(-1).body.split('\n')[0]) && parse(cards['o/r#10'].comments).withdrawn['erp/old'] && cards['o/r#10'].labels.includes(LABEL), 'withdraw writes one marked comment (twice is harmless); the card keeps its label while another question waits');
+asks = await open(api, { owner: 'o', app: APPL });
+ok(!asks.some((a) => a.id === 'erp/old') && asks.some((a) => a.id === 'erp/keep'), 'the host no longer shows a withdrawn question, and still shows the others');
+const late = await run(['answer', '--repo', 'o/r', '--issue', '10', '--id', 'erp/old', '--option', '0', '--by', 'telegram:111', '--at', '2026-10-10T18:30:00Z'], 'APP');
+ok(late.code === 0 && /"withdrawn"/.test(late.out) && cards['o/r#10'].comments.length === wc && !parse(cards['o/r#10'].comments, APPL).answers['erp/old'], 'a late press on a withdrawn question writes no answer and wakes nobody');
+const cliW = await run(['withdraw', '--repo', 'o/r', '--issue', '10', '--id', 'erp/keep']);
+ok(cliW.code === 0 && /"withdrawn"/.test(cliW.out) && !cards['o/r#10'].labels.includes(LABEL), 'the command line withdraws too, and a card with nothing left to answer loses its label');
+ok((await run(['withdraw', '--repo', 'o/r', '--issue', '10', '--id', 'erp/none'])).code === 1, 'withdrawing a question that is not on the card is refused');
 srv.close();
 
 // --- the control workflow --------------------------------------------------------------------------
