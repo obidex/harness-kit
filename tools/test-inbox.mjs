@@ -7,7 +7,7 @@ import { createServer } from 'node:http';
 import { execFile } from 'node:child_process';
 import { join } from 'node:path';
 import { readFileSync } from 'node:fs';
-import { body, parse, setField } from '../.harness/tools/inbox.mjs';
+import { body, parse, setField, tokenOwner } from '../.harness/tools/inbox.mjs';
 import { parseYaml } from '../.harness/tools/lib.mjs';
 
 let n = 0;
@@ -30,6 +30,7 @@ const wakes = [];          // comments on the wake-channel pull request (#99)
 let channel = false, refuse = false, forbidPulls = false, channelBranch = 'inbox-wake';
 const opened = [];
 let refsRefused = false;
+let tokenAs = 'app';     // whose token the wake job holds: app (installation token), user, down
 let receiver = null;       // the receiving repository's kit version (null: no kit)
 const dispatches = [];     // hands-inbox dispatches in the control repository o/harness-hands
 const jobs = [];           // the wake jobs those events started (each runs the real tool)
@@ -41,6 +42,7 @@ const srv = createServer((q, res) => {
     const u = new URL(q.url, 'http://x');
     const send = (code, j) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(j)); };
     if (u.pathname.endsWith('/fire')) { fires.push({ auth: q.headers.authorization, body: JSON.parse(data) }); return send(200, { type: 'routine_fire' }); }
+    if (u.pathname === '/user' && q.method === 'GET') return tokenAs === 'user' ? send(200, { login: 'owner', type: 'User' }) : tokenAs === 'down' ? send(502, {}) : send(403, { message: 'Resource not accessible by integration' });
     if (u.pathname.startsWith('/repos/o/locked/')) return send(401, { message: 'Bad credentials' });
     if (u.pathname === '/repos/o/r' && q.method === 'GET') return send(200, { default_branch: 'main' });
     if (u.pathname === '/repos/o/r/contents/.harness/VERSION') return receiver ? send(200, { content: Buffer.from(`${receiver}\n`).toString('base64') }) : send(404, {});
@@ -77,7 +79,7 @@ const srv = createServer((q, res) => {
 await new Promise((d) => srv.listen(0, '127.0.0.1', d));
 const base = `http://127.0.0.1:${srv.address().port}`;
 const tool = join(new URL('..', import.meta.url).pathname, '.harness/tools/inbox.mjs');
-const run = (args, env = {}) => new Promise((d) => execFile(process.execPath, [tool, ...args], { env: { ...process.env, GITHUB_API_URL: base, GH_TOKEN: 't', INBOX_FIRE_BASE: base, INBOX_RECHECK_MS: '0', INBOX_POLL_MS: '50', INBOX_WAIT_MS: '8000', INBOX_HANDS_REPO: '', INBOX_ROUTINE_URL: '', INBOX_ROUTINE_TOKEN: '', ...env } }, (e, stdout, stderr) => d({ code: e ? e.code : 0, out: stdout + stderr })));
+const run = (args, env = {}) => new Promise((d) => execFile(process.execPath, [tool, ...args], { env: { ...process.env, GITHUB_API_URL: base, GH_TOKEN: 't', INBOX_FIRE_BASE: base, INBOX_RECHECK_MS: '0', INBOX_POLL_MS: '50', INBOX_WAIT_MS: '8000', INBOX_HANDS_REPO: '', INBOX_ROUTINE_URL: '', INBOX_ROUTINE_TOKEN: '', GITHUB_ACTIONS: 'true', ...env } }, (e, stdout, stderr) => d({ code: e ? e.code : 0, out: stdout + stderr })));
 const settle = async () => { while (jobs.length) await jobs.shift(); };
 const send = ['send', '--repo', 'o/r', '--id', req.id, '--title', 'Proof', '--outcome', req.outcome, '--source', req.source, '--coordinator', req.coordinator, '--covered-by', req.coveredBy];
 const wired = { INBOX_ROUTINE_URL: `${base}/v1/claude_code/routines/trig_01ABC/fire`, INBOX_ROUTINE_TOKEN: 'sk-test' };
@@ -96,6 +98,21 @@ const s3 = await run(send);
 await settle();
 ok(s3.code === 3 && /NOT delivered: the wake comment was refused/.test(s3.out) && wakes.length === 0, 'a refused wake comment is not a delivery either');
 refuse = false;
+{
+  const c0 = issues[0].comments.length;
+  const out = await run(['wake', '--repo', 'o/r', '--issue', '1'], { GITHUB_ACTIONS: '' });
+  ok(out.code === 1 && /wake runs only in GitHub Actions/.test(out.out) && wakes.length === 0 && issues[0].comments.length === c0, 'wake refuses to run outside GitHub Actions: a session never posts a wake, and nothing is written');
+  tokenAs = 'user';
+  const asUser = await run(['wake', '--repo', 'o/r', '--issue', '1']);
+  ok(asUser.code === 3 && /NOT delivered: the token belongs to the user account owner/.test(asUser.out) && wakes.length === 0 && issues[0].comments.at(-1).startsWith('<!-- inbox-wake-undelivered -->') && !issues[0].comments.some((c) => c.includes('Woke')), 'deliver refuses a user account\'s token even in Actions: no wake under a person\'s account, one "Not delivered" note');
+  tokenAs = 'down';
+  const unsure = await run(['wake', '--repo', 'o/r', '--issue', '1']);
+  ok(unsure.code === 3 && /could not confirm the token is an App/.test(unsure.out) && wakes.length === 0, 'a token whose owner cannot be confirmed is refused too (fails closed)');
+  tokenAs = 'app';
+  issues[0].comments.splice(c0);
+  const bot = await tokenOwner(async () => ({ login: 'obidex-hands[bot]', type: 'Bot' }));
+  ok(bot.app === true && (await tokenOwner(async () => ({ login: 'owner', type: 'User' }))).user === 'owner', 'a Bot account counts as the App; a User account never does');
+}
 const s4 = await run(send);
 await settle();
 ok(s4.code === 0 && /woke the receiving coordinator \(delivered on the wake channel, by o\/harness-hands hands-inbox\)/.test(s4.out) && wakes.length === 1 && /request kit\/proof-1 is queued: https:\/\/gh\.test\/o\/r\/issues\/1/.test(wakes[0]) && issues[0].comments.at(-1) === '<!-- inbox-woke -->\nWoke the receiving coordinator (delivered on #99).', 'once the channel is open, the job posts the wake on the channel PR, writes "Woke", and send reports it');

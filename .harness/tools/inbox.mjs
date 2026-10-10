@@ -30,7 +30,9 @@
 // or a kit older than 0.22.0) the control repository's hands-inbox job posts it with the hands App
 // (INBOX_HANDS_REPO, default <owner>/harness-hands). "Woke" is written on the request only after GitHub
 // accepted that comment; otherwise one "Not delivered" note, a non-zero exit, and a resend or the
-// receiver's own `pending` check picks it up. With no channel, the job fires a routine
+// receiver's own `pending` check picks it up. The job rule is enforced, not trusted: `wake` refuses to
+// run outside GitHub Actions, and `deliver` refuses a token that belongs to a user account, so a wake
+// from a session's own account is never posted. With no channel, the job fires a routine
 // (INBOX_ROUTINE_URL, INBOX_ROUTINE_TOKEN) if the project has one. Nothing ever asks a person.
 //
 // A request is an issue labelled `inbox`. Its body carries one hidden marker `<!-- inbox-id: … -->`
@@ -145,7 +147,10 @@ export async function deliver(call, repo, r) {
   const st = wakeState(notes);
   if (st.woken) return { delivered: true, already: true };
   let why, pr = null;
-  try { pr = await findChannel(call, repo); } catch (e) { why = `could not look for the wake channel (${e.message.slice(0, 120)})`; }
+  const who = await tokenOwner(call);
+  if (who.user) why = `the token belongs to the user account ${who.user}, not to an App or Actions: a subscribed session never receives a comment from its own account, so only harness-inbox or hands-inbox posts the wake (K024)`;
+  else if (!who.app) why = `could not confirm the token is an App's or Actions' (${who.why}), so no wake is posted under a user account`;
+  if (!why) try { pr = await findChannel(call, repo); } catch (e) { why = `could not look for the wake channel (${e.message.slice(0, 120)})`; }
   if (!pr && !why) why = `no open ${WAKE_BRANCH} pull request in ${repo}`;
   if (pr) {
     let c = null;
@@ -163,6 +168,20 @@ export async function deliver(call, repo, r) {
     await call('POST', `/repos/${repo}/issues/${r.number}/comments`, { body: `${UNDELIVERED_MARK}\nNot delivered to the receiving coordinator: ${why}. Nothing is lost: the request stays queued, and the next send or the coordinator's own inbox check picks it up.` }).catch(() => {});
   }
   return { delivered: false, why };
+}
+
+/** Whose token is this? A user token reads its own account on GET /user; an App installation token
+ *  (the hands App, or Actions' GITHUB_TOKEN) is refused there as an integration.
+ *  Returns { app: true } or { user: login } or { why }. */
+export async function tokenOwner(call) {
+  try {
+    const u = await call('GET', '/user');
+    if (u?.type === 'Bot') return { app: true };
+    return u?.login ? { user: u.login } : { why: 'GET /user named no account' };
+  } catch (e) {
+    if (/answered 403/.test(e.message) && /integration/i.test(e.message)) return { app: true };
+    return { why: e.message.slice(0, 120) };
+  }
 }
 
 /** The open wake-channel pull request of the repository, or null. */
@@ -308,6 +327,9 @@ async function main() {
     return;
   }
   if (cmd === 'wake') {
+    // Only a job posts a wake (K024): run anywhere else, its comment would carry the session's own
+    // account, which no subscribed session ever receives.
+    if (process.env.GITHUB_ACTIONS !== 'true') throw new Error('wake runs only in GitHub Actions (harness-inbox.yml, or hands-inbox.yml in the control repository); from a session, use `send`, which starts that job');
     const n = Number(opt('--issue'));
     // The issue itself, read directly: the label listing lags a new issue by seconds, and this job
     // starts the moment the issue is filed. The listing only says whether an earlier issue has its ID.
