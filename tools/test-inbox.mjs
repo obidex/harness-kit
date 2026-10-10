@@ -30,7 +30,8 @@ const wakes = [];          // comments on the wake-channel pull request (#99)
 let channel = false, refuse = false, forbidPulls = false, channelBranch = 'inbox-wake';
 const opened = [];
 let refsRefused = false;
-let tokenAs = 'app';     // whose token the wake job holds: app (installation token), user, down
+let person = false;        // GET /user answers as a person's account (a session's token), not 403 like a job's
+let userDown = false;      // GET /user fails outright (the token's owner cannot be confirmed)
 let receiver = null;       // the receiving repository's kit version (null: no kit)
 const dispatches = [];     // hands-inbox dispatches in the control repository o/harness-hands
 const jobs = [];           // the wake jobs those events started (each runs the real tool)
@@ -42,7 +43,7 @@ const srv = createServer((q, res) => {
     const u = new URL(q.url, 'http://x');
     const send = (code, j) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(j)); };
     if (u.pathname.endsWith('/fire')) { fires.push({ auth: q.headers.authorization, body: JSON.parse(data) }); return send(200, { type: 'routine_fire' }); }
-    if (u.pathname === '/user' && q.method === 'GET') return tokenAs === 'user' ? send(200, { login: 'owner', type: 'User' }) : tokenAs === 'down' ? send(502, {}) : send(403, { message: 'Resource not accessible by integration' });
+    if (u.pathname === '/user') return userDown ? send(502, {}) : person ? send(200, { login: 'owner', type: 'User' }) : send(403, { message: 'Resource not accessible by integration' });
     if (u.pathname.startsWith('/repos/o/locked/')) return send(401, { message: 'Bad credentials' });
     if (u.pathname === '/repos/o/r' && q.method === 'GET') return send(200, { default_branch: 'main' });
     if (u.pathname === '/repos/o/r/contents/.harness/VERSION') return receiver ? send(200, { content: Buffer.from(`${receiver}\n`).toString('base64') }) : send(404, {});
@@ -98,21 +99,6 @@ const s3 = await run(send);
 await settle();
 ok(s3.code === 3 && /NOT delivered: the wake comment was refused/.test(s3.out) && wakes.length === 0, 'a refused wake comment is not a delivery either');
 refuse = false;
-{
-  const c0 = issues[0].comments.length;
-  const out = await run(['wake', '--repo', 'o/r', '--issue', '1'], { GITHUB_ACTIONS: '' });
-  ok(out.code === 1 && /wake runs only in GitHub Actions/.test(out.out) && wakes.length === 0 && issues[0].comments.length === c0, 'wake refuses to run outside GitHub Actions: a session never posts a wake, and nothing is written');
-  tokenAs = 'user';
-  const asUser = await run(['wake', '--repo', 'o/r', '--issue', '1']);
-  ok(asUser.code === 3 && /NOT delivered: the token belongs to the user account owner/.test(asUser.out) && wakes.length === 0 && issues[0].comments.at(-1).startsWith('<!-- inbox-wake-undelivered -->') && !issues[0].comments.some((c) => c.includes('Woke')), 'deliver refuses a user account\'s token even in Actions: no wake under a person\'s account, one "Not delivered" note');
-  tokenAs = 'down';
-  const unsure = await run(['wake', '--repo', 'o/r', '--issue', '1']);
-  ok(unsure.code === 3 && /could not confirm the token is an App/.test(unsure.out) && wakes.length === 0, 'a token whose owner cannot be confirmed is refused too (fails closed)');
-  tokenAs = 'app';
-  issues[0].comments.splice(c0);
-  const bot = await tokenOwner(async () => ({ login: 'obidex-hands[bot]', type: 'Bot' }));
-  ok(bot.app === true && (await tokenOwner(async () => ({ login: 'owner', type: 'User' }))).user === 'owner', 'a Bot account counts as the App; a User account never does');
-}
 const s4 = await run(send);
 await settle();
 ok(s4.code === 0 && /woke the receiving coordinator \(delivered on the wake channel, by o\/harness-hands hands-inbox\)/.test(s4.out) && wakes.length === 1 && /request kit\/proof-1 is queued: https:\/\/gh\.test\/o\/r\/issues\/1/.test(wakes[0]) && issues[0].comments.at(-1) === '<!-- inbox-woke -->\nWoke the receiving coordinator (delivered on #99).', 'once the channel is open, the job posts the wake on the channel PR, writes "Woke", and send reports it');
@@ -120,6 +106,25 @@ const s5 = await run(send);
 await settle();
 ok(s5.code === 0 && /already woken/.test(s5.out) && wakes.length === 1 && dispatches.length === 4, 'a request already woken is never woken twice by a plain resend (no job started)');
 ok((await run(['wake', '--repo', 'o/r', '--issue', '1'], {})).code === 0 && wakes.length === 1 && fires.length === 0, 'the job run again after a delivered wake wakes nobody again');
+{
+  person = true;   // the wake job run from a session: its token is the owner's own account
+  const w0 = wakes.length;
+  issues[0].comments.push('<!-- inbox-rewake -->\nWaking again.');
+  const own = await run(['wake', '--repo', 'o/r', '--issue', '1']);
+  ok(own.code === 3 && /NOT delivered: this token is owner's own account/.test(own.out) && wakes.length === w0 && !issues[0].comments.at(-1).includes('Woke'), 'a wake whose token is a person\'s account is refused before posting: that comment would reach no session (K024)');
+  issues[0].comments.splice(-2); person = false;
+  issues[0].comments.push('<!-- inbox-rewake -->\nWaking again.');
+  userDown = true;
+  const unsure = await run(['wake', '--repo', 'o/r', '--issue', '1']);
+  ok(unsure.code === 3 && /NOT delivered: could not confirm the token is an App/.test(unsure.out) && wakes.length === w0, 'a token whose owner cannot be confirmed is refused too (fails closed)');
+  issues[0].comments.splice(-2); userDown = false;
+  const c0 = issues[0].comments.length;
+  issues[0].comments.push('<!-- inbox-rewake -->\nWaking again.');
+  const outside = await run(['wake', '--repo', 'o/r', '--issue', '1'], { GITHUB_ACTIONS: '' });
+  ok(outside.code === 1 && /wake runs only in GitHub Actions/.test(outside.out) && wakes.length === w0 && issues[0].comments.length === c0 + 1, 'wake refuses to run outside GitHub Actions: a session never posts a wake, and nothing is written');
+  issues[0].comments.splice(c0);
+  ok((await tokenOwner(async () => ({ login: 'obidex-hands[bot]', type: 'Bot' }))).app === true && (await tokenOwner(async () => ({ login: 'owner', type: 'User' }))).user === 'owner', 'a Bot account counts as the App; a User account never does');
+}
 const again = await run([...send, '--again']);
 await settle();
 ok(again.code === 0 && wakes.length === 2 && issues[0].comments.some((c) => c.startsWith('<!-- inbox-rewake -->')) && /delivered/.test(again.out), 'send --again wakes a still-queued request once more, and marks why');

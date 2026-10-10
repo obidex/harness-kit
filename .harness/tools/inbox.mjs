@@ -31,8 +31,7 @@
 // (INBOX_HANDS_REPO, default <owner>/harness-hands). "Woke" is written on the request only after GitHub
 // accepted that comment; otherwise one "Not delivered" note, a non-zero exit, and a resend or the
 // receiver's own `pending` check picks it up. The job rule is enforced, not trusted: `wake` refuses to
-// run outside GitHub Actions, and `deliver` refuses a token that belongs to a user account, so a wake
-// from a session's own account is never posted. With no channel, the job fires a routine
+// run outside GitHub Actions, and `deliver` refuses a token that is a person's account. With no channel, the job fires a routine
 // (INBOX_ROUTINE_URL, INBOX_ROUTINE_TOKEN) if the project has one. Nothing ever asks a person.
 //
 // A request is an issue labelled `inbox`. Its body carries one hidden marker `<!-- inbox-id: … -->`
@@ -147,11 +146,14 @@ export async function deliver(call, repo, r) {
   const st = wakeState(notes);
   if (st.woken) return { delivered: true, already: true };
   let why, pr = null;
-  const who = await tokenOwner(call);
-  if (who.user) why = `the token belongs to the user account ${who.user}, not to an App or Actions: a subscribed session never receives a comment from its own account, so only harness-inbox or hands-inbox posts the wake (K024)`;
-  else if (!who.app) why = `could not confirm the token is an App's or Actions' (${who.why}), so no wake is posted under a user account`;
-  if (!why) try { pr = await findChannel(call, repo); } catch (e) { why = `could not look for the wake channel (${e.message.slice(0, 120)})`; }
+  try { pr = await findChannel(call, repo); } catch (e) { why = `could not look for the wake channel (${e.message.slice(0, 120)})`; }
   if (!pr && !why) why = `no open ${WAKE_BRANCH} pull request in ${repo}`;
+  // K024: a wake posted as a person's account never reaches that person's subscribed sessions. Actions
+  // and App tokens cannot read /user (403); a token that can and is a User is refused before posting,
+  // and so is one whose owner cannot be confirmed (fails closed).
+  const me = pr ? await tokenOwner(call) : null;
+  if (me?.user) { why = `this token is ${me.user}'s own account, whose wake no session receives; only the wake job (harness-inbox or hands-inbox) posts it`; pr = null; }
+  else if (me && !me.app) { why = `could not confirm the token is an App's or Actions' (${me.why}), so no wake is posted under a person's account`; pr = null; }
   if (pr) {
     let c = null;
     try { c = await call('POST', `/repos/${repo}/issues/${pr.number}/comments`, { body: `Inbox wake (O14) for the ${r.fields['Responsible coordinator'] || 'receiving coordinator'}: request ${r.fields.id} is queued: ${r.url}\nRun the inbox skill (pick up queued requests); this comment needs no reply.` }); }
@@ -170,8 +172,8 @@ export async function deliver(call, repo, r) {
   return { delivered: false, why };
 }
 
-/** Whose token is this? A user token reads its own account on GET /user; an App installation token
- *  (the hands App, or Actions' GITHUB_TOKEN) is refused there as an integration.
+/** Whose token is this? A person's token reads its own account on GET /user; an App installation
+ *  token (the hands App, or Actions' GITHUB_TOKEN) is refused there as an integration.
  *  Returns { app: true } or { user: login } or { why }. */
 export async function tokenOwner(call) {
   try {

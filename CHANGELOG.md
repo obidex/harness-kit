@@ -3,15 +3,21 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
-## 0.26.2 · 2026-10-10 · a wake is never posted under a person's account
+## 0.26.3 · 2026-10-10 · a session cannot run the wake job at all
 
-- `inbox.mjs wake` refuses to run outside GitHub Actions: a wake comes from the receiver's
+- `inbox.mjs wake` refuses to run outside GitHub Actions: the wake comes from the receiver's
   harness-inbox job or the control repository's hands-inbox job, never from a session (K024).
-- `inbox.mjs` `deliver` refuses a token that belongs to a user account (GET /user names a User), and
-  one whose owner it cannot confirm: no wake comment is posted, and the request gets one "Not
-  delivered" note. An App installation token or Actions' own token passes. A subscribed session
-  never receives a comment from its own account, so such a wake reached nobody.
+- `deliver` now fails closed: a token whose owner GET /user cannot confirm (an outage, an odd answer)
+  is refused like a person's account, instead of posting. An App or Actions token passes as before.
 - `test-inbox` covers both; each fails with the change undone.
+
+## 0.26.2 · 2026-10-10 · a wake is never posted as a person's account
+
+- `inbox.mjs` `deliver` (K024): before posting a wake it asks GitHub whose token it holds. A person's
+  account (a session running `wake` itself) is refused with "Not delivered", because no subscribed
+  session receives its own account's comment; Actions and App tokens (403 on `/user`) post as before.
+  Found 10 Oct: two ERP wakes posted from a session reached nobody (roadmap #38 S-029).
+- `test-inbox` covers it; it fails with the change undone.
 
 ## 0.26.1 · 2026-10-10 · /status shows each waiting question again, with its buttons
 
