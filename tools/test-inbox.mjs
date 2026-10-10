@@ -30,6 +30,7 @@ const wakes = [];          // comments on the wake-channel pull request (#99)
 let channel = false, refuse = false, forbidPulls = false, channelBranch = 'inbox-wake';
 const opened = [];
 let refsRefused = false;
+let person = false;        // GET /user answers as a person's account (a session's token), not 403 like a job's
 let receiver = null;       // the receiving repository's kit version (null: no kit)
 const dispatches = [];     // hands-inbox dispatches in the control repository o/harness-hands
 const jobs = [];           // the wake jobs those events started (each runs the real tool)
@@ -41,6 +42,7 @@ const srv = createServer((q, res) => {
     const u = new URL(q.url, 'http://x');
     const send = (code, j) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(j)); };
     if (u.pathname.endsWith('/fire')) { fires.push({ auth: q.headers.authorization, body: JSON.parse(data) }); return send(200, { type: 'routine_fire' }); }
+    if (u.pathname === '/user') return person ? send(200, { login: 'owner', type: 'User' }) : send(403, { message: 'Resource not accessible by integration' });
     if (u.pathname.startsWith('/repos/o/locked/')) return send(401, { message: 'Bad credentials' });
     if (u.pathname === '/repos/o/r' && q.method === 'GET') return send(200, { default_branch: 'main' });
     if (u.pathname === '/repos/o/r/contents/.harness/VERSION') return receiver ? send(200, { content: Buffer.from(`${receiver}\n`).toString('base64') }) : send(404, {});
@@ -103,6 +105,14 @@ const s5 = await run(send);
 await settle();
 ok(s5.code === 0 && /already woken/.test(s5.out) && wakes.length === 1 && dispatches.length === 4, 'a request already woken is never woken twice by a plain resend (no job started)');
 ok((await run(['wake', '--repo', 'o/r', '--issue', '1'], {})).code === 0 && wakes.length === 1 && fires.length === 0, 'the job run again after a delivered wake wakes nobody again');
+{
+  person = true;   // the wake job run from a session: its token is the owner's own account
+  const w0 = wakes.length;
+  issues[0].comments.push('<!-- inbox-rewake -->\nWaking again.');
+  const own = await run(['wake', '--repo', 'o/r', '--issue', '1']);
+  ok(own.code === 3 && /NOT delivered: this token is owner's own account/.test(own.out) && wakes.length === w0 && !issues[0].comments.at(-1).includes('Woke'), 'a wake whose token is a person\'s account is refused before posting: that comment would reach no session (K024)');
+  issues[0].comments.splice(-2); person = false;
+}
 const again = await run([...send, '--again']);
 await settle();
 ok(again.code === 0 && wakes.length === 2 && issues[0].comments.some((c) => c.startsWith('<!-- inbox-rewake -->')) && /delivered/.test(again.out), 'send --again wakes a still-queued request once more, and marks why');

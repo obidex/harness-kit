@@ -3,6 +3,14 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.26.2 · 2026-10-10 · a wake is never posted as a person's account
+
+- `inbox.mjs` `deliver` (K024): before posting a wake it asks GitHub whose token it holds. A person's
+  account (a session running `wake` itself) is refused with "Not delivered", because no subscribed
+  session receives its own account's comment; Actions and App tokens (403 on `/user`) post as before.
+  Found 10 Oct: two ERP wakes posted from a session reached nobody (roadmap #38 S-029).
+- `test-inbox` covers it; it fails with the change undone.
+
 ## 0.26.1 · 2026-10-10 · /status shows each waiting question again, with its buttons
 
 - `panel.mjs`: `/status` follows the status with each decision still waiting, again with one button
