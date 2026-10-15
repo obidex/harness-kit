@@ -37,7 +37,8 @@
 //   https link: the host's `run({ op: 'explain', action, problem: { key, topic, title, link } })` sends
 //   the request on (the panel itself never calls an AI), and the host later gives the answer to
 //   `explained(key, text)`, which shows it under the problem. The core counts presses that reached the
-//   host in the last 24 h and refuses the press past EXPLAIN_PER_DAY, so a stuck button cannot spend.
+//   host in the last 24 h (counted before the call, so a failing host counts too) and refuses the
+//   press past EXPLAIN_PER_DAY, so a stuck button cannot spend.
 
 import { readFileSync, writeFileSync, appendFileSync, mkdirSync, existsSync, renameSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
@@ -76,7 +77,8 @@ export function openCore({ dir, actions = [], chats = [], now = () => Date.now()
       d.options.map((_, n) => [`d${n}`, String.fromCharCode(65 + n)]), null, 'needs');
   };
   const canExplain = (p, a) => !!a?.explain && /^https:\/\/\S+$/.test(String(p.link || ''));
-  const explainsToday = () => core.log().filter((l) => l.what === 'explain' && l.result === 'ok' && Date.parse(l.at) > now() - 24 * HOUR).length;
+  // counted from the line written BEFORE the host is called, so a host that fails (or a crash after the call) still counts
+  const explainsToday = () => core.log().filter((l) => l.what === 'explain' && l.result === 'sent' && Date.parse(l.at) > now() - 24 * HOUR).length;
   const actionFor = (key) => actions.find((a) => (a.alerts || []).some((p) => (p.endsWith('*') ? key.startsWith(p.slice(0, -1)) : key === p)));
   const problemButtons = (p) => {
     const a = actionFor(p.key);
@@ -227,9 +229,10 @@ export function openCore({ dir, actions = [], chats = [], now = () => Date.now()
         if (!canExplain(p, action)) return refuse('no such action for this alert');
         const used = explainsToday();
         if (used >= EXPLAIN_PER_DAY) { log({ who, channel, what: 'explain', target: p.key, result: `refused: ${EXPLAIN_PER_DAY} in 24 h already` }); save(); return reply(`Not sent: ${EXPLAIN_PER_DAY} explanations in the last 24 h already.`); }
+        log({ who, channel, what: 'explain', target: p.key, action: action.id, result: 'sent' });
         let res;
         try { res = await run({ op: 'explain', action, problem: { key: p.key, topic: p.topic, title: p.title, link: p.link } }); } catch (e) { res = { ok: false, text: e.message }; }
-        log({ who, channel, what: 'explain', target: p.key, action: action.id, result: res.ok ? 'ok' : `failed: ${one(res.text)}` }); save();
+        log({ who, channel, what: 'explain-result', target: p.key, action: action.id, result: res.ok ? 'ok' : `failed: ${one(res.text)}` }); save();
         return reply(res.ok ? `Asked Claude to explain (${used + 1} of ${EXPLAIN_PER_DAY} in 24 h). The answer comes here.` : `Explain failed${res.text ? ` · ${one(res.text)}` : ''}`);
       }
       if (!action || (op === 'r' && !action.retry)) return refuse('no such action for this alert');

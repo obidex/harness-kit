@@ -275,6 +275,18 @@ ok(ids.length > 10 && ids.every((id) => Buffer.byteLength(id) <= 64 && /^(i|a|m|
   ok(/^EXPLAINED · sql-live failed 1\nThe live database/.test(ch.shown().at(-1).text) && ch.shown().at(-1).reply !== null && core.log().at(-1).what === 'explained', 'the answer is shown under its problem and logged');
   ok(core.explained('nope', 'x') === null && core.explained('box-1', '  ') === null, 'an answer for an unknown problem, or an empty one, shows nothing');
 }
+// a host that fails still uses up the day's presses: the press is counted before the host is called
+{
+  const clock = { t: T0 }; let calls = 0;
+  const core = openCore({ dir: join(tmp, 'explain-fail', 'core'), chats: [GROUP], now: () => clock.t,
+    actions: [{ id: 'box-job', alerts: ['box-*'], job: 'sql-live', explain: true }],
+    run: async () => { calls++; throw new Error('timeout'); } });
+  const ch = fileChannel(join(tmp, 'explain-fail', 'ch'));
+  core.bindOwner(OWNER, 'test', ch.adapter.name);
+  await deliver(core, ch.adapter, [core.problem({ key: 'box-f', topic: 'ops', text: 'failed', link: 'https://github.com/o/infra/issues/9' })]);
+  for (let i = 0; i < 5; i++) { ch.tap(OWNER, button(ch, 'Explain (Claude)')); await step(core, ch.adapter); }
+  ok(calls === 3 && /Not sent: 3/.test(ch.shown().at(-1).text), 'a failing host is still called at most 3 times in 24 h');
+}
 
 rmSync(tmp, { recursive: true, force: true });
 console.log(`test-panel: OK · ${n} cases`);
