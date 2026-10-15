@@ -82,7 +82,7 @@ export function openCore({ dir, actions = [], chats = [], now = () => Date.now()
   const actionFor = (key) => actions.find((a) => (a.alerts || []).some((p) => (p.endsWith('*') ? key.startsWith(p.slice(0, -1)) : key === p)));
   const problemButtons = (p) => {
     const a = actionFor(p.key);
-    return [['i'], ['a'], ['m'], ...(a ? [p.paused ? ['u'] : ['p']] : []), ...(a?.retry ? [['r']] : []), ...(canExplain(p, a) ? [['e']] : [])];
+    return [['i'], ['a'], ['m'], ...(a?.job ? [p.paused ? ['u'] : ['p']] : []), ...(a?.job && a.retry ? [['r']] : []), ...(canExplain(p, a) ? [['e']] : [])];
   };
   const codePath = join(dir, 'bind-code');
   const pendingCode = () => {
@@ -235,7 +235,7 @@ export function openCore({ dir, actions = [], chats = [], now = () => Date.now()
         log({ who, channel, what: 'explain-result', target: p.key, action: action.id, result: res.ok ? 'ok' : `failed: ${one(res.text)}` }); save();
         return reply(res.ok ? `Asked Claude to explain (${used + 1} of ${EXPLAIN_PER_DAY} in 24 h). The answer comes here.` : `Explain failed${res.text ? ` · ${one(res.text)}` : ''}`);
       }
-      if (!action || (op === 'r' && !action.retry)) return refuse('no such action for this alert');
+      if (!action?.job || (op === 'r' && !action.retry)) return refuse('no such action for this alert');   // an explain-only entry names no job
       const what = { p: 'pause', u: 'resume', r: 'retry' }[op];
       let res;
       try { res = await run({ op: what, action, problem: { key: p.key, topic: p.topic } }); } catch (e) { res = { ok: false, text: e.message }; }
