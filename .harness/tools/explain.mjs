@@ -45,11 +45,12 @@ const KEY = /^[\w.:/-]{1,80}$/;
 export const appLogin = (env = process.env) => { const l = String(env.EXPLAIN_APP_LOGIN || '').trim(); if (!/^[a-z0-9-]+\[bot\]$/.test(l)) throw new Error('EXPLAIN_APP_LOGIN must be the hands App\'s login (<slug>[bot])'); return l; };
 
 /** A link the session may read: a GitHub issue, pull request, Actions run (or job) or Markdown report
- *  file (a box job's page on a reports repository) of `owner`. */
+ *  file on a branch (a box job's page on a reports repository) of `owner`; never at a commit id, which
+ *  can name a fork's commit under the owner's address. */
 export function link(url, owner) {
   const u = String(url || '').trim();
   const o = String(owner || '').replace(/[^A-Za-z0-9_.-]/g, '');
-  if (!o || !new RegExp(`^https://github\\.com/${o}/[A-Za-z0-9_.-]+/(issues/\\d+|pull/\\d+|actions/runs/\\d+(/job/\\d+)?|blob/[A-Za-z0-9_.-]+/[A-Za-z0-9_/-]+(\\.[A-Za-z0-9_-]+)*\\.md)(#[\\w-]+)?$`, 'i').test(u) || /\.\./.test(u)) throw new Error(`--link must be a GitHub issue, pull request, Actions run or Markdown report of ${o || 'the owner'}`);
+  if (!o || !new RegExp(`^https://github\\.com/${o}/[A-Za-z0-9_.-]+/(issues/\\d+|pull/\\d+|actions/runs/\\d+(/job/\\d+)?|blob/[A-Za-z0-9_.-]+/[A-Za-z0-9_/-]+(\\.[A-Za-z0-9_-]+)*\\.md)(#[\\w-]+)?$`, 'i').test(u) || /\.\./.test(u) || /\/blob\/[0-9a-f]{40}\//i.test(u)) throw new Error(`--link must be a GitHub issue, pull request, Actions run or Markdown report of ${o || 'the owner'}`);
   return u;
 }
 

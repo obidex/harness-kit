@@ -31,8 +31,9 @@
 //   logged. An owner bound before 0.26.0 (one for every channel) is kept for the first channel he uses.
 // - A decision's answer goes to the host's `onAnswer({ id, project, issue, option, by, at, channel })`
 //   (the kit's ask.mjs writes it on the card it was asked on); one it refuses is not kept.
-// - Pause, resume and retry exist only for an alert the action list names ({ id, alerts: [key or
-//   "prefix*"], job, retry }); the host's `run({ op, action, problem })` does them.
+// - Pause, resume and retry exist only for an alert the action list names with a job ({ id, alerts:
+//   [key or "prefix*"], job, retry }); the host's `run({ op, action, problem })` does them. An entry
+//   without `job` offers only Explain.
 // - Explain exists only for an alert whose action says `explain: true` and whose problem carries an
 //   https link: the host's `run({ op: 'explain', action, problem: { key, topic, title, link } })` sends
 //   the request on (the panel itself never calls an AI), and the host later gives the answer to

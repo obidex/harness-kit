@@ -703,7 +703,8 @@ control repository, with no token or AI on the host's machine.
 repository, not as an issue or run, and a problem may deserve an explanation without a job to pause.
 
 1. **Links.** Besides an issue, pull request or Actions run, a request may link a Markdown report file
-   (`blob/<ref>/<path>.md`) of the same owner. Nothing else, and no `..`.
+   on a branch (`blob/<branch>/<path>.md`) of the same owner. Nothing else: no `..`, and no commit id,
+   which can show a fork's commit under the owner's address.
 2. **Action entries.** Pause, Resume and Retry need the entry's `job`; an entry without one offers only
    what else it says (Explain), and a press of a missing button is refused.
 
