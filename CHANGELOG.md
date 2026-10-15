@@ -3,6 +3,18 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.27.0 · 2026-10-15 · an Explain button on a failure, capped, with no AI on the host (K027)
+
+- `panel.mjs`: a new op `e` (Explain). It appears only on a problem whose action-list entry says
+  `explain: true` and that carries an https link. A press hands `{ op: 'explain', action, problem: { key,
+  topic, title, link } }` to the host's `run`, which sends the request on; the panel calls no AI itself.
+  `explained(key, text)` shows the answer under the problem (at most 1,500 characters).
+- At most `EXPLAIN_PER_DAY` (3) presses that reached the host in any 24 h, counted from the panel's own
+  log line written before the host is called (a failing host counts too); a press past that is refused
+  and logged, and sends nothing.
+- `test-panel` covers the button's conditions, a forged press, the cap (also with a failing host), its
+  reset after 24 h and the answer; the cap and the button condition each fail their case when undone.
+
 ## 0.26.4 · 2026-10-10 · a withdrawn question can no longer be answered late
 
 - `ask.mjs withdraw`: takes a question back with one marked comment on the card (only from the card's

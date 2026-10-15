@@ -659,3 +659,18 @@ a press recorded on the card through the hands App, with the channel account and
 5. **Identity.** The owner's account is stored per channel.
 
 **Status:** STANDING.
+
+## K027 · 2026-10-15 · STANDING — Explain this failure: the panel relays, Claude explains elsewhere
+
+**Source:** the owner's choice of an "Explain this failure" button paid by his existing Claude plan, with
+no new paid service, and the standing rule that no AI runs on a project's machines.
+
+1. **The button.** Only for a problem whose action entry says `explain: true` and that carries an https
+   link to the failure. The panel hands the press to its host and calls no AI itself.
+2. **The cap.** At most 3 presses that reached the host in any 24 h, counted from the panel's own log line
+   written before the host is called, so a failing host or a crash cannot lift it. A refused press is
+   logged and sends nothing.
+3. **The answer.** The host relays it back with `explained(key, text)`; where the answer is written and who
+   writes it is the host's.
+
+**Status:** STANDING.
