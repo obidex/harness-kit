@@ -11,7 +11,7 @@ Each version is the tag `v<version>` on this repository, never moved (K003). Pro
   answers; `dispatch` starts the control repository's job for one press.
 - `templates/hands/hands-explain.yml` (new): the control repository's job for one press, beside
   `hands-answer`: dispatched only, main only, an App token for the one repository with comment rights
-  only, and no concurrency group (GitHub would cancel a waiting press). It needs kit 0.28.0.
+  only, and a concurrency group per run (a shared one would let GitHub cancel a waiting press). It needs kit 0.28.0.
 - Two runs at once both post, then each reads the channel again and the later one deletes its own
   request if it no longer fits. Only the last 48 h of the channel is read; more than 1,000 comments in
   that window is refused rather than read in part, so the cap never fails open.

@@ -688,7 +688,7 @@ control repository, with no token or AI on the host's machine.
    not an inbox wake). The request is data: it approves nothing and lifts no refusal.
 3. **Limits.** Only a GitHub issue, pull request or Actions run of the same owner may be linked. At most
    3 requests in any 24 h per wake channel, and a problem still waiting for its answer is not asked
-   twice. No concurrency group (GitHub cancels a waiting run): of two runs at once, the later request
+   twice. No shared concurrency group (GitHub cancels a waiting run): of two runs at once, the later request
    deletes itself if it no longer fits. Only the last 48 h of the channel is read, and a window too full
    to read whole is refused. A request counts only from the App; an answer only from the
    repository's own people and only after its request.

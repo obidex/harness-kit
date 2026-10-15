@@ -5,7 +5,7 @@
 # App, never as the owner's account, so the coordinator subscribed to it is woken (K024) and starts a
 # short read-only session that answers there. No AI runs here. At most 3 requests in any 24 h go on one
 # wake channel (explain.mjs refuses a fourth; the panel caps all presses too), and a problem still
-# waiting for its answer is not asked twice. No concurrency group: GitHub would cancel a pending
+# waiting for its answer is not asked twice. No shared concurrency group: GitHub would cancel a pending
 # press; two runs at once both post, and the later one deletes its own request if it no longer fits.
 # The token is minted for that one repository, with only issues and pull requests to write. Nothing
 # runs on a schedule. It runs the kit at HANDS_KIT_VERSION, which must be 0.28.0 or later (the first
@@ -38,6 +38,11 @@ on:
 
 permissions:
   contents: read
+
+concurrency:
+  # a group of its own per run: a shared group would let GitHub cancel a press waiting behind another
+  group: hands-explain-${{ github.run_id }}
+  cancel-in-progress: false
 
 jobs:
   explain:

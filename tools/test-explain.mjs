@@ -141,7 +141,7 @@ srv.close();
 const text = readFileSync(join(ROOT, '.harness/templates/hands/hands-explain.yml'), 'utf8');
 const wf = parseYaml(text), job = wf.jobs.explain, tok = job.steps.find((x) => x.id === 'token').with, last = job.steps.at(-1);
 ok(Object.keys(wf.on).join() === 'workflow_dispatch' && /github\.ref == 'refs\/heads\/main'/.test(job.if) && job['timeout-minutes'] <= 3 && job.environment === 'hands' && !controlProblems({ 'hands-explain.yml': text }).length, 'hands-explain runs only when dispatched, only from main, and is short');
-ok(wf.concurrency === undefined && !/concurrency:/.test(text.split('\n').filter((l) => !l.startsWith('#')).join('\n')), 'no concurrency group, so GitHub never cancels a waiting press');
+ok(wf.concurrency.group === 'hands-explain-${{ github.run_id }}' && String(wf.concurrency['cancel-in-progress']) === 'false', 'each run has a concurrency group of its own, so GitHub never cancels a waiting press');
 ok(/steps\.input\.outputs\.name/.test(tok.repositories) && tok['permission-issues'] === 'write' && tok['permission-pull-requests'] === 'write' && !Object.keys(tok).some((k) => /permission-(contents|administration|workflows|actions)/.test(k)) && /only this owner/.test(job.steps[0].run), 'its App token is for the one named repository of this owner and writes only comments; the inputs are checked first');
 ok(!/\$\{\{\s*inputs\./.test(last.run) && /--link "\$LINK"/.test(last.run) && /app-slug/.test(last.env.EXPLAIN_APP_LOGIN) && /0\.28\.0/.test(job.steps.find((x) => x.id === 'kit').run), 'the pressed values reach the tool only through the environment, the job names its App, and it needs kit 0.28.0');
 
