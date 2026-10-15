@@ -1,0 +1,98 @@
+# Harness Kit control repository (K028): copied into the owner's control repository, never into a project.
+# "Explain this failure" from the control panel (K027): the panel host records the press and dispatches
+# this with the repository whose wake channel gets the request, the problem's key, title and link, who
+# pressed (<channel>:<account>) and when. This job posts the request on that wake channel with the hands
+# App, never as the owner's account, so the coordinator subscribed to it is woken (K024) and starts a
+# short read-only session that answers there. No AI runs here. At most 3 requests in any 24 h go on one
+# wake channel (explain.mjs refuses a fourth; the panel caps all presses too), and a problem still
+# waiting for its answer is not asked twice. No shared concurrency group: GitHub would cancel a pending
+# press; two runs at once both post, and the later one deletes its own request if it no longer fits.
+# The token is minted for that one repository, with only issues and pull requests to write. Nothing
+# runs on a schedule. It runs the kit at HANDS_KIT_VERSION, which must be 0.28.0 or later (the first
+# with explain.mjs).
+# Cost (O13): one job of about half a minute (one GitHub-hosted minute) per press, at most 3 a day.
+name: hands-explain
+
+on:
+  workflow_dispatch:
+    inputs:
+      repo:
+        description: The repository whose wake channel gets the request (owner/name)
+        required: true
+      key:
+        description: The problem's key in the panel
+        required: true
+      title:
+        description: The problem's title
+        required: false
+        default: ''
+      link:
+        description: The failure (a GitHub issue, pull request or Actions run of this owner)
+        required: true
+      by:
+        description: Who pressed, as <channel>:<account id>
+        required: true
+      at:
+        description: When, as an ISO time
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  # a group of its own per run: a shared group would let GitHub cancel a press waiting behind another
+  group: hands-explain-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  explain:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    environment: hands
+    steps:
+      - id: input
+        env:
+          REPO: ${{ inputs.repo }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          [[ "$REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "hands-explain: repo must be owner/name"; exit 1; }
+          [[ "${REPO%%/*}" == "$OWNER" ]] || { echo "hands-explain: only this owner's repositories"; exit 1; }
+          echo "name=${REPO#*/}" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - id: kit
+        run: |
+          set -euo pipefail
+          v="$(tr -d '[:space:]' < HANDS_KIT_VERSION)"
+          [ "$(printf '%s\n0.28.0\n' "$v" | sort -V | head -1)" = "0.28.0" ] || { echo "hands-explain: HANDS_KIT_VERSION $v is older than 0.28.0, the first with explain.mjs"; exit 1; }
+          echo "ref=v$v" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: ${{ vars.HARNESS_KIT_REPO || 'obidex/harness-kit' }}
+          ref: ${{ steps.kit.outputs.ref }}
+          path: kit
+          persist-credentials: false
+      - id: token
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1.12.0
+        with:
+          app-id: ${{ vars.HARNESS_APP_ID }}
+          private-key: ${{ secrets.HARNESS_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ steps.input.outputs.name }}
+          permission-metadata: read
+          permission-issues: write
+          permission-pull-requests: write
+      - name: Post the request on the wake channel and wake the coordinator
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          EXPLAIN_APP_LOGIN: ${{ steps.token.outputs.app-slug }}[bot]
+          REPO: ${{ inputs.repo }}
+          KEY: ${{ inputs.key }}
+          TITLE: ${{ inputs.title }}
+          LINK: ${{ inputs.link }}
+          BY: ${{ inputs.by }}
+          AT: ${{ inputs.at }}
+        run: node kit/.harness/tools/explain.mjs request --repo "$REPO" --key "$KEY" --title "$TITLE" --link "$LINK" --by "$BY" --at "$AT"

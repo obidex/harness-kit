@@ -3,6 +3,26 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.28.0 · 2026-10-15 · the Explain press reaches a Claude session through the hands App (K028)
+
+- `explain.mjs` (new): `request` (Actions only) posts one marked request on a repository's wake channel
+  as the hands App, so the coordinator subscribed to it is woken; `answer` posts a session's
+  plain-language answer under it; `open` gives the panel host the requests of the last 48 h with their
+  answers; `dispatch` starts the control repository's job for one press.
+- `templates/hands/hands-explain.yml` (new): the control repository's job for one press, beside
+  `hands-answer`: dispatched only, main only, an App token for the one repository with comment rights
+  only, and a concurrency group per run (a shared one would let GitHub cancel a waiting press). It needs kit 0.28.0.
+- Two runs at once both post, then each reads the channel again and the later one deletes its own
+  request if it no longer fits. Only the last 48 h of the channel is read; more than 1,000 comments in
+  that window is refused rather than read in part, so the cap never fails open.
+- The `inbox` skill: an explain request on the wake channel is not an inbox wake; the coordinator
+  starts one short read-only session that answers on the channel.
+- Limits: the link must be a GitHub issue, pull request or Actions run of the same owner; at most 3
+  requests in any 24 h per wake channel; a problem still waiting for its answer is not asked twice; a
+  request counts only from the App and an answer only from the repository's own people, after it.
+- `test-explain` (27 cases) covers each limit, two presses at once and a busy channel; the cap, the
+  late delete, the 48 h read, the full-window refusal and the plain-text answer each fail when undone.
+
 ## 0.27.0 · 2026-10-15 · an Explain button on a failure, capped, with no AI on the host (K027)
 
 - `panel.mjs`: a new op `e` (Explain). It appears only on a problem whose action-list entry says
