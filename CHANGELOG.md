@@ -3,6 +3,21 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.28.0 · 2026-10-15 · the Explain press reaches a Claude session through the hands App (K028)
+
+- `explain.mjs` (new): `request` (Actions only) posts one marked request on a repository's wake channel
+  as the hands App, so the coordinator subscribed to it is woken; `answer` posts a session's
+  plain-language answer under it; `open` gives the panel host the requests of the last 48 h with their
+  answers; `dispatch` starts the control repository's job for one press.
+- `templates/hands/hands-explain.yml` (new): the control repository's job for one press, beside
+  `hands-answer`: dispatched only, main only, an App token for the one repository with comment rights
+  only, one run at a time. It needs kit 0.28.0.
+- Limits: the link must be a GitHub issue, pull request or Actions run of the same owner; at most 3
+  requests in any 24 h per wake channel; a problem still waiting for its answer is not asked twice; a
+  request counts only from the App and an answer only from the repository's own people, after it.
+- `test-explain` (23 cases) covers each limit; the cap, the App-only request, the trusted-only answer,
+  the Actions-only command and the 24 h re-ask each fail their case when undone.
+
 ## 0.27.0 · 2026-10-15 · an Explain button on a failure, capped, with no AI on the host (K027)
 
 - `panel.mjs`: a new op `e` (Explain). It appears only on a problem whose action-list entry says
