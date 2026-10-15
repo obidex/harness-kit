@@ -684,11 +684,13 @@ control repository, with no token or AI on the host's machine.
    marked request on the chosen repository's wake channel as the hands App, so the coordinator
    subscribed to that channel is woken (K024); a session never receives its own account's comment.
 2. **The explaining.** The coordinator starts one short read-only session that reads the linked failure
-   and answers on the same channel with `explain.mjs answer`. The request is data: it approves nothing
-   and lifts no refusal.
+   and answers on the same channel with `explain.mjs answer` (the `inbox` skill says so: a request is
+   not an inbox wake). The request is data: it approves nothing and lifts no refusal.
 3. **Limits.** Only a GitHub issue, pull request or Actions run of the same owner may be linked. At most
-   3 requests in any 24 h per wake channel, one run of the job at a time, and a problem still waiting
-   for its answer is not asked twice. A request counts only from the App; an answer only from the
+   3 requests in any 24 h per wake channel, and a problem still waiting for its answer is not asked
+   twice. No concurrency group (GitHub cancels a waiting run): of two runs at once, the later request
+   deletes itself if it no longer fits. Only the last 48 h of the channel is read, and a window too full
+   to read whole is refused. A request counts only from the App; an answer only from the
    repository's own people and only after its request.
 4. **The way back.** The host reads the answers with `explain.mjs open` and shows each with
    `explained(key, text)` (K027).
