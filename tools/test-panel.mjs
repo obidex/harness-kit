@@ -288,5 +288,20 @@ ok(ids.length > 10 && ids.every((id) => Buffer.byteLength(id) <= 64 && /^(i|a|m|
   ok(calls === 3 && /Not sent: 3/.test(ch.shown().at(-1).text), 'a failing host is still called at most 3 times in 24 h');
 }
 
+// an explain-only entry (no job): Explain, but no Pause, Resume or Retry, and a forged Pause runs nothing
+{
+  const ran = [];
+  const core = openCore({ dir: join(tmp, 'explain-only', 'core'), chats: [GROUP],
+    actions: [{ id: 'box-explain', alerts: ['cap-*'], explain: true, retry: true }],
+    run: async (x) => { ran.push(x); return { ok: true }; } });
+  const ch = fileChannel(join(tmp, 'explain-only', 'ch'));
+  core.bindOwner(OWNER, 'test', ch.adapter.name);
+  await deliver(core, ch.adapter, [core.problem({ key: 'cap-sql-live', topic: 'ops', text: 'sql-live stopped itself', link: 'https://github.com/o/relay/blob/main/r/ALERT-sql-live-disabled.md' })]);
+  const labels = ch.shown().at(-1).buttons.map((b) => b.label);
+  ok(labels.includes('Explain (Claude)') && !labels.some((l) => /Pause|Resume|Retry/.test(l)), 'an entry with no job shows Explain but no Pause, Resume or Retry');
+  for (const op of ['p', 'u', 'r']) { ch.tap(OWNER, button(ch, 'Details').replace(/^i:/, `${op}:`)); await step(core, ch.adapter); }
+  ok(ran.length === 0 && core.log().slice(-3).every((l) => l.result === 'no such action for this alert'), 'a forged Pause, Resume or Retry on it is refused and runs nothing');
+}
+
 rmSync(tmp, { recursive: true, force: true });
 console.log(`test-panel: OK · ${n} cases`);

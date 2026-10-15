@@ -3,6 +3,14 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.28.1 · 2026-10-15 · Explain on a box job's report page; an explain-only action entry
+
+- `explain.mjs`: a link may also be a Markdown report file of the same owner (`…/blob/<ref>/<path>.md`),
+  such as a box job's failure page on a reports repository; a path with `..` is refused.
+- `panel.mjs`: an action entry with no `job` shows no Pause, Resume or Retry, and a forged press of one
+  runs nothing, so an entry can carry only `explain: true`.
+- `test-explain` and `test-panel` cover both; each fails with its change undone.
+
 ## 0.28.0 · 2026-10-15 · the Explain press reaches a Claude session through the hands App (K028)
 
 - `explain.mjs` (new): `request` (Actions only) posts one marked request on a repository's wake channel

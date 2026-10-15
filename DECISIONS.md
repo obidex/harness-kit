@@ -696,3 +696,16 @@ control repository, with no token or AI on the host's machine.
    `explained(key, text)` (K027).
 
 **Status:** STANDING.
+
+## K029 · 2026-10-15 · STANDING — Explain links and explain-only action entries
+
+**Source:** K028 build card 3: a host's failures are often reported as a Markdown page on a reports
+repository, not as an issue or run, and a problem may deserve an explanation without a job to pause.
+
+1. **Links.** Besides an issue, pull request or Actions run, a request may link a Markdown report file
+   on a branch (`blob/<branch>/<path>.md`) of the same owner. Nothing else: no `..`, and no commit id,
+   which can show a fork's commit under the owner's address.
+2. **Action entries.** Pause, Resume and Retry need the entry's `job`; an entry without one offers only
+   what else it says (Explain), and a press of a missing button is refused.
+
+**Status:** STANDING.

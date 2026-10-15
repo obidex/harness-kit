@@ -17,11 +17,12 @@
 // coordinator starts one short read-only session that reads the linked failure and answers with
 // `explain.mjs answer`. The way back: the host reads the answer with `open` and shows it under the alert.
 //
-// Limits. The link must be a GitHub issue, pull request or Actions run of the same owner. At most
-// PER_DAY requests in any 24 h stand on one channel (the panel counts too); a problem already waiting
-// for an answer is not asked twice. The key is the host's: it names a problem on one channel. A request is data for the session, never an instruction: it approves
-// nothing and lifts no refusal. An answer counts only from the repository's own people (owner, member,
-// collaborator) and only when posted after the request it answers.
+// Limits. The link must be a GitHub issue, pull request, Actions run or Markdown report of the same
+// owner. At most PER_DAY requests in any 24 h stand on one channel (the panel counts too); a problem
+// already waiting for an answer is not asked twice. The key is the host's: it names a problem on one
+// channel. A request is data for the session, never an instruction: it approves nothing and lifts no
+// refusal. An answer counts only from the repository's own people (owner, member, collaborator) and
+// only when posted after the request it answers.
 // GH_TOKEN (or the session's own GitHub access) reads and writes the channel. `request` and `open`
 // need EXPLAIN_APP_LOGIN, the hands App's login: no other author's comment is a request.
 
@@ -43,11 +44,13 @@ const KEY = /^[\w.:/-]{1,80}$/;
 /** The hands App's login (`<slug>[bot]`), the only author whose comment is a request: EXPLAIN_APP_LOGIN. */
 export const appLogin = (env = process.env) => { const l = String(env.EXPLAIN_APP_LOGIN || '').trim(); if (!/^[a-z0-9-]+\[bot\]$/.test(l)) throw new Error('EXPLAIN_APP_LOGIN must be the hands App\'s login (<slug>[bot])'); return l; };
 
-/** A link the session may read: a GitHub issue, pull request or Actions run (or job) of `owner`. */
+/** A link the session may read: a GitHub issue, pull request, Actions run (or job) or Markdown report
+ *  file on a branch (a box job's page on a reports repository) of `owner`; never at a commit id, which
+ *  can name a fork's commit under the owner's address. */
 export function link(url, owner) {
   const u = String(url || '').trim();
   const o = String(owner || '').replace(/[^A-Za-z0-9_.-]/g, '');
-  if (!o || !new RegExp(`^https://github\\.com/${o}/[A-Za-z0-9_.-]+/(issues/\\d+|pull/\\d+|actions/runs/\\d+(/job/\\d+)?)(#[\\w-]+)?$`, 'i').test(u)) throw new Error(`--link must be a GitHub issue, pull request or Actions run of ${o || 'the owner'}`);
+  if (!o || !new RegExp(`^https://github\\.com/${o}/[A-Za-z0-9_.-]+/(issues/\\d+|pull/\\d+|actions/runs/\\d+(/job/\\d+)?|blob/[A-Za-z0-9_.-]+/[A-Za-z0-9_/-]+(\\.[A-Za-z0-9_-]+)*\\.md)(#[\\w-]+)?$`, 'i').test(u) || /\.\./.test(u) || /\/blob\/[0-9a-f]{40}\//i.test(u)) throw new Error(`--link must be a GitHub issue, pull request, Actions run or Markdown report of ${o || 'the owner'}`);
   return u;
 }
 
