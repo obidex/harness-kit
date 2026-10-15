@@ -243,7 +243,38 @@ server.close();
 ok((() => { try { pickAdapter('carrier-pigeon'); return false; } catch (e) { return /not a known channel/.test(e.message); } })(), 'an unknown CONTROL_CHANNEL fails, naming the known ones');
 ok(pickAdapter('file', { dir: join(tmp, 'pick') }).name === 'file', 'CONTROL_CHANNEL picks the adapter');
 const ids = fileChannel(join(tmp, 'a', 'ch')).shown().flatMap((v) => v.buttons.map((b) => b.id));
-ok(ids.length > 10 && ids.every((id) => Buffer.byteLength(id) <= 64 && /^(i|a|m|p|u|r|d[0-3]):v\d+$/.test(id)), 'every button id shown is a short op:view, within 64 bytes');
+ok(ids.length > 10 && ids.every((id) => Buffer.byteLength(id) <= 64 && /^(i|a|m|p|u|r|e|d[0-3]):v\d+$/.test(id)), 'every button id shown is a short op:view, within 64 bytes');
+
+// Explain (roadmap #47): only for an alert the list marks `explain` that carries an https link; the
+// host's run gets the link, the answer comes back with explained(), and a 4th press in 24 h is refused.
+{
+  const clock = { t: T0 }; const sent = [];
+  const core = openCore({ dir: join(tmp, 'explain', 'core'), chats: [GROUP], now: () => clock.t,
+    actions: [{ id: 'box-job', alerts: ['box-*'], job: 'sql-live', explain: true }, { id: 'plain', alerts: ['plain-*'], job: 'x' }],
+    run: async (x) => { sent.push(x); return { ok: true }; } });
+  const ch = fileChannel(join(tmp, 'explain', 'ch'));
+  core.bindOwner(OWNER, 'test', ch.adapter.name);
+  await deliver(core, ch.adapter, [core.problem({ key: 'box-nolink', topic: 'ops', text: 'Job failed, no link' })]);
+  ok(!ch.shown().at(-1).buttons.some((b) => b.label === 'Explain (Claude)'), 'no Explain button on a problem without an https link');
+  await deliver(core, ch.adapter, [core.problem({ key: 'plain-1', topic: 'ops', text: 'Plain failure', link: 'https://example.invalid/1' })]);
+  ok(!ch.shown().at(-1).buttons.some((b) => b.label === 'Explain (Claude)'), 'no Explain button where the action list does not say explain');
+  ch.tap(OWNER, button(ch, 'Details').replace(/^i:/, 'e:')); await step(core, ch.adapter);
+  ok(sent.length === 0 && core.log().at(-1).result === 'no such action for this alert', 'a forged Explain on such an alert is refused and sends nothing');
+  for (let i = 1; i <= 4; i++) {
+    await deliver(core, ch.adapter, [core.problem({ key: `box-${i}`, topic: 'ops', text: `sql-live failed ${i}`, link: `https://github.com/o/infra/issues/${i}` })]);
+    ch.tap(OWNER, button(ch, 'Explain (Claude)')); await step(core, ch.adapter);
+  }
+  ok(sent.length === 3 && sent[0].op === 'explain' && sent[0].problem.link === 'https://github.com/o/infra/issues/1' && sent[0].problem.key === 'box-1', 'Explain sends the problem and its link to the host');
+  ok(/Not sent: 3 explanations/.test(ch.shown().at(-1).text) && /^refused/.test(core.log().at(-1).result), 'the 4th press in 24 h is refused, logged, and sends nothing');
+  ch.tap(OTHER, button(ch, 'Explain (Claude)')); await step(core, ch.adapter);
+  ok(sent.length === 3 && core.log().at(-1).result === 'not the owner', 'another account cannot press Explain');
+  clock.t += 24 * 3600e3 + 60e3;
+  ch.tap(OWNER, button(ch, 'Explain (Claude)')); await step(core, ch.adapter);
+  ok(sent.length === 4 && /1 of 3/.test(ch.shown().at(-1).text), 'after 24 h the count starts again');
+  await deliver(core, ch.adapter, [core.explained('box-1', 'The live database has a role the test does not expect.')]);
+  ok(/^EXPLAINED · sql-live failed 1\nThe live database/.test(ch.shown().at(-1).text) && ch.shown().at(-1).reply !== null && core.log().at(-1).what === 'explained', 'the answer is shown under its problem and logged');
+  ok(core.explained('nope', 'x') === null && core.explained('box-1', '  ') === null, 'an answer for an unknown problem, or an empty one, shows nothing');
+}
 
 rmSync(tmp, { recursive: true, force: true });
 console.log(`test-panel: OK · ${n} cases`);
