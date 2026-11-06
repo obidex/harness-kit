@@ -1,0 +1,11 @@
+# Action pins move only through Dependabot, and only 3 days or more after a release (K030, A17 and
+# A18). The kit has no npm dependencies; monthly is enough for its pinned actions.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 3
+    open-pull-requests-limit: 2
