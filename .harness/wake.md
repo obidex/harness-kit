@@ -13,7 +13,9 @@ each run is short and fresh: it starts on an event, reads the state, acts, write
 ## How it works
 
 1. **A wake is a label.** Anyone with triage access sets `wake` on an issue or pull request: a person,
-   a job, or a run that hands work to the next one. A label, not a comment: no channel pull request,
+   a job, or a run that hands work to the next one. A label set with a workflow's own `GITHUB_TOKEN`
+   starts no workflow, so it waits for the next backstop. A job that must wake at once uses an App
+   token. A label, not a comment: no channel pull request,
    and no problem with comments from the owner's own account never reaching his own subscribed session.
 2. **The job decides.** `harness-wake` runs `wake.mjs fire` on that event. It starts a run only when
    no run is on and no cap is reached. Otherwise the label stays queued and nothing is lost.
@@ -34,32 +36,36 @@ each run is short and fresh: it starts on an event, reads the state, acts, write
 
 ## Caps, and how everything ends (every timer capped)
 
-- **Runs:** each repository gets at most 8 runs in any 24 hours. Each woken issue gets at most 3 a
-  day and 9 in 30 days, so a chain of hand-offs on one issue ends.
-- **Where the count comes from:** every count reads the job's own receipt comments, from the whole
-  repository and 30 days back. If that listing is cut off, the job fails closed and starts no run.
-- **Who can change the count:** a session acts as a person's account, so it can't post a receipt.
-  The ceiling lives in this kit-managed tool. The Actions variable `WAKE_DAILY_CAP` may lower it,
-  never raise it. An admin account can still edit or delete the job's comments, and that is the one
-  way around the count. No agent does that (C12: gates are never worked around), and the session's
-  GitHub tools have no tool for it.
-- **A capped wake** gets one note on its issue and keeps its label. A later run or the backstop picks
-  it up once it is under its caps.
-- **Failed starts:** an expired token or an outage counts as an attempt. After 3 failed starts in a
-  row, only a run started by hand (`workflow_dispatch`) tries again, and a start that succeeds ends
-  the streak.
-- **The daily backstop** is the workflow's schedule, and it never starts a run on an empty day. It
-  starts one only when a script sees work a run can move:
-  - an issue still labelled `wake`;
-  - a dead run's claim;
-  - C15 stale work, except draft pull requests such as the old wake channels.
-- **When the backstop stops:**
-  - After 3 empty days in a row.
-  - After 3 backstop runs in a row for the same work with nothing moved. It posts one red "needs a
-    person" exception on the STATE issue, then stays quiet for that work.
-  - Any run started another way re-arms it, and so does new work.
-  - A quiet project costs a few seconds a day for three days, then nothing until its 30-day count
-    window rolls past.
+**Counts.**
+- Each repository gets at most 8 runs in any 24 hours, and each issue at most 3.
+- Every count reads the job's own receipt comments, from the whole repository and 30 days back.
+  If that listing is cut off, the job fails closed. The job never edits its own comments, so an
+  edited one counts as a run whatever it says now.
+- The Actions variable `WAKE_DAILY_CAP` may lower the cap, never raise it.
+
+**Stops that hold until a person lifts them.** These are labels, so they never age out of the count:
+
+| Label | Set on | When | Lifted by |
+| --- | --- | --- | --- |
+| `wake-stopped` | an issue | It started 9 runs in 30 days, or 3 backstop runs in a row for the same work changed nothing. The job removes its `wake` label, posts "needs a person" on it, and turns one run red. | A person removing the label |
+| `wake-paused` | the STATE issue | 3 failed starts in a row (an expired token, an outage), or 16 runs in a row started only by hand-offs between runs. One red run. | A run started by hand (Actions → harness-wake → Run workflow) |
+| `backstop-off` | the STATE issue | 3 empty backstop days in a row | The next run of any kind |
+
+So a stuck wake, owner-only work, a run that always dies, a self-feeding chain and a broken token
+each end in one exception, never in a monthly repeat.
+
+**Who can lift a stop.** The labels and receipts are protected only by rules. The owner's account,
+which agents also act as, can remove a label or edit a comment. No agent does either (C12: gates are
+never worked around), and the run's contract forbids it. Edited receipts still count.
+
+**A capped wake** keeps its label and gets one note. A later run or the backstop picks it up once it
+is under its daily cap.
+
+**The daily backstop** never starts a run on an empty day. It starts one only for work a script can
+see:
+- an issue still labelled `wake`;
+- a dead run's claim;
+- C15 stale work, except draft pull requests such as the old wake channels.
 
 ## The run's contract
 
@@ -75,7 +81,9 @@ The scheduled task's saved prompt says this. Each run:
    cannot finish writes why in STATE and still removes the claim. A run never opens a new issue only
    to continue its own work past the per-issue cap.
 
-A run never changes its own scheduled task, the workflow, the caps, or any permission or secret.
+A run never changes its own scheduled task, the workflow or the caps. It never removes
+`wake-stopped`, `wake-paused` or `backstop-off`, never edits the job's comments, and never touches
+any permission or secret.
 
 ## Setup in a project (once)
 

@@ -782,10 +782,13 @@ From the Nov 2026 radar (roadmap #48, P4; owner's approval of #48, 6 Nov 2026). 
 4. **Caps live outside the agents' reach.** The ceiling sits in kit-managed code, and the count
    comes from the job's own receipts across the repository, posted before each fire. A variable can
    only lower it. Per-issue limits end a chain of hand-offs.
-5. **Everything ends.** The backstop starts AI only for work a script can see. It stops after 3 empty
-   days, or after 3 runs for the same work with nothing moved (one exception to a person). After 3
-   failed starts in a row only a person's dispatch tries again. This keeps the owner rule: every timer
-   capped, nothing runs forever.
+5. **Everything ends.** Every stop is a label that holds until a person lifts it, never a count that
+   ages out:
+   - an issue that ran too often or made no progress is `wake-stopped`;
+   - failed starts or a run of hand-offs `wake-paused` everything until a person starts a run by hand;
+   - an idle backstop rests until the next run.
+   Each stop is one exception to a person, never a monthly repeat. This keeps the owner rule: every
+   timer capped, nothing runs forever.
 6. **Owner step.** A per-task `/fire` token is created only in the web UI (no API). It is the one
    owner step per project, sent as one silver-plate step when the project adopts this.
 7. **Native GitHub triggers on scheduled tasks are not used.** They start a session for every

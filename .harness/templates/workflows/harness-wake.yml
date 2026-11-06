@@ -5,12 +5,14 @@
 # session link as the receipt. When a run removes its claim, a still-queued wake starts the next run.
 # Once a day the backstop starts a run only if a script sees work (a queued wake, a dead run's claim,
 # C15 stale work); it stops after 3 empty days, or after 3 runs for the same work with nothing moved
-# (one red exception). Caps (wake.mjs): 8 runs a day per repository, 3 a day and 9 a month per issue,
-# counted from this job's own receipts; after 3 failed starts only a run started by hand tries again.
+# (one red exception). Caps (wake.mjs): 8 runs a day per repository, 3 a day per issue, counted from
+# this job's own receipts. Stops that hold until a person lifts them: an issue that started 9 runs in
+# 30 days or made no progress (`wake-stopped`); 3 failed starts or 16 hand-offs in a row (`wake-paused`).
 # Inert until the project sets the Actions variable WAKE_ROUTINE_URL and the secret WAKE_ROUTINE_TOKEN
 # (.harness/wake.md "Setup"): with no URL every job is skipped and costs nothing.
-# Safe on a self-hosted runner: it runs only the default branch's .harness/tools, never PR code, and
-# never for a pull request from a fork or Dependabot (no secret there).
+# Safe on a self-hosted runner: it runs only the default branch's .harness/tools, never PR scripts, and
+# never for a pull request from a fork or Dependabot (no secret there). Like any workflow, a same-repo
+# PR runs this file as the PR has it; harness-guard limits who may change .github/.
 # Cost (O13): a few seconds per wake label, claim release and daily backstop, about one GitHub-hosted
 # minute each on a private repository without a self-hosted RUNNER; none with one, or on a public
 # repository. Each run started is one Claude Code session on the owner's subscription, never money.

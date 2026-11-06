@@ -21,15 +21,16 @@
 //   the marker <!-- coordinator-state -->. Its body is the run's state; each run reads it first and
 //   writes it last. It holds no count: nothing about it can reset a cap.
 // - Caps: every attempt is a receipt comment by github-actions[bot], posted BEFORE the fire and read
-//   from the whole repository (LEDGER_DAYS back; a cut-off listing fails closed). The caps count
-//   those: DAILY_CAP runs per repository per 24 hours (WAKE_DAILY_CAP may lower it, never raise it),
-//   ISSUE_CAP per woken issue per 24 hours and ISSUE_TOTAL per issue in LEDGER_DAYS. A session acts as a
-//   person's account, so it cannot post a receipt; the caps live in this kit-managed file.
-// - Things end: after STUCK_STOP failed fires in a row, only a run started by hand tries again. The
-//   daily backstop (the workflow's schedule) starts a run only for work a script can see (a queued
-//   wake, a dead run's claim, C15 stale work a run can move), stops after EMPTY_STOP empty days, and
-//   stops with one red "needs a person" exception after STUCK_STOP backstop runs in a row for the same
-//   work; any other run re-arms it.
+//   from the whole repository (LEDGER_DAYS back; a cut-off listing fails closed; a job comment edited
+//   later counts as a run whatever it says). DAILY_CAP runs per repository per 24 hours
+//   (WAKE_DAILY_CAP may lower it, never raise it), ISSUE_CAP per issue per 24 hours.
+// - Stops that hold until a person lifts them (labels, so they never age out):
+//   `wake-stopped` on an issue that started ISSUE_TOTAL runs in LEDGER_DAYS, or that STUCK_STOP backstop
+//   runs in a row did not move (one red exception each); `wake-paused` on the STATE issue after
+//   STUCK_STOP failed starts in a row or CHAIN_STOP hand-off runs in a row (lifted only by a run started
+//   by hand); `backstop-off` on the STATE issue after EMPTY_STOP empty days (lifted by the next run).
+//   The daily backstop starts a run only for work a script can see (a queued wake, a dead run's claim,
+//   C15 stale work other than drafts). Labels are removed by the owner's account; agents never do (C12).
 // - Nothing is lost when a wake is refused (a run already on, a cap): the label stays, and the end of
 //   the running run, or the next backstop, picks it up.
 
@@ -45,13 +46,17 @@ export const FAIL_MARK = '<!-- wake-fail -->';         // the fire after the las
 export const EMPTY_MARK = '<!-- wake-backstop-empty -->';
 export const STUCK_MARK = '<!-- wake-stuck ';          // + JSON + ' -->': the backstop stopped on no progress
 export const CAPPED_MARK = '<!-- wake-capped -->';
+export const STOPPED = 'wake-stopped';     // on an issue: the job stopped waking for it; only a person removes it
+export const PAUSED = 'wake-paused';       // on the STATE issue: no run starts except by hand (failed starts, a chain)
+export const BACKSTOP_OFF = 'backstop-off'; // on the STATE issue: the backstop rests; the next run removes it
 export const BOT = 'github-actions[bot]';
 export const DAILY_CAP = 8;          // runs per repository per 24 h, hard ceiling
 export const ISSUE_CAP = 3;          // runs per woken issue per 24 h
-export const ISSUE_TOTAL = 9;        // runs per woken issue in LEDGER_DAYS: a chain on one issue ends
+export const ISSUE_TOTAL = 9;        // runs per woken issue in LEDGER_DAYS, then the issue is stopped for good
 export const CLAIM_TTL_H = 6;        // a claim older than this belongs to a run that died
 export const EMPTY_STOP = 3;         // empty backstops in a row, then the backstop stops
 export const STUCK_STOP = 3;         // backstop runs in a row for the same work, or failed fires in a row: stop
+export const CHAIN_STOP = 16;        // runs in a row started only by a run ending (hand-offs), then pause
 export const LEDGER_DAYS = 30;       // how far back the receipts are read
 const HOUR = 3600e3, DAY = 24 * HOUR;
 
@@ -76,6 +81,8 @@ export function ledger(comments) {
   for (const c of comments) {
     if (!byJob(c)) continue;
     const b = String(c.body || ''), at = Date.parse(c.created_at);
+    // the job never edits its comments: an edited one is counted as a run, whatever it says now
+    if (c.updated_at && Math.abs(Date.parse(c.updated_at) - at) > 5000) { out.push({ kind: 'fire', at, issue: null, via: 'edited', sig: '' }); continue; }
     if (b.startsWith(FIRE_MARK)) {
       const j = json(b, FIRE_MARK);
       out.push({ kind: 'fire', at, issue: Number.isInteger(j.issue) ? j.issue : null, via: String(j.via || ''), sig: String(j.sig || '') });
@@ -100,42 +107,43 @@ export function failStreak(led) {
   return n;
 }
 
+/** Runs in a row, newest last, that a run's end started (hand-offs with nothing else between). */
+export const chainLength = (fires) => { let n = 0; for (let i = fires.length - 1; i >= 0 && fires[i].via === 'queue'; i--) n++; return n; };
+
 /** What this event does. Pure: every input is read before, every effect is done after.
- *  in: { event, label, issue: { number, open, labels, isState } | null, claim: bool, ledger, queue: [n],
- *        work: [items], now, cap }
- *  out: { act: fire|empty|stuck|capped|none, why, target, via, sig, clearClaim, last, n } */
-export function decide({ event, label, issue = null, claim = false, ledger: led = [], queue = [], work = [], now = Date.now(), cap = DAILY_CAP }) {
+ *  in: { event, label, issue: { number, open, labels, isState } | null, claim, paused, backstopOff,
+ *        ledger, queue: [n] (issues stopped for good left out), work: [items], now, cap }
+ *  out: { act: fire|empty|stuck|pause|stop-item|capped|none, why, target, via, sig, items, clearClaim, last, n } */
+export function decide({ event, label, issue = null, claim = false, paused = false, backstopOff = false, ledger: led = [], queue = [], work = [], now = Date.now(), cap = DAILY_CAP }) {
   const fires = led.filter((e) => e.kind === 'fire');
   const lastFire = fires.at(-1);
   const recent = fires.filter((e) => now - e.at < DAY);
   const dead = claim && (!lastFire || now - lastFire.at > CLAIM_TTL_H * HOUR);
   const busy = claim && !dead;
-  const issueCapped = (n) => recent.filter((e) => e.issue === n).length >= ISSUE_CAP || fires.filter((e) => e.issue === n).length >= ISSUE_TOTAL;
+  const total = (n) => fires.filter((e) => e.issue === n).length;
+  const issueCapped = (n) => recent.filter((e) => e.issue === n).length >= ISSUE_CAP;
   const open = queue.filter((n) => !issueCapped(n));
-  const fails = failStreak(led);
   let target = null, why, via, sig = '';
   if (event === 'labeled') {
     if (label !== WAKE || !issue || !issue.open || !issue.labels.includes(WAKE) || issue.isState) return { act: 'none', why: 'not a wake on an open issue' };
+    if (issue.labels.includes(STOPPED)) return { act: 'none', why: `#${issue.number} is stopped (${STOPPED}); a person removes that label to wake for it again` };
     target = issue.number; why = 'wake label'; via = 'label';
   } else if (event === 'unlabeled') {
     if (label !== CLAIM) return { act: 'none', why: 'not the end of a run' };
     if (claim) return { act: 'none', why: 'a claim is still on' };
     if (!queue.length) return { act: 'none', why: 'the run ended and nothing is queued' };
-    if (!open.length) return { act: 'none', why: 'the run ended; every queued wake is at its cap, so the backstop takes them later' };
+    if (!open.length) return { act: 'none', why: 'the run ended; every queued wake is at its daily cap, so the backstop takes them later' };
     target = open[0]; why = 'queued wake after a run ended'; via = 'queue';
   } else if (event === 'schedule') {
     const empties = led.filter((e) => e.kind === 'empty' && (!lastFire || e.at > lastFire.at)).length;
-    if (empties >= EMPTY_STOP) return { act: 'none', why: `backstop off after ${EMPTY_STOP} empty runs in a row; the next run re-arms it` };
+    if (backstopOff || empties >= EMPTY_STOP) return { act: 'none', why: 'the backstop rests until the next run re-arms it' };
     if (busy) return { act: 'none', why: 'backstop: a run is on' };
     sig = signature(open, work, dead);
-    if (!sig) return queue.length ? { act: 'none', why: 'backstop: every queued wake is at its cap' } : { act: 'empty', why: 'backstop: nothing to do', last: empties + 1 >= EMPTY_STOP, n: empties + 1 };
+    if (!sig) return { act: 'empty', why: queue.length ? 'backstop: only wakes at their daily cap' : 'backstop: nothing to do', last: empties + 1 >= EMPTY_STOP, n: empties + 1 };
     // no progress: the last STUCK_STOP runs were all backstop runs for this same work
     const tail = fires.slice(-STUCK_STOP);
-    if (tail.length === STUCK_STOP && tail.every((e) => e.via === 'backstop' && e.sig === sig)) {
-      const told = led.filter((e) => e.kind === 'stuck' && e.at > lastFire.at && e.sig === sig).length;
-      return told ? { act: 'none', why: 'backstop stopped: the same work again, nothing moved; a run started any other way re-arms it' }
-        : { act: 'stuck', why: `backstop stopped: ${STUCK_STOP} runs in a row for the same work (${sig}) changed nothing`, sig };
-    }
+    if (tail.length === STUCK_STOP && tail.every((e) => e.via === 'backstop' && e.sig === sig))
+      return { act: 'stuck', why: `${STUCK_STOP} backstop runs in a row for the same work changed nothing`, sig, items: [...open, ...work.map((w) => w.number)] };
     target = open[0] ?? null; via = 'backstop';
     why = open.length ? 'backstop: a wake still queued' : dead ? 'backstop: a run died holding the claim' : `backstop: stale item(s) ${work.map((w) => `#${w.number}`).join(' ')}`;
   } else if (event === 'workflow_dispatch') {
@@ -143,9 +151,15 @@ export function decide({ event, label, issue = null, claim = false, ledger: led 
     target = issue ? issue.number : null; why = 'started by hand'; via = 'hand';
   } else return { act: 'none', why: `event ${event} wakes nobody` };
   if (busy) return { act: 'none', why: 'a run is on; it reads the wake queue before it ends, and its end starts the next run', target };
-  if (fails >= STUCK_STOP && via !== 'hand') return { act: 'none', why: `the last ${fails} fires failed to start; only a run started by hand tries again`, target };
+  if (via !== 'hand') {
+    if (paused) return { act: 'none', why: `wakes are paused (${PAUSED}); only a run started by hand lifts it`, target };
+    const fails = failStreak(led);
+    if (fails >= STUCK_STOP) return { act: 'pause', why: `the last ${fails} starts failed`, target };
+    if (via === 'queue' && chainLength(fires) >= CHAIN_STOP) return { act: 'pause', why: `${CHAIN_STOP} runs in a row were started only by hand-offs between runs`, target };
+  }
   if (recent.length >= cap) return { act: 'capped', why: `the daily cap is reached (${recent.length} of ${cap} runs in 24 h)`, target };
-  if (target != null && issueCapped(target)) return { act: 'capped', why: `#${target} reached its cap (${ISSUE_CAP} runs a day, ${ISSUE_TOTAL} in ${LEDGER_DAYS} days)`, target };
+  if (target != null && total(target) >= ISSUE_TOTAL) return { act: 'stop-item', why: `#${target} already started ${total(target)} runs in ${LEDGER_DAYS} days`, target, items: [target] };
+  if (target != null && issueCapped(target)) return { act: 'capped', why: `#${target} reached its daily cap (${ISSUE_CAP} runs)`, target };
   return { act: 'fire', why, target, via, sig, clearClaim: dead, work: work.map((w) => w.number) };
 }
 
@@ -219,19 +233,21 @@ async function read(repo, { issue, event }) {
   const st = await stateIssue(repo, { open: true });
   const led = await receipts(repo);
   const queue = (await pages(`/repos/${repo}/issues?state=open&labels=${WAKE}&sort=created&direction=asc`))
-    .filter((i) => i.number !== st.number).map((i) => i.number);
-  const claimed = (await pages(`/repos/${repo}/issues?state=open&labels=${CLAIM}`)).map((i) => i.number);
+    .filter((i) => i.number !== st.number && !names(i).includes(STOPPED)).map((i) => i.number);
+  const labelled = async (l) => (await pages(`/repos/${repo}/issues?state=open&labels=${l}`)).map((i) => i.number);
+  const claimed = await labelled(CLAIM), stopped = new Set(await labelled(STOPPED));
+  const pausedOn = await labelled(PAUSED), restingOn = await labelled(BACKSTOP_OFF);
   let it = null;
   if (issue) {
     const i = await gh('GET', `/repos/${repo}/issues/${issue}`);
     it = { number: i.number, open: i.state === 'open', labels: names(i), isState: i.number === st.number };
   }
   let work = [];
-  if (event === 'schedule' && !queue.length) {
-    try { work = (await (await import('./stale.mjs')).scan(repo)).filter(MOVABLE); }
+  if (event === 'schedule') {
+    try { work = (await (await import('./stale.mjs')).scan(repo)).filter((w) => MOVABLE(w) && !stopped.has(w.number) && w.number !== st.number); }
     catch (e) { console.log(`wake: the stale scan failed (${e.message.slice(0, 120)}); counted as no stale work`); }
   }
-  return { st, led, queue, it, work, claimed, claim: claimed.length > 0 };
+  return { st, led, queue, it, work, claimed, claim: claimed.length > 0, pausedOn, restingOn, paused: pausedOn.length > 0, backstopOff: restingOn.length > 0 };
 }
 
 async function fire(url, token, text) {
@@ -255,15 +271,29 @@ async function runFire(repo, { event, issue, label }) {
   if (!fireUrlOk(url)) throw new Error('WAKE_ROUTINE_URL is not a scheduled task\'s /fire URL (.harness/wake.md "Setup")');
   if (!token) throw new Error('the WAKE_ROUTINE_TOKEN secret is missing (.harness/wake.md "Setup")');
   const s = await read(repo, { issue, event });
-  const d = decide({ event, label, issue: s.it, claim: s.claim, ledger: s.led, queue: s.queue, work: s.work, now: Date.now(), cap: capFrom(process.env.WAKE_DAILY_CAP) });
+  const d = decide({ event, label, issue: s.it, claim: s.claim, paused: s.paused, backstopOff: s.backstopOff, ledger: s.led, queue: s.queue, work: s.work, now: Date.now(), cap: capFrom(process.env.WAKE_DAILY_CAP) });
   console.log(`wake: ${d.act}: ${d.why}`);
+  const addLabel = (n, l) => gh('POST', `/repos/${repo}/issues/${n}/labels`, { labels: [l] });
   if (d.act === 'empty') {
-    await comment(repo, s.st.number, `${EMPTY_MARK}\nBackstop: nothing to do (${d.n} of ${EMPTY_STOP} empty in a row).${d.last ? ' The backstop is off until the next run re-arms it.' : ''}`);
+    if (d.last) await addLabel(s.st.number, BACKSTOP_OFF);
+    await comment(repo, s.st.number, `${EMPTY_MARK}\nBackstop: nothing to do (${d.n} of ${EMPTY_STOP} empty in a row).${d.last ? ` The backstop rests (\`${BACKSTOP_OFF}\`) until the next run re-arms it.` : ''}`);
     return;
   }
-  if (d.act === 'stuck') {
-    await comment(repo, s.st.number, `${STUCK_MARK}${JSON.stringify({ sig: d.sig })} -->\nNeeds a person: ${d.why}. The backstop stops here for this work; a wake on any issue, or a run started by hand, re-arms it.`);
+  if (d.act === 'stuck' || d.act === 'stop-item') {
+    // stopped for good: only a person removing the label wakes for these again
+    for (const n of d.items) {
+      await addLabel(n, STOPPED);
+      await gh('DELETE', `/repos/${repo}/issues/${n}/labels/${WAKE}`).catch(() => {});
+      await comment(repo, n, `${CAPPED_MARK}\nNeeds a person: ${d.why}. The coordinator is no longer woken for this (\`${STOPPED}\`); remove that label to allow it again.`).catch(() => {});
+    }
+    await comment(repo, s.st.number, `${STUCK_MARK}${JSON.stringify({ sig: d.sig || '', items: d.items })} -->\nNeeds a person: ${d.why}. Stopped for good: ${d.items.map((n) => `#${n}`).join(' ')} (\`${STOPPED}\`).`);
     process.exitCode = 3;   // one red run: the exception the owner sees once
+    return;
+  }
+  if (d.act === 'pause') {
+    await addLabel(s.st.number, PAUSED);
+    await comment(repo, s.st.number, `Needs a person: ${d.why}. Wakes are paused (\`${PAUSED}\`): no run starts until one is started by hand (Actions, harness-wake, Run workflow), which lifts the pause.`);
+    process.exitCode = 3;
     return;
   }
   if (d.act === 'capped') {
@@ -272,6 +302,9 @@ async function runFire(repo, { event, issue, label }) {
   }
   if (d.act !== 'fire') return;
   if (d.clearClaim) { for (const n of s.claimed) await unclaim(repo, n); console.log('wake: cleared a claim left by a run that died'); }
+  // a run re-arms the backstop; a run started by hand also lifts a pause
+  for (const n of s.restingOn) await gh('DELETE', `/repos/${repo}/issues/${n}/labels/${BACKSTOP_OFF}`).catch(() => {});
+  if (d.via === 'hand') for (const n of s.pausedOn) await gh('DELETE', `/repos/${repo}/issues/${n}/labels/${PAUSED}`).catch(() => {});
   await gh('POST', `/repos/${repo}/issues/${s.st.number}/labels`, { labels: [CLAIM] });   // claim before the run exists
   // the receipt comes BEFORE the fire: every attempt is counted, and a run never starts uncounted
   await comment(repo, s.st.number, `${FIRE_MARK}${JSON.stringify({ issue: d.target, via: d.via, sig: d.sig })} -->\nStarting a run (${d.why}).`);
@@ -305,7 +338,10 @@ async function main() {
     const now = Date.now(), lastFire = led.filter((e) => e.kind === 'fire').at(-1);
     const claimed = (await pages(`/repos/${repo}/issues?state=open&labels=${CLAIM}`)).map((i) => i.number);
     console.log(JSON.stringify({ state: st.number, claim: claimed, fires24h: led.filter((e) => e.kind === 'fire' && now - e.at < DAY).length,
-      cap: capFrom(process.env.WAKE_DAILY_CAP), failStreak: failStreak(led), emptyStreak: led.filter((e) => e.kind === 'empty' && (!lastFire || e.at > lastFire.at)).length,
+      cap: capFrom(process.env.WAKE_DAILY_CAP), failStreak: failStreak(led),
+      paused: (await pages(`/repos/${repo}/issues?state=open&labels=${PAUSED}`)).length > 0,
+      backstopOff: (await pages(`/repos/${repo}/issues?state=open&labels=${BACKSTOP_OFF}`)).length > 0,
+      stopped: (await pages(`/repos/${repo}/issues?state=open&labels=${STOPPED}`)).map((i) => i.number), emptyStreak: led.filter((e) => e.kind === 'empty' && (!lastFire || e.at > lastFire.at)).length,
       queue: (await pages(`/repos/${repo}/issues?state=open&labels=${WAKE}`)).filter((i) => i.number !== st.number).map((i) => i.number) }));
     return;
   }

@@ -8,7 +8,7 @@ import { createServer } from 'node:http';
 import { execFile } from 'node:child_process';
 import { join } from 'node:path';
 import { readFileSync } from 'node:fs';
-import { decide, ledger, capFrom, fireUrlOk, isState, payload, signature, failStreak, MOVABLE, WAKE, CLAIM, STATE, STATE_MARK, FIRE_MARK, FAIL_MARK, STUCK_MARK, EMPTY_MARK, DAILY_CAP, ISSUE_CAP, ISSUE_TOTAL, EMPTY_STOP, STUCK_STOP } from '../.harness/tools/wake.mjs';
+import { decide, ledger, capFrom, fireUrlOk, isState, payload, signature, failStreak, chainLength, MOVABLE, WAKE, CLAIM, STOPPED, PAUSED, BACKSTOP_OFF, CHAIN_STOP, STATE, STATE_MARK, FIRE_MARK, FAIL_MARK, STUCK_MARK, EMPTY_MARK, DAILY_CAP, ISSUE_CAP, ISSUE_TOTAL, EMPTY_STOP, STUCK_STOP } from '../.harness/tools/wake.mjs';
 import { parseYaml } from '../.harness/tools/lib.mjs';
 
 let n = 0;
@@ -56,7 +56,8 @@ ok(capFrom('3') === 3 && capFrom('50') === DAILY_CAP && capFrom('') === DAILY_CA
   const e3 = decide({ event: 'schedule', ledger: [fireAt(80), emptyAt(48), emptyAt(24)], now });
   ok(e3.act === 'empty' && e3.last === true, `the ${EMPTY_STOP}rd empty day in a row is the backstop's last`);
   const off = decide({ event: 'schedule', ledger: [emptyAt(72), emptyAt(48), emptyAt(24)], queue: [3], now });
-  ok(off.act === 'none' && /backstop off/.test(off.why), 'after that the backstop is off, even with work');
+  ok(off.act === 'none' && /rests/.test(off.why), 'after that the backstop rests, even with work');
+  ok(decide({ event: 'schedule', backstopOff: true, queue: [3], now }).act === 'none', `the rest is a label (${BACKSTOP_OFF}), so it holds after the empty marks age out`);
   ok(decide({ event: 'schedule', ledger: [emptyAt(96), emptyAt(72), emptyAt(48), fireAt(30)], now }).n === 1, 'any run after the empty days re-arms the backstop');
   ok(decide({ event: 'schedule', queue: [3], now }).target === 3, 'the backstop starts a run for a wake still queued');
   ok(/stale/.test(decide({ event: 'schedule', work: [{ number: 4 }], now }).why) && decide({ event: 'schedule', work: [{ number: 4 }], now }).act === 'fire', 'the backstop starts a run for stale work (C15)');
@@ -65,15 +66,20 @@ ok(capFrom('3') === 3 && capFrom('50') === DAILY_CAP && capFrom('') === DAILY_CA
 }
 {
   const tot = Array.from({ length: ISSUE_TOTAL }, (_, i) => fireAt(30 + i * 30, 5));
-  ok(decide({ event: 'labeled', label: WAKE, issue: woke(), ledger: tot, now }).act === 'capped', `a chain of runs on one issue ends: at most ${ISSUE_TOTAL} in 30 days, however they are spread`);
+  const si = decide({ event: 'labeled', label: WAKE, issue: woke(), ledger: tot, now });
+  ok(si.act === 'stop-item' && si.items.join() === '5', `an issue that started ${ISSUE_TOTAL} runs in 30 days is stopped for good, however they are spread`);
+  ok(decide({ event: 'labeled', label: WAKE, issue: woke(5, { labels: [WAKE, STOPPED] }), now }).act === 'none', `a stopped issue (${STOPPED}) wakes nobody, even after its receipts age out`);
   const failed = [fireAt(5), { kind: 'fail', at: now - 5 * H + 1 }, fireAt(4), { kind: 'fail', at: now - 4 * H + 1 }, fireAt(3), { kind: 'fail', at: now - 3 * H + 1 }];
-  ok(failStreak(failed) === STUCK_STOP && decide({ event: 'labeled', label: WAKE, issue: woke(), ledger: failed, now }).act === 'none' && decide({ event: 'schedule', queue: [5], ledger: failed, now }).act === 'none', `after ${STUCK_STOP} failed fires in a row, neither a wake nor the backstop tries again`);
-  ok(decide({ event: 'workflow_dispatch', ledger: failed, now }).act === 'fire' && failStreak([...failed, fireAt(1)]) === 0, 'only a run started by hand tries again, and one that starts ends the streak');
+  ok(failStreak(failed) === STUCK_STOP && decide({ event: 'labeled', label: WAKE, issue: woke(), ledger: failed, now }).act === 'pause' && decide({ event: 'schedule', queue: [5], ledger: failed, now }).act === 'pause', `after ${STUCK_STOP} failed fires in a row, wakes pause`);
+  ok(decide({ event: 'labeled', label: WAKE, issue: woke(), paused: true, now }).act === 'none' && decide({ event: 'schedule', queue: [5], paused: true, now }).act === 'none', `the pause is a label (${PAUSED}): it holds after the failures age out`);
+  ok(decide({ event: 'workflow_dispatch', ledger: failed, paused: true, now }).act === 'fire' && failStreak([...failed, fireAt(1)]) === 0, 'only a run started by hand tries again, and one that starts ends the streak');
   const sig = signature([3], [], false);
   const same = [1, 2, 3].map((d) => ({ ...fireAt(d * 24), via: 'backstop', sig }));
   const st = decide({ event: 'schedule', queue: [3], ledger: same, now });
-  ok(st.act === 'stuck' && st.sig === sig, `${STUCK_STOP} backstop runs in a row for the same work stop the backstop with one exception`);
-  ok(decide({ event: 'schedule', queue: [3], ledger: [...same, { kind: 'stuck', at: now - H, sig }], now }).act === 'none', 'the exception is said once, then the backstop stays quiet for that work');
+  ok(st.act === 'stuck' && st.items.join() === '3', `${STUCK_STOP} backstop runs in a row for the same work stop that work for good (one exception)`);
+  const chain = Array.from({ length: CHAIN_STOP }, (_, i) => ({ ...fireAt(100 - i * 5, 50 + i), via: 'queue' }));
+  ok(chainLength(chain) === CHAIN_STOP && decide({ event: 'unlabeled', label: CLAIM, issue: { number: 1, open: true, labels: [], isState: true }, queue: [99], ledger: chain, now }).act === 'pause', `${CHAIN_STOP} hand-offs in a row with nothing else between pause wakes`);
+  ok(decide({ event: 'labeled', label: WAKE, issue: woke(99), ledger: chain, now }).act === 'fire', 'a fresh wake from outside a chain still starts a run');
   ok(decide({ event: 'schedule', queue: [3, 4], ledger: same, now }).act === 'fire' && decide({ event: 'schedule', queue: [3], ledger: [...same.slice(1), { ...fireAt(2), via: 'label', issue: 8 }], now }).act === 'fire', 'new work, or any run started another way, re-arms it');
   ok(!MOVABLE({ kind: 'draft' }) && MOVABLE({ kind: 'green-unmerged' }), 'a draft PR (such as a wake channel) never starts a backstop run');
   ok(/#4 #6/.test(payload({ repo: 'o/r', why: 'w', target: null, stateIssue: 1, work: [4, 6] })), 'the run is told which stale items started it');
@@ -181,9 +187,21 @@ const r7 = await fire('schedule');
 ok(r7.code === 0 && fires.length === 4 && st.comments.at(-1).body.startsWith(EMPTY_MARK), 'the backstop with no wake and no stale work writes one empty mark and starts no run');
 await fire('schedule'); await fire('schedule');
 const r8 = await fire('schedule');
-ok(r8.code === 0 && /backstop off/.test(r8.out) && st.comments.filter((c) => c.body.startsWith(EMPTY_MARK)).length === EMPTY_STOP, 'after three empty days the backstop stops writing and starting');
+ok(r8.code === 0 && /rests/.test(r8.out) && st.labels.includes(BACKSTOP_OFF) && st.comments.filter((c) => c.body.startsWith(EMPTY_MARK)).length === EMPTY_STOP, 'after three empty days the backstop rests (a label) and stops writing and starting');
+{
+  // an admin account edits a receipt so it no longer reads as one: it still counts
+  const edited = ledger([{ user: bot, created_at: '2026-11-07T10:00:00Z', updated_at: '2026-11-07T11:00:00Z', body: 'nothing to see' }]);
+  ok(edited.length === 1 && edited[0].kind === 'fire', 'an edited job comment counts as a run, whatever it says now: the job never edits its own');
+}
+{
+  // a run by hand re-arms the backstop and lifts a pause, wherever those labels sit
+  st.labels.push(PAUSED);
+  const h = await fire('workflow_dispatch');
+  ok(h.code === 0 && !st.labels.includes(PAUSED) && !st.labels.includes(BACKSTOP_OFF), 'a run started by hand lifts the pause and re-arms the backstop');
+  st.labels = [];
+}
 const s = JSON.parse((await run(['status', '--repo', 'o/r'])).out);
-ok(s.state === st.number && s.emptyStreak === EMPTY_STOP && s.cap === DAILY_CAP && s.claim.length === 0 && s.failStreak === 0, 'status shows what the next decision reads');
+ok(s.state === st.number && s.emptyStreak === 0 && s.cap === DAILY_CAP && s.claim.length === 0 && s.failStreak === 0, 'status shows what the next decision reads');
 srv.close();
 
 // --- the installed workflow ---------------------------------------------------------------------
