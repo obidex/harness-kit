@@ -48,7 +48,8 @@ process.env.HARNESS_KIT_REPO = `file://${kitRepo}`;
 const proj = join(work, 'project');
 mkdirSync(join(proj, '.claude'), { recursive: true });
 writeFileSync(join(proj, 'AGENTS.md'), '# Rulebook\n\nProject rules.\n');
-writeFileSync(join(proj, 'CLAUDE.md'), '# CLAUDE.md — sandbox\n\n@AGENTS.md\n\nLocal note.\n');
+// no @AGENTS.md: init adds it (a cloud thread loads the rulebook only through CLAUDE.md, K031)
+writeFileSync(join(proj, 'CLAUDE.md'), '# CLAUDE.md — sandbox\n\nLocal note.\n');
 writeFileSync(join(proj, '.claude/settings.json'), '{ "permissions": { "deny": ["Edit(.claude/settings.json)"] } }\n');
 mkdirSync(join(proj, 'src')); writeFileSync(join(proj, 'src/app.js'), 'console.log(1)\n');
 git(proj, 'init', '-q', '-b', 'main'); git(proj, 'add', '-A'); git(proj, 'commit', '-q', '-m', 'project');
@@ -76,6 +77,7 @@ ok(/O16 Close threads\.\*\* A thread is resolved in the turn it reports DONE/.te
 ok(existsSync(join(proj, '.claude/skills/correct/SKILL.md')) && '.claude/skills/correct/SKILL.md' in lock1.files, 'kit skills installed into .claude/skills and listed in the lock');
 const claude = readFileSync(join(proj, 'CLAUDE.md'), 'utf8');
 ok(/^@\.harness\/core\.md$/m.test(claude) && /^@\.harness\/VERSION$/m.test(claude) && claude.includes('Local note.'), 'CLAUDE.md gained the kit imports and kept its own text');
+ok(/^@AGENTS\.md$/m.test(claude), 'init adds @AGENTS.md to an existing CLAUDE.md when the project has an AGENTS.md');
 const profile = JSON.parse(readFileSync(join(proj, '.harness/profile.json'), 'utf8'));
 ok(profile.preset === 'web-app' && profile.capabilities.includes('database') && !('kit' in profile), 'profile skeleton takes the preset capabilities');
 ok(tool(['status']).status === 0, 'status: managed files match the lock');
@@ -85,6 +87,14 @@ r = spawnSync('node', [join(proj, '.harness/tools/audit.mjs'), proj, '--json', j
 const audit = JSON.parse(readFileSync(join(work, 'audit.json'), 'utf8'));
 const res = (id) => audit.results.find((x) => x.id === id).result;
 ok(r.status === 0 && res('A01') === 'PASS' && res('A04') === 'PASS', `audit on the project: A01 ${res('A01')}, A04 ${res('A04')}`);
+{
+  const nr = join(work, 'norulebook'); cpSync(proj, nr, { recursive: true });
+  writeFileSync(join(nr, 'CLAUDE.md'), readFileSync(join(nr, 'CLAUDE.md'), 'utf8').replace(/^@AGENTS\.md\n/m, ''));
+  spawnSync('node', [join(nr, '.harness/tools/audit.mjs'), nr, '--json', join(work, 'nr.json')], { encoding: 'utf8' });
+  const a01 = JSON.parse(readFileSync(join(work, 'nr.json'), 'utf8')).results.find((x) => x.id === 'A01');
+  ok(a01.result === 'FAIL' && /AGENTS\.md/.test(a01.evidence), `A01 fails when AGENTS.md exists but CLAUDE.md does not import it (${a01.result})`);
+  rmSync(nr, { recursive: true, force: true });
+}
 
 // 2b. without git, file-scanning rules are UNKNOWN, never PASS
 const nogit = join(work, 'nogit');
@@ -127,8 +137,22 @@ r = tool(['update', '--version', v2]);
 ok(r.status === 1 && /sit where kit/.test(r.stderr) && readFileSync(join(proj, '.harness/added-in-next.md'), 'utf8') === 'PROJECT OWNED\n' && readFileSync(join(proj, '.harness/VERSION'), 'utf8').trim() === v1,
   'update refuses to overwrite a project file at a path the new kit claims, and changes nothing');
 rmSync(join(proj, '.harness/added-in-next.md'));
+// 4a. an installed project whose CLAUDE.md never imported its rulebook gets the line from the update (K031)
+{
+  const up = join(work, 'up-rulebook'); cpSync(proj, up, { recursive: true });
+  writeFileSync(join(up, 'CLAUDE.md'), readFileSync(join(up, 'CLAUDE.md'), 'utf8').replace(/^@AGENTS\.md\n/m, ''));
+  git(up, 'add', '-A'); git(up, 'commit', '-q', '-m', 'no rulebook import');
+  const u = tool(['update', '--version', v2], up);
+  const c = readFileSync(join(up, 'CLAUDE.md'), 'utf8');
+  ok(u.status === 0 && (c.match(/^@AGENTS\.md$/gm) || []).length === 1 && /added @AGENTS\.md/.test(u.stdout) && c.includes('Local note.'), `update adds @AGENTS.md once to a CLAUDE.md that lacked it and keeps the rest (${u.stdout.trim()})`);
+  ok(tool(['paths'], up).stdout.split('\n').includes('CLAUDE.md'), 'paths lists CLAUDE.md, so the update PR commits the added line');
+  spawnSync('node', [join(up, '.harness/tools/audit.mjs'), up, '--json', join(work, 'up.json')], { encoding: 'utf8' });
+  ok(JSON.parse(readFileSync(join(work, 'up.json'), 'utf8')).results.find((x) => x.id === 'A01').result === 'PASS', 'and A01 passes after that update');
+  rmSync(up, { recursive: true, force: true });
+}
 r = tool(['update', '--version', v2]);
 ok(r.status === 0, `update ${v1} → ${v2}: ${r.stdout.trim()}`);
+ok(!tool(['paths']).stdout.split('\n').includes('CLAUDE.md'), 'paths leaves out a CLAUDE.md the update did not change');
 ok(tool(['paths']).stdout.split('\n').includes('.claude/next-only.md') && tool(['paths']).stdout.includes('.harness/presets/public-website.md'), 'paths lists what the update PR must stage: added and removed paths outside .harness too');
 ok(/applied by kit .*own tool/.test(r.stdout) && existsSync(join(proj, '.claude/next-only.md')), 'the new version\'s own tool applied it (a path only it manages arrived)');
 ok(readFileSync(join(proj, '.harness/VERSION'), 'utf8').trim() === v2, 'VERSION moved');

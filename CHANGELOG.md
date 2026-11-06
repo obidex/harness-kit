@@ -3,6 +3,27 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.29.1 · 2026-11-06 · what a cloud thread loads (K031)
+
+From the Nov 2026 radar (roadmap #48, P3).
+
+- Adapter A15 rewritten: a Claude Projects cloud thread loads `CLAUDE.md` with its imports and
+  `.claude/rules/`, never a repository's `.claude/settings.json`, hooks, skills or `.mcp.json`, with
+  one repository or several. Identity comes from `git config` per clone; what must not be skipped is
+  enforced by rulesets, required checks and the hands App's workflows. A03: a rule that names a skill
+  means reading its file. A04: account or Project-settings plugins do load, hooks included (tested),
+  but the kit never depends on one.
+- `examples/CLAUDE.md` says the same in two lines, so it reaches every new project's threads.
+- Audit A01 now FAILs when `AGENTS.md` exists and `CLAUDE.md` does not import it (`@AGENTS.md` or
+  `@./AGENTS.md`): no Claude session loads the rulebook otherwise (infra had lost it this way). `init`,
+  `update` and `rollback` add the one line `@AGENTS.md` after the kit imports when it is missing, so the
+  update PR that brings this version also fixes it and no project's audit turns red. That line is the
+  only project-owned change a kit update makes, and `harness.mjs paths` then lists `CLAUDE.md` so the
+  update PR commits it. The control repository moves to this version first (`HANDS_KIT_VERSION`): its
+  pinned tool writes the list the update PR stages.
+- Audit A22 is NOT APPLICABLE on a private repository (GitHub sets interaction limits only on public
+  ones; it answered 405).
+
 ## 0.29.0 · 2026-11-06 · the supply-chain floor (K030)
 
 From the Nov 2026 radar (roadmap #48, P2), after the ChainDrop npm compromise (Aug 2026).
