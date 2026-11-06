@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { createServer } from 'node:http';
 import { execFile, execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
-import { verdict, agentConfig, WEB_FLOW_ID } from '../.harness/tools/guard.mjs';
+import { verdict, agentConfig, WEB_FLOW_ID, DEPENDABOT_ID } from '../.harness/tools/guard.mjs';
 import { parseYaml } from '../.harness/tools/lib.mjs';
 
 const kit = new URL('..', import.meta.url).pathname;
@@ -38,6 +38,11 @@ ok(verdict({ ...base, commits: [c('f5', stranger, { id: WEB_FLOW_ID, login: 'web
 ok(verdict({ ...base, commits: [c('g6', owner, stranger)] }).untrusted.some((u) => u.includes('committed by stranger')), 'an untrusted committer fails');
 ok(verdict({ ...base, pr: { user: stranger }, files: ['src/a.js'] }).untrusted.length === 0, 'anyone may change ordinary files: only agent configuration is guarded');
 ok(verdict({ ...base, pr: { user: { id: '144545793', login: 'owner' } } }).untrusted.length > 0, 'an ID is compared as a number, never as text');
+const dep = { id: DEPENDABOT_ID, login: 'dependabot[bot]' }, flow = { id: WEB_FLOW_ID, login: 'web-flow' };
+ok(verdict({ pr: { user: dep }, commits: [c('d1', dep, flow)], files: ['.github/workflows/ci.yml', 'package-lock.json'], trusted }).untrusted.length === 0, 'Dependabot moving action pins passes (A18 needs it)');
+ok(verdict({ pr: { user: dep }, commits: [c('d1', dep, flow)], files: ['.github/workflows/ci.yml', '.claude/settings.json'], trusted }).untrusted.length > 0, 'Dependabot touching anything else of agent configuration fails');
+ok(verdict({ pr: { user: dep }, commits: [c('d1', dep, flow), c('d2', stranger)], files: ['.github/workflows/ci.yml'], trusted }).untrusted.length > 0, 'a Dependabot PR with someone else\'s commit on it fails');
+ok(verdict({ pr: { user: stranger }, commits: [c('d1', dep, flow)], files: ['.github/workflows/ci.yml'], trusted }).untrusted.length > 0, 'Dependabot commits in a PR someone else opened are not trusted');
 const off = verdict({ ...base, pr: { user: stranger }, trusted: undefined });
 ok(!off.configured && off.untrusted.length === 0 && off.touched.length === 1, 'a profile without trusted_actors is reported as not configured, never as trusted');
 
@@ -143,6 +148,35 @@ ok(a.A18.result === 'PASS' && a.A21.result === 'PASS', 'A18 passes once every ac
 ok(a.A19.result === "UNKNOWN" && /whether the repository is public/.test(a.A19.evidence), `${a.A19.result} ${a.A19.evidence}: ` + 'A19: a job may ask for writes; without the API, public or not is UNKNOWN, never PASS');
 put('.github/dependabot.yml', 'version: 2\nupdates:\n  - package-ecosystem: npm\n    directory: /\n    schedule:\n      interval: weekly\n    cooldown:\n      default-days: 1\n');
 ok(audit().A17.result === 'FAIL', 'A17 fails on a cooldown under 3 days');
+// A19 on a public repository: the kit's `vars.RUNNER` lane, read through the API (offline fake)
+{
+  let st = {};
+  const api = await new Promise((done) => {
+    const s = createServer((req, res) => {
+      const u = new URL(req.url, 'http://x');
+      const send = (code, data) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(data)); };
+      if (u.pathname === '/repos/o/r') return send(200, { private: false, owner: { type: st.org ? 'Organization' : 'User' } });
+      if (u.pathname === '/repos/o/r/actions/variables/RUNNER') return send(st.repoVar, st.repoVar === 200 ? { name: 'RUNNER', value: 'self-hosted' } : {});
+      if (u.pathname === '/repos/o/r/actions/organization-variables') return send(st.orgCode ?? 200, { variables: st.orgVars || [] });
+      return send(404, {});
+    });
+    s.listen(0, '127.0.0.1', () => done(s));
+  });
+  put('.github/workflows/t.yml', "name: t\non:\n  pull_request:\npermissions: {}\njobs:\n  t:\n    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}\n    timeout-minutes: 5\n    steps:\n      - run: true\n");
+  git('add', '-A');
+  const a19 = async (s) => {
+    st = s;
+    const f = join(tmpdir(), `a19-${n}.json`);
+    await new Promise((done) => execFile(process.execPath, [join(kit, '.harness/tools/audit.mjs'), proj, '--repo', 'o/r', '--json', f], { env: { ...process.env, GITHUB_API_URL: `http://127.0.0.1:${api.address().port}`, GITHUB_TOKEN: 't' } }, () => done()));
+    return JSON.parse(readFileSync(f, 'utf8')).results.find((x) => x.id === 'A19');
+  };
+  ok((await a19({ repoVar: 404 })).result === 'PASS', 'A19: a public repository whose RUNNER variable is not set passes (the kit lane runs GitHub-hosted)');
+  ok((await a19({ repoVar: 200 })).result === 'FAIL', 'A19: a public repository with RUNNER set fails');
+  ok((await a19({ repoVar: 403 })).result === 'UNKNOWN', 'A19: an unreadable RUNNER variable is UNKNOWN, never PASS');
+  ok((await a19({ repoVar: 404, org: true, orgVars: [{ name: 'RUNNER' }] })).result === 'FAIL', 'A19: an organisation-level RUNNER fails though the repository has none');
+  ok((await a19({ repoVar: 404, org: true, orgCode: 403 })).result === 'UNKNOWN', 'A19: unreadable organisation variables are UNKNOWN');
+  api.close();
+}
 rmSync(proj, { recursive: true, force: true });
 rmSync(dir, { recursive: true, force: true });
 

@@ -133,7 +133,7 @@ export async function gh(path) {
   const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
   if (token) headers.authorization = `Bearer ${token}`;
   try {
-    const r = await fetch(`https://api.github.com${path}`, { headers });
+    const r = await fetch(`${process.env.GITHUB_API_URL || 'https://api.github.com'}${path}`, { headers });
     const text = await r.text();
     let data = null;
     try { data = JSON.parse(text); } catch { data = text; }

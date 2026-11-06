@@ -31,6 +31,10 @@ export const AGENT_CONFIG = /(^|\/)(CLAUDE\.md|AGENTS\.md|CLAUDE\.local\.md|\.mc
 /** GitHub's committer for commits it makes on a user's behalf (web edits, squash, update-branch). */
 export const WEB_FLOW_ID = 19864447;
 
+/** Dependabot's bot user: trusted only to move action pins (A18), and only when that is all a PR does. */
+export const DEPENDABOT_ID = 49699333;
+const PIN_ONLY = /^\.github\/workflows\/[^/]+\.ya?ml$/;
+
 /** The changed paths that are agent configuration. */
 export const agentConfig = (files) => files.filter((f) => AGENT_CONFIG.test(f));
 
@@ -44,6 +48,11 @@ export function verdict({ pr, commits, files, trusted }) {
   const touched = agentConfig(files);
   const configured = Array.isArray(trusted) && trusted.length > 0;
   if (!touched.length || !configured) return { touched, untrusted: [], configured };
+  // a Dependabot PR whose only agent-configuration change is to workflow files (its action-pin bumps):
+  // opened and authored by Dependabot alone, committed by Dependabot or GitHub's web-flow
+  const bot = (a) => !!a && a.id === DEPENDABOT_ID;
+  if (bot(pr.user) && touched.every((f) => PIN_ONLY.test(f)) && commits.length > 0
+    && commits.every((c) => bot(c.author) && (bot(c.committer) || (c.committer && c.committer.id === WEB_FLOW_ID)))) return { touched, untrusted: [], configured, dependabot: true };
   const ids = new Set(trusted.map((t) => Number(t.id)));
   const ok = (a) => !!a && Number.isInteger(a.id) && ids.has(a.id);
   const who = (a) => (a ? `${a.login} (${a.id})` : 'an account GitHub cannot link to a user');
@@ -88,7 +97,7 @@ async function main() {
   if (profilePath && existsSync(profilePath)) trusted = JSON.parse(readFileSync(profilePath, 'utf8')).trusted_actors;
   const [pr, files, commits] = await Promise.all([get(`/repos/${repo}/pulls/${n}`), all(`/repos/${repo}/pulls/${n}/files`, 30), all(`/repos/${repo}/pulls/${n}/commits`, 3)]);
   // GitHub lists at most 250 commits of a PR: a longer one is refused, never judged in part
-  if (Number.isInteger(pr.commits) && pr.commits !== commits.length) throw new Error(`the PR has ${pr.commits} commits but GitHub listed ${commits.length}; refusing to judge it in part`);
+  if (!Number.isInteger(pr.commits) || pr.commits !== commits.length) throw new Error(`the PR has ${pr.commits} commits but GitHub listed ${commits.length}; refusing to judge it in part`);
   const v = verdict({ pr, commits, files: files.flatMap((f) => [f.filename, f.previous_filename].filter(Boolean)), trusted });
   if (!v.touched.length) { console.log('guard: no agent configuration changed'); summary('- No agent configuration changed.'); return; }
   const list = v.touched.slice(0, 20).join(', ') + (v.touched.length > 20 ? ` and ${v.touched.length - 20} more` : '');
@@ -104,6 +113,7 @@ async function main() {
     for (const u of v.untrusted) summary(`  - ${u}`);
     process.exit(1);
   }
+  if (v.dependabot) { console.log(`guard: Dependabot moved action pins (${list}); nothing else of agent configuration changed`); summary(`- Dependabot moved action pins (${list}) and changed nothing else of agent configuration.`); return; }
   console.log(`guard: agent configuration changed (${list}); the author and all ${commits.length} commit(s) are trusted`);
   summary(`- Agent configuration changed (${list}); the author and all ${commits.length} commit(s) are trusted accounts.`);
 }

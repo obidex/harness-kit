@@ -19,8 +19,9 @@ From the Nov 2026 radar (roadmap #48, P2), after the ChainDrop npm compromise (A
     change under `.github/` is judged like agent configuration and a session never merges an untrusted
     PR that touches `.github/workflows/`; a commit's author is only as strong as its email, so the
     PR's opener is the strong signal; a PR longer than the 250 commits GitHub lists is refused. It
-    runs again when a PR is edited (a changed base). Dependabot's PRs that move action pins are
-    untrusted unless a project adds Dependabot's ID to `trusted_actors`.
+    runs again when a PR is edited (a changed base). A Dependabot PR passes only when Dependabot
+    alone opened and wrote it and every agent-configuration file it changes is a workflow file (its
+    action-pin bumps, A18).
 - Settings as code: `repository.security_and_analysis` (secret scanning and push protection, free on
   a public repository) and `interaction_limits`, which the daily drift check applies again once fewer
   than `renew_days` (default 30) are left, so a limit never lapses. A renewal window as long as the
@@ -29,7 +30,7 @@ From the Nov 2026 radar (roadmap #48, P2), after the ChainDrop npm compromise (A
   read-only token (a fork's or Dependabot's PR) leaves the body with a warning.
 - Adapter rules A17-A22 with audit checks: Dependabot cooldown of 3-7 days, `min-release-age` and
   `npm ci`; actions pinned by commit (or a verified `actions.lock`); no `pull_request_target`,
-  read-only workflow permissions, no self-hosted runner (or `RUNNER` variable) on a public repository; `harness-guard`
+  read-only workflow permissions, no self-hosted runner (or `RUNNER` variable, the repository's or its organisation's) on a public repository; `harness-guard`
   required; trusted actors named; a live interaction limit declared. A project adopts the floor by
   naming `trusted_actors`; until then these checks read UNKNOWN, so this update turns no audit red.
 - `test-guard` (new, 53 checks) and `test-hands` (+12) cover each; `test-scrub` covers `pull_request`.

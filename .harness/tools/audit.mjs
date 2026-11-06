@@ -87,7 +87,11 @@ async function load() {
   ]);
   api.limits = limits;
   // whether the kit templates' `vars.RUNNER` lane is set (A19 on a public repository)
-  if (repoInfo.status === 200 && repoInfo.data?.private === false) api.runnerVar = await gh(`/repos/${repo}/actions/variables/RUNNER`);
+  // (a repository variable, or an organisation's, which the repository endpoint does not list)
+  if (repoInfo.status === 200 && repoInfo.data?.private === false) {
+    api.runnerVar = await gh(`/repos/${repo}/actions/variables/RUNNER`);
+    if (repoInfo.data?.owner?.type === 'Organization') api.orgVars = await gh(`/repos/${repo}/actions/organization-variables?per_page=30`);
+  }
   api.rulesets = rs; api.labels = labels; api.runs = runs; api.issues = issues; api.pulls = pulls; api.comments = comments; api.repo = repoInfo;
   if (rs.status === 200 && Array.isArray(rs.data)) {
     api.rulesetDetails = await Promise.all(rs.data.filter((r) => r.target === 'branch').map((r) => gh(`/repos/${repo}/rulesets/${r.id}`)));
@@ -575,8 +579,10 @@ const checks = {
       const r = runsOn(j);
       if (/self-hosted/.test(r)) bad.push(`${w.file}#${k}: a self-hosted runner on a public repository`);
       else if (/vars\.RUNNER/.test(r)) {
-        if (api.runnerVar?.status === 200) bad.push(`${w.file}#${k}: the RUNNER variable is set on a public repository`);
-        else if (api.runnerVar?.status !== 404) runnerUnknown = true;
+        const orgSet = api.orgVars?.status === 200 && (api.orgVars.data?.variables || []).some((v) => v.name === 'RUNNER');
+        const orgUnread = api.orgVars && api.orgVars.status !== 200;
+        if (api.runnerVar?.status === 200 || orgSet) bad.push(`${w.file}#${k}: the RUNNER variable is set on a public repository${orgSet ? ' (by its organisation)' : ''}`);
+        else if (api.runnerVar?.status !== 404 || orgUnread) runnerUnknown = true;
       }
     }
     if (bad.length) return [FAIL, short(bad.join('; '), 400)];
