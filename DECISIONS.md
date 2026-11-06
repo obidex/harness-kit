@@ -709,3 +709,24 @@ repository, not as an issue or run, and a problem may deserve an explanation wit
    what else it says (Explain), and a press of a missing button is refused.
 
 **Status:** STANDING.
+
+## K030 · 2026-11-06 · STANDING — the supply-chain floor
+
+**Source:** the owner's approval of roadmap #48 (6 Nov 2026), item P2, after the ChainDrop npm
+compromise (Aug 2026: hundreds of packages with valid provenance read runner secrets and wrote into
+Claude configuration paths).
+
+1. **Wait before using.** A new dependency version is used only after a 3-7 day cooldown (Dependabot,
+   `min-release-age`), and CI installs from the lockfile only.
+2. **Pin what runs.** Actions are pinned by commit, or by a verified lockfile.
+3. **Least privilege.** No `pull_request_target`; read-only workflow permissions; no self-hosted runner
+   on a public repository; a self-hosted runner runs one job and holds no production secret.
+4. **Guard what agents load.** A change to agent configuration passes only from the profile's trusted
+   account IDs, judged by the base branch's guard; every PR is scanned for secrets. Both are one required
+   check, `harness-guard`.
+5. **Free protections stay on.** Push protection on public repositories; interaction limits declared
+   and renewed before they lapse.
+6. **Adoption.** A project adopts the floor by naming `trusted_actors`; before that the audit reports
+   what is missing as UNKNOWN, so a kit update never turns a project red.
+
+**Status:** STANDING.

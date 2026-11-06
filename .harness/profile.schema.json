@@ -173,6 +173,17 @@
         }
       }
     },
+    "trusted_actors": {
+      "description": "Optional (K030, A21). The GitHub accounts, by numeric user ID, whose pull requests may change agent configuration (CLAUDE.md, AGENTS.md, .claude/**, .harness/**, .mcp.json, plugin code, git hooks): the owner and the hands App's bot user. harness-guard reads this list from the base branch; without it the guard only warns.",
+      "type": "array",
+      "maxItems": 10,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "login"],
+        "properties": { "id": { "type": "integer", "minimum": 1 }, "login": { "type": "string", "minLength": 1 } }
+      }
+    },
     "kit_updates": {
       "description": "Optional. How the hands App's kit update (and rollback) PRs are written for this project.",
       "type": "object",

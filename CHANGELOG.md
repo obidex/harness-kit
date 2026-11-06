@@ -3,6 +3,38 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.29.0 · 2026-11-06 · the supply-chain floor (K030)
+
+From the Nov 2026 radar (roadmap #48, P2), after the ChainDrop npm compromise (Aug 2026).
+
+- `templates/workflows/harness-guard.yml` (new), meant to be a required check, runs two steps from the
+  base branch's copy, so a pull request can change neither the guard nor what judges it:
+  - gitleaks 8.30.1, downloaded and checked against its SHA-256, scans only the PR's own commits, with
+    the base branch's `.gitleaks.toml` or gitleaks' defaults (never a config the PR brings);
+  - `guard.mjs agent-config` (new): a PR that changes `CLAUDE.md`, `AGENTS.md`, `.claude/**`,
+    `.harness/**`, `.mcp.json`, plugin code or git hooks passes only when its author and every commit's
+    author and committer are in the profile's new `trusted_actors` (numeric IDs). GitHub's `web-flow`
+    committer counts only for a trusted author. Without `trusted_actors` it warns and passes.
+  - Limits, stated in the tool and in A21: on `pull_request` the workflow file runs from the PR, so a
+    change under `.github/` is judged like agent configuration and a session never merges an untrusted
+    PR that touches `.github/workflows/`; a commit's author is only as strong as its email, so the
+    PR's opener is the strong signal; a PR longer than the 250 commits GitHub lists is refused. It
+    runs again when a PR is edited (a changed base). A Dependabot PR passes only when Dependabot
+    alone opened and wrote it and every agent-configuration file it changes is a workflow file (its
+    action-pin bumps, A18).
+- Settings as code: `repository.security_and_analysis` (secret scanning and push protection, free on
+  a public repository) and `interaction_limits`, which the daily drift check applies again once fewer
+  than `renew_days` (default 30) are left, so a limit never lapses. A renewal window as long as the
+  expiry is refused. `lib.mjs` validates `maximum`.
+- `harness-scrub` (and the kit's own `scrub`) runs on `pull_request`, no longer `pull_request_target`; a
+  read-only token (a fork's or Dependabot's PR) leaves the body with a warning.
+- Adapter rules A17-A22 with audit checks: Dependabot cooldown of 3-7 days, `min-release-age` and
+  `npm ci`; actions pinned by commit (or a verified `actions.lock`); no `pull_request_target`,
+  read-only workflow permissions, no self-hosted runner (or `RUNNER` variable, the repository's or its organisation's) on a public repository; `harness-guard`
+  required; trusted actors named; a live interaction limit declared. A project adopts the floor by
+  naming `trusted_actors`; until then these checks read UNKNOWN, so this update turns no audit red.
+- `test-guard` (new, 53 checks) and `test-hands` (+12) cover each; `test-scrub` covers `pull_request`.
+
 ## 0.28.1 · 2026-10-15 · Explain on a box job's report page; an explain-only action entry
 
 - `explain.mjs`: a link may also be a Markdown report file of the same owner (`…/blob/<ref>/<path>.md`),

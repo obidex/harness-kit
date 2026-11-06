@@ -91,6 +91,31 @@
   after the merge and by a daily drift check, then read back (`hands.md`). Every write is logged
   in the control repository; a failure is one problem under the alert standard (O10, `alerts.md`).
 
+## Supply chain (K030)
+
+- **A17 New packages wait.** A dependency version is used only 3 to 7 days after its release:
+  Dependabot's `cooldown` on every ecosystem it updates, `min-release-age=3` in `.npmrc` (npm 11 or
+  later), and CI installs from the lockfile with `npm ci`, never `npm install`.
+- **A18 Actions pinned by commit.** Every action a workflow uses names a full commit SHA, its version
+  in a comment, or the repository's `.github/workflows/actions.lock` pins it and CI runs
+  `gh actions-lock --verify`. Dependabot moves the pins.
+- **A19 Least-privilege workflows.** No `pull_request_target` trigger. The workflow-level
+  `permissions` is read-only, and a job asks only for the writes it needs. A public repository runs
+  no job on a self-hosted runner. A self-hosted runner runs one job at a time and holds no
+  production secret.
+- **A20 A secret scan on every PR.** `harness-guard` scans each PR's commits with a pinned,
+  checksummed gitleaks and is a required check. A public repository also turns on GitHub's free
+  secret scanning and push protection in its settings file.
+- **A21 Agent configuration from trusted accounts.** A PR that changes what agents load or run
+  (`CLAUDE.md`, `AGENTS.md`, `.claude/**`, `.harness/**`, `.mcp.json`, plugin code, git hooks) or
+  `.github/**` passes `harness-guard` only when its author and every commit come from the profile's
+  `trusted_actors`, by numeric ID, read from the base branch. The workflow file runs from the PR, so
+  a session never merges a PR from an untrusted account that touches `.github/workflows/`, and merges
+  Dependabot's only when its workflow diff changes nothing but action pins.
+- **A22 Limits that expire are renewed.** A repository that limits who may comment or open issues
+  and PRs declares it in its settings file; the daily drift check applies it again before GitHub
+  lets it lapse (six months at most).
+
 ## Records
 
 | ID | Applies when | Expected outcome | Source | Verify |
@@ -111,3 +136,9 @@
 | A14 | the kit is installed | Settings live in `.github/harness-settings.json` and the live repository matches it; only the hands App's reviewed workflows write them. | K007 (owner 4A) | script: the settings file is valid and the live repository matches it. |
 | A15 | a cloud thread works in a project | Each thread runs with exactly one repository and its settings loaded (commits authored as the owner, no classifier refusal on routine work); a project with several repositories sets identity with `git config` per clone; every project's instructions carry the standing-approvals block of `standing-approvals.md`, at its current `kit text`; no commit is re-authored. | K021, K022 | script: commits on recent PR branches are authored as the owner. judgment: the project instructions' block matches the kit's, filled in; sampled refusals traced to a missing-settings session and fixed at the cause, never one owner sentence per push. |
 | A16 | a session without repository settings changes files | Files change through the file-edit and write tools; no shell-script edit of a rule file. | K023 | judgment: sampled refusals in sessions without settings name no file-tool edit; a refused shell edit was reported and not retried. |
+| A17 | the project installs packages | Dependabot waits at least 3 days on every ecosystem; npm projects set `min-release-age`; CI runs `npm ci`. | K030 (radar, roadmap #48 P2: ChainDrop, Aug 2026) | script: `.github/dependabot.yml` gives every update a `cooldown` with `default-days` of 3 to 7; with a `package.json`, `.npmrc` sets `min-release-age` of 3 or more and no workflow runs `npm install`. |
+| A18 | the project has workflows | Every remote action is pinned to a full commit SHA, or by a verified `actions.lock`. | K030 | script: every `uses:` naming a remote action ends in a 40-character SHA, or `actions.lock` exists and a workflow runs `gh actions-lock --verify`. |
+| A19 | the project has workflows | No `pull_request_target`; workflow-level permissions read-only; no self-hosted runner on a public repository; one job per runner and no production secret on it. | K030 | script: no workflow triggers on `pull_request_target`; the top-level `permissions` grants no write; on a public repository (read through the API) no job names a self-hosted runner and the `RUNNER` variable is not set. judgment: runner hosts run one job at a time and hold no production secret. |
+| A20 | the project has pull requests | `harness-guard` runs gitleaks on every PR and is required; a public repository's settings file turns on secret scanning and push protection. | K030 | script: `harness-guard.yml` is installed and the default branch's ruleset requires `harness-guard`; on a public repository the settings file enables both secret protections. |
+| A21 | agents work in the project | Agent-configuration changes pass only from trusted account IDs. | K030 | script: the profile names `trusted_actors` and `harness-guard.yml` is installed. judgment: sampled PRs that changed agent configuration or `.github/workflows/` came from those accounts; no untrusted PR touching `.github/workflows/` was merged on a green guard. |
+| A22 | GitHub hosts the repo | The limit is declared and renewed before it lapses. | K030 | script: when the live repository has an interaction limit (read through the API), the settings file declares `interaction_limits`. |

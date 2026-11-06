@@ -44,5 +44,7 @@ jobs:
         run: node tools/test-ask.mjs
       - name: Explain this failure (requests and answers)
         run: node tools/test-explain.mjs
+      - name: Supply-chain floor (harness-guard and the audit's A17-A22)
+        run: node tools/test-guard.mjs
       - name: Stale-work check and the kit workflows' runner lane
         run: node tools/test-stale.mjs
