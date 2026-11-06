@@ -73,6 +73,13 @@
   several-repository project on 7-8 Oct 2026: nine refusals, every one a shell edit or a shell
   command after one; eleven file-tool edits of rule files in one thread, none refused. A refused
   shell edit is still reported (C14).
+- **A23 Name the model and the effort on every thread.** O06 on Claude, as of Nov 2026: Sonnet 5.5 for
+  risk tiers 1 and 2; Opus 5.5 for tier 3 and for every independent review (C10); Haiku 5.5 for
+  automations and read-only helpers (log digests, status reads). Effort follows the work: low for a
+  status read or a log digest, the default for building, high only for a tier-3 design or a review.
+  The coordinator names both when it starts a thread; a thread never switches model mid-session. A
+  long thread hands over (C04) and starts clean (`/clear`, or a fresh thread) rather than compacting a
+  cold context. The coordinator reads `/usage` once a week and puts one line in the daily summary.
 
 ## GitHub enforcement
 
@@ -147,3 +154,4 @@
 | A20 | the project has pull requests | `harness-guard` runs gitleaks on every PR and is required; a public repository's settings file turns on secret scanning and push protection. | K030 | script: `harness-guard.yml` is installed and the default branch's ruleset requires `harness-guard`; on a public repository the settings file enables both secret protections. |
 | A21 | agents work in the project | Agent-configuration changes pass only from trusted account IDs. | K030 | script: the profile names `trusted_actors` and `harness-guard.yml` is installed. judgment: sampled PRs that changed agent configuration or `.github/workflows/` came from those accounts; no untrusted PR touching `.github/workflows/` was merged on a green guard. |
 | A22 | GitHub hosts a public repo | The limit is declared and renewed before it lapses. | K030 | script: when the live repository has an interaction limit (read through the API), the settings file declares `interaction_limits`. |
+| A23 | a coordinator starts threads | Each thread runs on the model and effort its risk calls for, named at its start and never switched; long threads hand over instead of compacting cold; `/usage` is read weekly. | K032; O06 | judgment: sampled threads' first messages name model and effort matching their tier; the daily summaries carry a weekly usage line. |
