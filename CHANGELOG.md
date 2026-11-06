@@ -16,7 +16,7 @@ From the Nov 2026 radar (roadmap #48, P7). Definitions in `.harness/metrics.md`.
   its `@` imports to 5 hops, unconditional `.claude/rules`), estimated at bytes / 3.5. Audit C17 now
   FAILs over `profile.canon.load_budget_tokens` (default 8000), so `harness-audit` checks it on PRs.
   `check-kit` keeps a fresh install at most half the default.
-- Replay: `replay/tasks.json`, a frozen set of 28 past incidents (multiple choice, graded
+- Replay set (new): `replay/tasks.json`, a frozen set of 28 past incidents (multiple choice, graded
   deterministically), and `tools/replay.mjs`. `check-version` now requires
   `replay/results/<version>.json` for a release that changes `core.md`, `owner-defaults.md` or an
   adapter (A23 names the models), and CI re-grades it: at least 80% and at most one task below the
