@@ -3,6 +3,25 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.30.0 · 2026-11-07 · disposable, event-fired coordinators (K033)
+
+From the Nov 2026 radar (roadmap #48, P4).
+
+- New `harness-wake` workflow and `tools/wake.mjs`. The label `wake` on an issue or pull request
+  starts one fresh coordinator run through the project's scheduled task (`/fire`), and the job posts
+  the run's session link as the receipt. Only one run is on at a time: the claim label
+  `coordinator-running` sits on the project's STATE issue. When a run removes its claim, a wake
+  still queued starts the next run. The STATE issue is one per repository, opened by the job; its
+  body is the coordinator's state, which each run reads first and writes last.
+- Caps nobody resets: 8 runs a day per repository and 3 per issue, counted from the job's own
+  receipts. `WAKE_DAILY_CAP` may lower the cap, never raise it. A claim older than 3 hours is a dead
+  run and is cleared.
+- Daily backstop: it starts a run only when a script sees work (a queued wake, a dead run's claim,
+  or C15 stale work). After 3 empty days in a row it stops, and the next run re-arms it.
+- Inert until a project sets `WAKE_ROUTINE_URL` (Actions variable) and `WAKE_ROUTINE_TOKEN`
+  (secret). `wake.md` has the setup, the run's contract, the cost, and how to retire the old
+  wake-channel pull requests once the proof holds.
+
 ## 0.29.2 · 2026-11-06 · the model and the effort on every thread (K032)
 
 From the Nov 2026 radar (roadmap #48, P5).

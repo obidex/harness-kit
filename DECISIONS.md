@@ -765,3 +765,28 @@ From the Nov 2026 radar (roadmap #48, P5; owner's approval of #48, 6 Nov 2026).
 4. **Measured.** The coordinator reads `/usage` weekly and reports one line in the daily summary.
 
 **Status:** STANDING.
+
+
+## K033 · 2026-11-07 · STANDING — coordinators are disposable and event-fired
+
+From the Nov 2026 radar (roadmap #48, P4; owner's approval of #48, 6 Nov 2026). It fixes the
+15 Oct to 3 Nov idle gap, when no session was poked and nothing moved for 19 days.
+
+1. **A run per event.** A coordinator is a short, fresh session started by the project's scheduled
+   task through `/fire`. It reads its STATE issue and the board, acts, writes STATE, releases its
+   claim, and ends. No long-lived session waits on timers.
+2. **A label, not a comment, is the wake.** `harness-wake` decides and fires. A job, not a session,
+   posts the receipt with the run's session link, so the receipts can be trusted for counting.
+3. **One run at a time.** The claim label on the STATE issue. The claim's release is itself the
+   event that starts the next queued run, so nothing polls.
+4. **Caps live outside the agents' reach.** The ceiling sits in kit-managed code, and the count
+   comes from the job's own receipts. A variable can only lower it. The daily backstop starts AI only
+   for work a script can see, and stops after 3 empty days until the next run (owner rule: every
+   timer capped, nothing runs forever).
+5. **Owner step.** A per-task `/fire` token is created only in the web UI (no API). It is the one
+   owner step per project, sent as one silver-plate step when the project adopts this.
+6. **Native GitHub triggers on scheduled tasks are not used.** They start a session for every
+   matching event, with no claim, cap or receipt, and their hourly limits drop events silently.
+
+**Status:** STANDING.
+
