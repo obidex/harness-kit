@@ -27,13 +27,14 @@ each run is short and fresh: it starts on an event, reads the state, acts, write
 5. **The STATE issue.** It is one per repository, opened by the job as `github-actions[bot]`, with
    the label `coordinator-state` and the marker `<!-- coordinator-state -->`. Its body is the
    coordinator's volatile state (C17): each run reads it first and writes it last. Only an issue the
-   job opened counts. It is found by author and marker, not by label or state, so closing it or
-   removing its label reopens it and never resets anything.
+   job opened counts. It is found by author and marker, not by label or state: closed, it is reopened.
+   Runs keep the marker line when they rewrite the body.
 
 ## Caps nobody resets (every timer capped)
 
 - **Runs:** at most 8 per repository in any 24 hours, and 3 per woken issue. Both are counted from
-  the job's own receipt comments. A session acts as a person's account, so it can't post a receipt or
+  the job's own receipt comments, read from the whole repository (30 days back), so editing, closing
+  or replacing the STATE issue never changes the count. A session acts as a person's account, so it can't post a receipt or
   backdate one. The ceiling lives in this kit-managed tool. The Actions variable `WAKE_DAILY_CAP` may
   lower it, never raise it. Deleting the job's comments is the one way around the count; no agent does
   that (C12: gates are never worked around), and the session's GitHub tools have no tool for it.

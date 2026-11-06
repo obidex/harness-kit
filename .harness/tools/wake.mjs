@@ -20,8 +20,8 @@
 // - The STATE issue: one per repository, opened by this job (github-actions[bot]) with the label
 //   `coordinator-state` and the marker <!-- coordinator-state -->. Its body is the run's state; each
 //   run reads it first and writes it last. Only an issue the job opened counts, so nobody can plant one.
-// - Caps nobody resets: every fire is a receipt comment by github-actions[bot] on the STATE issue, and
-//   the caps count those receipts over the last 24 hours: DAILY_CAP fires per repository (an Actions
+// - Caps nobody resets: every fire is a receipt comment by github-actions[bot] (posted on the STATE
+//   issue, read from the whole repository), and the caps count those receipts over the last 24 hours: DAILY_CAP fires per repository (an Actions
 //   variable WAKE_DAILY_CAP may lower it, never raise it) and ISSUE_CAP per woken issue. A session acts
 //   as a person's account, so it cannot post a receipt or make one look older; the caps live in this
 //   kit-managed file.
@@ -47,6 +47,14 @@ export const ISSUE_CAP = 3;          // fires per woken issue per 24 h
 export const CLAIM_TTL_H = 3;        // a claim older than this belongs to a run that died
 export const EMPTY_STOP = 3;         // empty backstops in a row, then the backstop stops
 const HOUR = 3600e3, DAY = 24 * HOUR;
+export const LEDGER_DAYS = 30;       // how far back the receipts are read
+
+/** The job's receipts in the whole repository (not only on the STATE issue), so neither editing,
+ *  closing nor replacing the STATE issue changes the count. */
+async function receipts(repo, now = Date.now()) {
+  const since = new Date(now - LEDGER_DAYS * DAY).toISOString();
+  return ledger(await pages(`/repos/${repo}/issues/comments?since=${since}&sort=created&direction=asc`, 50));
+}
 
 /** The daily cap: WAKE_DAILY_CAP may lower it, never raise it; anything unreadable is the ceiling. */
 export function capFrom(v) {
@@ -166,7 +174,7 @@ async function stateIssue(repo, { open = true } = {}) {
 /** Everything one decision reads. */
 async function read(repo, { issue, event }) {
   const st = await stateIssue(repo, { open: true });
-  const led = ledger(await pages(`/repos/${repo}/issues/${st.number}/comments`));
+  const led = await receipts(repo);
   const queue = (await pages(`/repos/${repo}/issues?state=open&labels=${WAKE}&sort=created&direction=asc`))
     .filter((i) => i.number !== st.number).map((i) => i.number);
   let it = null;
@@ -242,7 +250,7 @@ async function main() {
   if (cmd === 'status') {
     const st = await stateIssue(repo, { open: false });
     if (!st) { console.log(JSON.stringify({ state: null })); return; }
-    const led = ledger(await pages(`/repos/${repo}/issues/${st.number}/comments`));
+    const led = await receipts(repo);
     const now = Date.now(), lastFire = led.filter((e) => e.kind === 'fire').at(-1);
     console.log(JSON.stringify({ state: st.number, claim: names(st).includes(CLAIM), fires24h: led.filter((e) => e.kind === 'fire' && now - e.at < DAY).length,
       cap: capFrom(process.env.WAKE_DAILY_CAP), emptyStreak: led.filter((e) => e.kind === 'empty' && (!lastFire || e.at > lastFire.at)).length,

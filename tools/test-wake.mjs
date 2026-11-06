@@ -103,6 +103,7 @@ const srv = createServer((q, res) => {
       return send(200, l.map(view));
     }
     if (u.pathname === '/repos/o/r/issues' && q.method === 'POST') { const j = JSON.parse(data); const i = add({ number: Math.max(0, ...issues.keys()) + 1, body: j.body, labels: j.labels, user: bot }); return send(201, view(i)); }
+    if (u.pathname === '/repos/o/r/issues/comments') return send(200, u.searchParams.get('page') === '1' && u.searchParams.get('since') ? [...issues.values()].flatMap((i) => i.comments).sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at)) : []);
     if (u.pathname === '/repos/o/r/pulls' || u.pathname.startsWith('/repos/o/r/commits')) return send(200, []);
     const m = u.pathname.match(/^\/repos\/o\/r\/issues\/(\d+)(\/comments|\/labels(?:\/([\w-]+))?)?$/);
     const i = m && issues.get(Number(m[1]));
@@ -146,7 +147,17 @@ ok(r5.code === 1 && !st.labels.includes(CLAIM) && /Not started/.test(issues.get(
 fireStatus = 200;
 const r6 = await fire('labeled', 9, WAKE, { WAKE_DAILY_CAP: '3' });
 ok(r6.code === 0 && fires.length === 4 && /capped|cap is reached/.test(r6.out + issues.get(9).comments.at(-1).body), 'with the cap lowered to 3 and 3 runs today, the wake is capped and the issue is told');
-st.comments = st.comments.filter((c) => !c.body.startsWith(FIRE_MARK)); st.labels = []; issues.get(9).labels = [];
+{
+  // an agent rewrites the STATE body without its marker and moves the receipts' issue out of reach:
+  // the count is read from the whole repository, so the cap still holds on the new STATE issue
+  st.body = 'rewritten'; st.labels = [];
+  const r = await fire('labeled', 9, WAKE, { WAKE_DAILY_CAP: '3' });
+  const fresh = [...issues.values()].filter((i) => i.body.includes(STATE_MARK));
+  ok(r.code === 0 && fires.length === 4 && fresh.length === 1 && fresh[0].number !== st.number && /cap is reached/.test(r.out), 'a STATE issue stripped of its marker is replaced, but the receipts are counted repository-wide, so the cap still holds');
+  for (const i of issues.values()) i.comments = i.comments.filter((c) => !c.body.startsWith(FIRE_MARK));
+  st.body = STATE_MARK; issues.delete(fresh[0].number);
+}
+st.labels = []; issues.get(9).labels = [];
 const r7 = await fire('schedule');
 ok(r7.code === 0 && fires.length === 4 && st.comments.at(-1).body.startsWith(EMPTY_MARK), 'the backstop with no wake and no stale work writes one empty mark and starts no run');
 await fire('schedule'); await fire('schedule');
