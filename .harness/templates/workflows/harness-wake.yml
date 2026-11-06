@@ -4,11 +4,13 @@
 # a time (the claim label `coordinator-running` on the STATE issue), and the job posts the run's
 # session link as the receipt. When a run removes its claim, a still-queued wake starts the next run.
 # Once a day the backstop starts a run only if a script sees work (a queued wake, a dead run's claim,
-# C15 stale work); after 3 empty days it stops until the next wake. Caps (wake.mjs): 8 runs a day per
-# repository, 3 per issue, counted from this job's own receipts.
+# C15 stale work); it stops after 3 empty days, or after 3 runs for the same work with nothing moved
+# (one red exception). Caps (wake.mjs): 8 runs a day per repository, 3 a day and 9 a month per issue,
+# counted from this job's own receipts; after 3 failed starts only a run started by hand tries again.
 # Inert until the project sets the Actions variable WAKE_ROUTINE_URL and the secret WAKE_ROUTINE_TOKEN
 # (.harness/wake.md "Setup"): with no URL every job is skipped and costs nothing.
-# Safe on a self-hosted runner: it checks out only the default branch's .harness/tools, never PR code.
+# Safe on a self-hosted runner: it runs only the default branch's .harness/tools, never PR code, and
+# never for a pull request from a fork or Dependabot (no secret there).
 # Cost (O13): a few seconds per wake label, claim release and daily backstop, about one GitHub-hosted
 # minute each on a private repository without a self-hosted RUNNER; none with one, or on a public
 # repository. Each run started is one Claude Code session on the owner's subscription, never money.
@@ -41,7 +43,8 @@ jobs:
   wake:
     if: >-
       vars.WAKE_ROUTINE_URL != '' && (
-      (github.event.action == 'labeled' && github.event.label.name == 'wake') ||
+      (github.event.action == 'labeled' && github.event.label.name == 'wake' &&
+       (github.event_name == 'issues' || (github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]'))) ||
       (github.event.action == 'unlabeled' && github.event.label.name == 'coordinator-running') ||
       github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}

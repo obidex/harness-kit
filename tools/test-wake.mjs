@@ -8,7 +8,7 @@ import { createServer } from 'node:http';
 import { execFile } from 'node:child_process';
 import { join } from 'node:path';
 import { readFileSync } from 'node:fs';
-import { decide, ledger, capFrom, fireUrlOk, isState, payload, WAKE, CLAIM, STATE, STATE_MARK, FIRE_MARK, EMPTY_MARK, DAILY_CAP, ISSUE_CAP, EMPTY_STOP } from '../.harness/tools/wake.mjs';
+import { decide, ledger, capFrom, fireUrlOk, isState, payload, signature, failStreak, MOVABLE, WAKE, CLAIM, STATE, STATE_MARK, FIRE_MARK, FAIL_MARK, STUCK_MARK, EMPTY_MARK, DAILY_CAP, ISSUE_CAP, ISSUE_TOTAL, EMPTY_STOP, STUCK_STOP } from '../.harness/tools/wake.mjs';
 import { parseYaml } from '../.harness/tools/lib.mjs';
 
 let n = 0;
@@ -28,7 +28,7 @@ ok(decide({ event: 'labeled', label: 'bug', issue: woke(), now }).act === 'none'
 {
   const d = decide({ event: 'labeled', label: WAKE, issue: woke(), claim: true, ledger: [fireAt(1)], now });
   ok(d.act === 'none' && /a run is on/.test(d.why), 'while a run holds the claim, a new wake starts no second run (the label stays queued)');
-  const dead = decide({ event: 'labeled', label: WAKE, issue: woke(), claim: true, ledger: [fireAt(4)], now });
+  const dead = decide({ event: 'labeled', label: WAKE, issue: woke(), claim: true, ledger: [fireAt(7)], now });
   ok(dead.act === 'fire' && dead.clearClaim === true, 'a claim older than its time-to-live is a dead run: it is cleared and a new run starts');
   ok(decide({ event: 'labeled', label: WAKE, issue: woke(), claim: true, ledger: [], now }).clearClaim === true, 'a claim with no receipt at all is dead too');
 }
@@ -47,7 +47,8 @@ ok(capFrom('3') === 3 && capFrom('50') === DAILY_CAP && capFrom('') === DAILY_CA
   const st = { number: 1, open: true, labels: [], isState: true };
   ok(decide({ event: 'unlabeled', label: CLAIM, issue: st, queue: [7, 9], ledger: [fireAt(1)], now }).target === 7, 'when a run removes its claim, the oldest queued wake starts the next run');
   ok(decide({ event: 'unlabeled', label: CLAIM, issue: st, queue: [], now }).act === 'none', 'when nothing is queued, a run ending starts nothing');
-  ok(decide({ event: 'unlabeled', label: CLAIM, issue: woke(), queue: [7], now }).act === 'none' && decide({ event: 'unlabeled', label: WAKE, issue: st, queue: [7], now }).act === 'none', 'only the claim leaving the STATE issue counts as a run ending');
+  ok(decide({ event: 'unlabeled', label: WAKE, issue: st, queue: [7], now }).act === 'none' && decide({ event: 'unlabeled', label: CLAIM, issue: st, claim: true, queue: [7], ledger: [fireAt(1)], now }).act === 'none', 'only the claim leaving, with no claim left anywhere, counts as a run ending');
+  ok(decide({ event: 'unlabeled', label: CLAIM, issue: st, queue: [7, 9], ledger: Array.from({ length: ISSUE_CAP }, (_, i) => fireAt(i + 1, 7)), now }).target === 9, 'a queued wake at its cap does not block the next one in the queue');
 }
 {
   const e1 = decide({ event: 'schedule', now });
@@ -59,8 +60,23 @@ ok(capFrom('3') === 3 && capFrom('50') === DAILY_CAP && capFrom('') === DAILY_CA
   ok(decide({ event: 'schedule', ledger: [emptyAt(96), emptyAt(72), emptyAt(48), fireAt(30)], now }).n === 1, 'any run after the empty days re-arms the backstop');
   ok(decide({ event: 'schedule', queue: [3], now }).target === 3, 'the backstop starts a run for a wake still queued');
   ok(/stale/.test(decide({ event: 'schedule', work: [{ number: 4 }], now }).why) && decide({ event: 'schedule', work: [{ number: 4 }], now }).act === 'fire', 'the backstop starts a run for stale work (C15)');
-  ok(decide({ event: 'schedule', claim: true, ledger: [fireAt(5)], now }).clearClaim === true, 'the backstop clears a dead run\'s claim and starts a run');
+  ok(decide({ event: 'schedule', claim: true, ledger: [fireAt(7)], now }).clearClaim === true, 'the backstop clears a dead run\'s claim and starts a run');
   ok(decide({ event: 'schedule', claim: true, ledger: [fireAt(1)], queue: [3], now }).act === 'none', 'the backstop never starts a second run');
+}
+{
+  const tot = Array.from({ length: ISSUE_TOTAL }, (_, i) => fireAt(30 + i * 30, 5));
+  ok(decide({ event: 'labeled', label: WAKE, issue: woke(), ledger: tot, now }).act === 'capped', `a chain of runs on one issue ends: at most ${ISSUE_TOTAL} in 30 days, however they are spread`);
+  const failed = [fireAt(5), { kind: 'fail', at: now - 5 * H + 1 }, fireAt(4), { kind: 'fail', at: now - 4 * H + 1 }, fireAt(3), { kind: 'fail', at: now - 3 * H + 1 }];
+  ok(failStreak(failed) === STUCK_STOP && decide({ event: 'labeled', label: WAKE, issue: woke(), ledger: failed, now }).act === 'none' && decide({ event: 'schedule', queue: [5], ledger: failed, now }).act === 'none', `after ${STUCK_STOP} failed fires in a row, neither a wake nor the backstop tries again`);
+  ok(decide({ event: 'workflow_dispatch', ledger: failed, now }).act === 'fire' && failStreak([...failed, fireAt(1)]) === 0, 'only a run started by hand tries again, and one that starts ends the streak');
+  const sig = signature([3], [], false);
+  const same = [1, 2, 3].map((d) => ({ ...fireAt(d * 24), via: 'backstop', sig }));
+  const st = decide({ event: 'schedule', queue: [3], ledger: same, now });
+  ok(st.act === 'stuck' && st.sig === sig, `${STUCK_STOP} backstop runs in a row for the same work stop the backstop with one exception`);
+  ok(decide({ event: 'schedule', queue: [3], ledger: [...same, { kind: 'stuck', at: now - H, sig }], now }).act === 'none', 'the exception is said once, then the backstop stays quiet for that work');
+  ok(decide({ event: 'schedule', queue: [3, 4], ledger: same, now }).act === 'fire' && decide({ event: 'schedule', queue: [3], ledger: [...same.slice(1), { ...fireAt(2), via: 'label', issue: 8 }], now }).act === 'fire', 'new work, or any run started another way, re-arms it');
+  ok(!MOVABLE({ kind: 'draft' }) && MOVABLE({ kind: 'green-unmerged' }), 'a draft PR (such as a wake channel) never starts a backstop run');
+  ok(/#4 #6/.test(payload({ repo: 'o/r', why: 'w', target: null, stateIssue: 1, work: [4, 6] })), 'the run is told which stale items started it');
 }
 ok(decide({ event: 'workflow_dispatch', now }).act === 'fire' && decide({ event: 'workflow_dispatch', issue: woke(), now }).target === 5 && decide({ event: 'push', now }).act === 'none', 'by hand a run starts (capped like any other); other events wake nobody');
 
@@ -129,7 +145,7 @@ ok((await fire('labeled', 1, WAKE, { WAKE_ROUTINE_URL: 'https://evil.test/fire' 
 const r1 = await fire('labeled', 1, WAKE);
 const st = [...issues.values()].find((i) => i.user.login === 'github-actions[bot]');
 ok(r1.code === 0 && fires.length === 1 && fires[0].auth === 'Bearer sk-test' && /#1/.test(fires[0].body.text) && st && st.body.includes(STATE_MARK), 'the first wake opens the STATE issue and starts one run, telling it the issue');
-ok(st.labels.includes(CLAIM) && st.comments.at(-1).body.startsWith(FIRE_MARK) && /session_01/.test(st.comments.at(-1).body) && /Coordinator run started: https:\/\/claude\.ai\/code\/session_01/.test(issues.get(1).comments.at(-1).body), 'the claim is set and the session link is posted as the receipt, on the STATE issue and on the woken issue');
+ok(st.labels.includes(CLAIM) && st.comments.at(-2).body.startsWith(FIRE_MARK) && /session_01/.test(st.comments.at(-1).body) && /Coordinator run started: https:\/\/claude\.ai\/code\/session_01/.test(issues.get(1).comments.at(-1).body), 'the claim is set and the session link is posted as the receipt, on the STATE issue and on the woken issue');
 add({ number: 3, labels: [WAKE] });
 const r2 = await fire('labeled', 3, WAKE);
 ok(r2.code === 0 && fires.length === 1 && /a run is on/.test(r2.out), 'a second wake while the run is on starts nothing');
@@ -143,18 +159,21 @@ ok(r4.code === 0 && fires.length === 3 && st.state === 'open' && [...issues.valu
 st.labels = []; fireStatus = 500;
 add({ number: 9, labels: [WAKE] });
 const r5 = await fire('labeled', 9, WAKE);
-ok(r5.code === 1 && !st.labels.includes(CLAIM) && /Not started/.test(issues.get(9).comments.at(-1).body) && issues.get(9).labels.includes(WAKE), 'a failed fire releases the claim, says so on the issue, keeps the wake label, and fails the job');
+ok(r5.code === 1 && !st.labels.includes(CLAIM) && st.comments.at(-1).body.startsWith(FAIL_MARK) && st.comments.at(-2).body.startsWith(FIRE_MARK) && /No coordinator run started/.test(issues.get(9).comments.at(-1).body) && issues.get(9).labels.includes(WAKE), 'a failed fire was counted before it was tried, releases the claim, is marked failed, says so on the issue, keeps the wake label, and fails the job');
 fireStatus = 200;
 const r6 = await fire('labeled', 9, WAKE, { WAKE_DAILY_CAP: '3' });
 ok(r6.code === 0 && fires.length === 4 && /capped|cap is reached/.test(r6.out + issues.get(9).comments.at(-1).body), 'with the cap lowered to 3 and 3 runs today, the wake is capped and the issue is told');
 {
   // an agent rewrites the STATE body without its marker and moves the receipts' issue out of reach:
   // the count is read from the whole repository, so the cap still holds on the new STATE issue
-  st.body = 'rewritten'; st.labels = [];
+  st.body = 'rewritten'; st.labels = [CLAIM];
+  const busy = await fire('labeled', 9, WAKE);
+  ok(busy.code === 0 && fires.length === 4 && /a run is on/.test(busy.out), 'a STATE issue stripped of its marker while a run holds the claim makes no room for a second run');
+  st.labels = [];
   const r = await fire('labeled', 9, WAKE, { WAKE_DAILY_CAP: '3' });
   const fresh = [...issues.values()].filter((i) => i.body.includes(STATE_MARK));
   ok(r.code === 0 && fires.length === 4 && fresh.length === 1 && fresh[0].number !== st.number && /cap is reached/.test(r.out), 'a STATE issue stripped of its marker is replaced, but the receipts are counted repository-wide, so the cap still holds');
-  for (const i of issues.values()) i.comments = i.comments.filter((c) => !c.body.startsWith(FIRE_MARK));
+  for (const i of issues.values()) i.comments = i.comments.filter((c) => !c.body.startsWith(FIRE_MARK) && !c.body.startsWith(FAIL_MARK));
   st.body = STATE_MARK; issues.delete(fresh[0].number);
 }
 st.labels = []; issues.get(9).labels = [];
@@ -164,7 +183,7 @@ await fire('schedule'); await fire('schedule');
 const r8 = await fire('schedule');
 ok(r8.code === 0 && /backstop off/.test(r8.out) && st.comments.filter((c) => c.body.startsWith(EMPTY_MARK)).length === EMPTY_STOP, 'after three empty days the backstop stops writing and starting');
 const s = JSON.parse((await run(['status', '--repo', 'o/r'])).out);
-ok(s.state === st.number && s.emptyStreak === EMPTY_STOP && s.cap === DAILY_CAP && s.claim === false, 'status shows what the next decision reads');
+ok(s.state === st.number && s.emptyStreak === EMPTY_STOP && s.cap === DAILY_CAP && s.claim.length === 0 && s.failStreak === 0, 'status shows what the next decision reads');
 srv.close();
 
 // --- the installed workflow ---------------------------------------------------------------------
