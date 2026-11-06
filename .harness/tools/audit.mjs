@@ -187,7 +187,7 @@ const checks = {
     const absent = need.map((i) => i.slice(1)).filter((p) => !has(p));
     if (absent.length) return [FAIL, `imported but missing: ${absent.join(', ')}`];
     // the rulebook: a cloud thread loads CLAUDE.md and its imports, never AGENTS.md by itself
-    if (has('AGENTS.md') && !/^@AGENTS\.md\s*$/m.test(t)) return [FAIL, 'AGENTS.md exists but CLAUDE.md does not import it (@AGENTS.md), so no Claude session loads the rulebook'];
+    if (has('AGENTS.md') && !/^@(\.\/)?AGENTS\.md\s*$/m.test(t)) return [FAIL, 'AGENTS.md exists but CLAUDE.md does not import it (@AGENTS.md), so no Claude session loads the rulebook'];
     return [PASS, `CLAUDE.md imports core, owner defaults and VERSION${has('AGENTS.md') ? ' and the rulebook (AGENTS.md)' : ''}, and they exist (fresh-session and resume probes: judgment review)`];
   },
   A02() {

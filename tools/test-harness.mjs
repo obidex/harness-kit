@@ -137,6 +137,18 @@ r = tool(['update', '--version', v2]);
 ok(r.status === 1 && /sit where kit/.test(r.stderr) && readFileSync(join(proj, '.harness/added-in-next.md'), 'utf8') === 'PROJECT OWNED\n' && readFileSync(join(proj, '.harness/VERSION'), 'utf8').trim() === v1,
   'update refuses to overwrite a project file at a path the new kit claims, and changes nothing');
 rmSync(join(proj, '.harness/added-in-next.md'));
+// 4a. an installed project whose CLAUDE.md never imported its rulebook gets the line from the update (K031)
+{
+  const up = join(work, 'up-rulebook'); cpSync(proj, up, { recursive: true });
+  writeFileSync(join(up, 'CLAUDE.md'), readFileSync(join(up, 'CLAUDE.md'), 'utf8').replace(/^@AGENTS\.md\n/m, ''));
+  git(up, 'add', '-A'); git(up, 'commit', '-q', '-m', 'no rulebook import');
+  const u = tool(['update', '--version', v2], up);
+  const c = readFileSync(join(up, 'CLAUDE.md'), 'utf8');
+  ok(u.status === 0 && (c.match(/^@AGENTS\.md$/gm) || []).length === 1 && /added @AGENTS\.md/.test(u.stdout) && c.includes('Local note.'), `update adds @AGENTS.md once to a CLAUDE.md that lacked it and keeps the rest (${u.stdout.trim()})`);
+  spawnSync('node', [join(up, '.harness/tools/audit.mjs'), up, '--json', join(work, 'up.json')], { encoding: 'utf8' });
+  ok(JSON.parse(readFileSync(join(work, 'up.json'), 'utf8')).results.find((x) => x.id === 'A01').result === 'PASS', 'and A01 passes after that update');
+  rmSync(up, { recursive: true, force: true });
+}
 r = tool(['update', '--version', v2]);
 ok(r.status === 0, `update ${v1} → ${v2}: ${r.stdout.trim()}`);
 ok(tool(['paths']).stdout.split('\n').includes('.claude/next-only.md') && tool(['paths']).stdout.includes('.harness/presets/public-website.md'), 'paths lists what the update PR must stage: added and removed paths outside .harness too');

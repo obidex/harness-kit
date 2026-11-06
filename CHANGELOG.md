@@ -14,10 +14,11 @@ From the Nov 2026 radar (roadmap #48, P3).
   means reading its file. A04: account or Project-settings plugins do load, hooks included (tested),
   but the kit never depends on one.
 - `examples/CLAUDE.md` says the same in two lines, so it reaches every new project's threads.
-- Audit A01 now FAILs when `AGENTS.md` exists and `CLAUDE.md` does not import it: no Claude session
-  loads the rulebook otherwise (infra had lost it this way). `harness.mjs init` adds `@AGENTS.md` to an
-  existing `CLAUDE.md` when there is an `AGENTS.md`. A project whose audit turns red on A01 adds the
-  one line `@AGENTS.md` to its `CLAUDE.md`.
+- Audit A01 now FAILs when `AGENTS.md` exists and `CLAUDE.md` does not import it (`@AGENTS.md` or
+  `@./AGENTS.md`): no Claude session loads the rulebook otherwise (infra had lost it this way). `init`,
+  `update` and `rollback` add the one line `@AGENTS.md` after the kit imports when it is missing, so the
+  update PR that brings this version also fixes it and no project's audit turns red. That line is the
+  only project-owned change a kit update makes.
 - Audit A22 is NOT APPLICABLE on a private repository (GitHub sets interaction limits only on public
   ones; it answered 405).
 

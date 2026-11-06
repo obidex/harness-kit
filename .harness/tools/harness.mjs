@@ -166,6 +166,20 @@ function guardUpdate(lock, target) {
 }
 
 // --- init-only: project-owned files, written only when absent -------------------------------------------
+/** A cloud thread loads the rulebook only through CLAUDE.md (K031): add `@AGENTS.md` when it is missing. */
+const RULEBOOK_IMPORT = /^@(\.\/)?AGENTS\.md\s*$/m;
+function ensureRulebookImport() {
+  if (!existsSync(at('AGENTS.md')) || !existsSync(at('CLAUDE.md'))) return null;
+  const t = readFileSync(at('CLAUDE.md'), 'utf8');
+  if (RULEBOOK_IMPORT.test(t)) return null;
+  // after the last kit import, else at the end
+  const lines = t.split('\n');
+  const last = lines.map((l, i) => (/^@\.harness\//.test(l) ? i : -1)).filter((i) => i >= 0).pop();
+  if (last === undefined) writeFileSync(at('CLAUDE.md'), `${t.replace(/\n*$/, '\n')}\n@AGENTS.md\n`);
+  else { lines.splice(last + 1, 0, '@AGENTS.md'); writeFileSync(at('CLAUDE.md'), lines.join('\n')); }
+  return 'CLAUDE.md (added @AGENTS.md: the rulebook loads only through it)';
+}
+
 function initProjectFiles(kit) {
   const written = [];
   if (!existsSync(at('.harness/profile.json'))) {
@@ -196,8 +210,7 @@ function initProjectFiles(kit) {
     written.push('CLAUDE.md (created from the kit example)');
   } else {
     const t = readFileSync(at('CLAUDE.md'), 'utf8');
-    // the project's own rulebook too: a cloud thread loads CLAUDE.md and its imports, never AGENTS.md by itself
-    const missing = [...imports, '@.harness/VERSION', ...(existsSync(at('AGENTS.md')) ? ['@AGENTS.md'] : [])].filter((i) => !t.split('\n').includes(i));
+    const missing = [...imports, '@.harness/VERSION'].filter((i) => !t.split('\n').includes(i));
     if (missing.length) {
       const block = `${missing.join('\n')}\n`;
       // after the first heading if there is one, else at the top
@@ -207,6 +220,8 @@ function initProjectFiles(kit) {
       written.push(`CLAUDE.md (added ${missing.join(', ')})`);
     }
   }
+  const rb = ensureRulebookImport();
+  if (rb) written.push(rb);
   return written;
 }
 
@@ -245,7 +260,8 @@ switch (cmd) {
     }
     const r = apply(kit, lock);
     kit.cleanup();
-    say(`${verb} kit ${lock.version} → ${kit.version} (${kit.commit.slice(0, 12)}): ${r.added} added, ${r.changed} changed, ${r.removed} removed; project-owned files untouched`);
+    const rb = ensureRulebookImport();
+    say(`${verb} kit ${lock.version} → ${kit.version} (${kit.commit.slice(0, 12)}): ${r.added} added, ${r.changed} changed, ${r.removed} removed; ${rb ? `${rb}; other ` : ''}project-owned files untouched`);
     break;
   }
   case '__apply': {
@@ -257,7 +273,8 @@ switch (cmd) {
     if (!dir || !version || !commit || !source) die('__apply needs --kit-dir, --kit-version, --kit-commit and --kit-source');
     if (readFileSync(join(dir, '.harness/VERSION'), 'utf8').trim() !== version) die(`${dir} does not hold kit ${version}`);
     const r = apply({ dir, version, commit, source, cleanup() {} }, lock);
-    console.log(`${r.added} added, ${r.changed} changed, ${r.removed} removed`);
+    const rb = ensureRulebookImport();
+    console.log(`${r.added} added, ${r.changed} changed, ${r.removed} removed${rb ? `; ${rb}` : ''}`);
     break;
   }
   case 'status': {
