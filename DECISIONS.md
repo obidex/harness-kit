@@ -755,8 +755,8 @@ From the Nov 2026 radar (roadmap #48, P3; owner's approval of #48, 6 Nov 2026).
 From the Nov 2026 radar (roadmap #48, P5; owner's approval of #48, 6 Nov 2026).
 
 1. **O06's roles, named.** The adapter (A23) only names O06's roles: Sonnet 5.5 as the smallest
-   reliable builder, Opus 5.5 for architecture, accounting, security, hard or risky work and every
-   independent review, Haiku 5.5 only for log reading and summaries. A23 adds no role O06 lacks. A
+   reliable builder, Opus 5.5 for architecture, accounting, security, hard or risky work (preferred for
+   tier-3 review, O07), Haiku 5.5 only for log reading and summaries. A23 adds no role O06 or O07 lacks. A
    new model release changes A23, never core or the owner defaults.
 2. **Effort too.** Low for log reading, the default for building, high only for tier-3
    design and review.

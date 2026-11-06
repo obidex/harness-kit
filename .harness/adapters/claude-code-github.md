@@ -75,9 +75,9 @@
   shell edit is still reported (C14).
 - **A23 Name the model and the effort on every thread.** O06's roles, named as of Nov 2026: building
   on the smallest reliable model (Sonnet 5.5 for clear, bounded work); Opus 5.5 for architecture,
-  accounting, security, hard or risky work, whatever the tier, and for every independent review
-  (C10); Haiku 5.5 only for reading logs and summarizing, never for review or for money, stock or
-  permission code. Plain status stays on existing checks, with no extra turn. Effort: low for a log
+  accounting, security, hard or risky work, whatever the tier, and preferred for tier-3 review
+  (C10, O07); Haiku 5.5 only for reading logs and summarizing when that saves real
+  work, never for review or for money, stock or permission code. Plain status stays on existing checks, with no extra turn. Effort: low for a log
   digest, the default for building, high only for a tier-3 design or a review. The coordinator names
   both when it starts a thread; a thread never switches model mid-session. A long thread hands over
   (C04) and starts clean (`/clear`, or a fresh thread) rather than compacting a cold context. The
@@ -156,4 +156,4 @@
 | A20 | the project has pull requests | `harness-guard` runs gitleaks on every PR and is required; a public repository's settings file turns on secret scanning and push protection. | K030 | script: `harness-guard.yml` is installed and the default branch's ruleset requires `harness-guard`; on a public repository the settings file enables both secret protections. |
 | A21 | agents work in the project | Agent-configuration changes pass only from trusted account IDs. | K030 | script: the profile names `trusted_actors` and `harness-guard.yml` is installed. judgment: sampled PRs that changed agent configuration or `.github/workflows/` came from those accounts; no untrusted PR touching `.github/workflows/` was merged on a green guard. |
 | A22 | GitHub hosts a public repo | The limit is declared and renewed before it lapses. | K030 | script: when the live repository has an interaction limit (read through the API), the settings file declares `interaction_limits`. |
-| A23 | a coordinator starts threads | Each thread runs on the model and effort its risk calls for, named at its start and never switched; long threads hand over instead of compacting cold; `/usage` is read weekly. | K032; O06 | judgment: sampled threads' first messages name model and effort matching their tier; the daily summaries carry a weekly usage line. |
+| A23 | a coordinator starts threads | Each thread runs on the model and effort its risk calls for, named at its start and never switched; long threads hand over instead of compacting cold; `/usage` is read weekly. | K032; O06 | judgment: sampled threads' first messages name model and effort matching their work and risk; the daily summaries carry a weekly usage line. |
