@@ -18,9 +18,10 @@ const ok = (cond, what) => { n++; if (!cond) { console.log(`test-guard: FAIL ${n
 
 // --- which paths are agent configuration -------------------------------------------------------------
 const paths = ['CLAUDE.md', 'AGENTS.md', 'apps/web/CLAUDE.md', '.claude/settings.json', '.claude/skills/x/SKILL.md', 'pkg/.claude/hooks/a.sh',
-  '.harness/core.md', '.mcp.json', '.claude-plugin/plugin.json', 'plugins/tools/hooks/register.js', '.githooks/pre-commit', '.husky/pre-push'];
+  '.harness/core.md', '.mcp.json', '.claude-plugin/plugin.json', 'plugins/tools/hooks/register.js', '.githooks/pre-commit', '.husky/pre-push',
+  '.github/workflows/harness-guard.yml', '.github/dependabot.yml', '.gitleaks.toml'];
 ok(agentConfig(paths).length === paths.length, 'every agent-loaded or agent-run path counts (entry files, .claude, .harness, MCP, plugins, hooks)');
-ok(agentConfig(['src/app.js', 'docs/CLAUDE.md.bak', 'README.md', '.github/workflows/ci.yml', 'notCLAUDE.md', 'tools/.harnessy']).length === 0, 'ordinary files do not count');
+ok(agentConfig(['src/app.js', 'docs/CLAUDE.md.bak', 'README.md', 'docs/.github/x', 'notCLAUDE.md', 'tools/.harnessy']).length === 0, 'ordinary files do not count');
 
 // --- the verdict ---------------------------------------------------------------------------------------
 const owner = { id: 144545793, login: 'owner' }, app = { id: 999, login: 'hands[bot]' }, stranger = { id: 5, login: 'stranger' };
@@ -49,9 +50,9 @@ const srv = await new Promise((done) => {
     const send = (code, data) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(data)); };
     const page = Number(u.searchParams.get('page') || 1);
     const slice = (l) => l.slice((page - 1) * 100, page * 100);
-    if (u.pathname === '/repos/o/r/pulls/1') return send(200, { user: state.user });
+    if (u.pathname === '/repos/o/r/pulls/1') return send(200, { user: state.user, commits: state.total ?? state.commits.length });
     if (u.pathname === '/repos/o/r/pulls/1/files') return send(200, slice(state.files));
-    if (u.pathname === '/repos/o/r/pulls/1/commits') return send(200, slice(state.commits));
+    if (u.pathname === '/repos/o/r/pulls/1/commits') return send(200, slice(state.commits.slice(0, 250))); // GitHub lists at most 250
     return send(404, {});
   });
   s.listen(0, '127.0.0.1', () => done(s));
@@ -60,7 +61,7 @@ const dir = mkdtempSync(join(tmpdir(), 'guard-'));
 const profile = join(dir, 'profile.json');
 writeFileSync(profile, JSON.stringify({ trusted_actors: trusted }));
 const run = (args) => new Promise((done) => execFile(process.execPath, [join(kit, '.harness/tools/guard.mjs'), 'agent-config', '--repo', 'o/r', '--pr', '1', ...args],
-  { env: { ...process.env, GITHUB_API_URL: `http://127.0.0.1:${srv.address().port}`, GH_TOKEN: 't', GITHUB_STEP_SUMMARY: '' } }, (err, stdout) => done({ code: err ? err.code : 0, stdout })));
+  { env: { ...process.env, GITHUB_API_URL: `http://127.0.0.1:${srv.address().port}`, GH_TOKEN: 't', GITHUB_STEP_SUMMARY: '' } }, (err, stdout, stderr) => done({ code: err ? err.code : 0, stdout, stderr })));
 state = { user: owner, files: files(3), commits: [c('a1', owner)] };
 let r = await run(['--profile', profile]);
 ok(r.code === 0 && /trusted/.test(r.stdout), 'command: a trusted PR passes');
@@ -76,9 +77,9 @@ ok(r.code === 1 && /h7/.test(r.stdout), 'command: every page of files is read, a
 state = { user: stranger, files: files(3), commits: [c('a1', stranger)] };
 r = await run(['--profile', join(dir, 'none.json')]);
 ok(r.code === 0 && /::warning::/.test(r.stdout), 'command: without a profile the guard warns and passes (not adopted yet)');
-state = { user: owner, files: files(3), commits: Array.from({ length: 301 }, (_, i) => c(`x${i}`, owner)) };
+state = { user: owner, files: files(3), commits: [...Array.from({ length: 259 }, (_, i) => c(`x${i}`, owner)), c('z9', stranger)] };
 r = await run(['--profile', profile]);
-ok(r.code === 1, 'command: more commits than GitHub lists is refused, never judged in part');
+ok(r.code === 1 && /260 commits but GitHub listed 250/.test(r.stdout + r.stderr), 'command: a PR longer than the 250 commits GitHub lists is refused, never judged in part');
 srv.close();
 
 // --- the template ------------------------------------------------------------------------------------
@@ -86,7 +87,7 @@ const tplDir = join(kit, '.harness/templates/workflows');
 const text = readFileSync(join(tplDir, 'harness-guard.yml'), 'utf8');
 const wf = parseYaml(text);
 const job = wf.jobs['harness-guard'];
-ok(wf.name === 'harness-guard' && job.name === 'harness-guard' && Object.keys(wf.on).join() === 'pull_request', 'the required check is named harness-guard and runs on pull_request only');
+ok(wf.name === 'harness-guard' && job.name === 'harness-guard' && Object.keys(wf.on).join() === 'pull_request' && wf.on.pull_request.types.includes('edited'), 'the required check is named harness-guard, runs on pull_request only, and again when the PR is edited (a changed base)');
 ok(JSON.stringify(wf.permissions) === '{"contents":"read"}' && job.permissions['pull-requests'] === 'read' && !Object.values(job.permissions).includes('write'), 'read-only token');
 const [baseCo, prCo] = job.steps.filter((s) => /actions\/checkout/.test(s.uses || ''));
 ok(baseCo.with.ref === '${{ github.event.pull_request.base.sha }}' && baseCo.with.path === 'base', 'the guard, its gitleaks config and the trusted list come from the base commit');

@@ -86,6 +86,8 @@ async function load() {
     gh(`/repos/${repo}/interaction-limits`),
   ]);
   api.limits = limits;
+  // whether the kit templates' `vars.RUNNER` lane is set (A19 on a public repository)
+  if (repoInfo.status === 200 && repoInfo.data?.private === false) api.runnerVar = await gh(`/repos/${repo}/actions/variables/RUNNER`);
   api.rulesets = rs; api.labels = labels; api.runs = runs; api.issues = issues; api.pulls = pulls; api.comments = comments; api.repo = repoInfo;
   if (rs.status === 200 && Array.isArray(rs.data)) {
     api.rulesetDetails = await Promise.all(rs.data.filter((r) => r.target === 'branch').map((r) => gh(`/repos/${repo}/rulesets/${r.id}`)));
@@ -566,8 +568,19 @@ const checks = {
       if (w.wf.permissions === undefined) bad.push(`${w.file}: no workflow-level permissions (GitHub's default may grant writes)`);
     }
     const pub = isPublic();
-    if (pub) for (const w of workflows) for (const [k, j] of w.jobs) if (/self-hosted|vars\.RUNNER/.test(runsOn(j))) bad.push(`${w.file}#${k}: a self-hosted runner on a public repository`);
+    // a literal self-hosted label fails; the kit's `vars.RUNNER || 'ubuntu-latest'` lane fails only when
+    // the RUNNER variable is set (404: not set, so those jobs run GitHub-hosted)
+    let runnerUnknown = false;
+    if (pub) for (const w of workflows) for (const [k, j] of w.jobs) {
+      const r = runsOn(j);
+      if (/self-hosted/.test(r)) bad.push(`${w.file}#${k}: a self-hosted runner on a public repository`);
+      else if (/vars\.RUNNER/.test(r)) {
+        if (api.runnerVar?.status === 200) bad.push(`${w.file}#${k}: the RUNNER variable is set on a public repository`);
+        else if (api.runnerVar?.status !== 404) runnerUnknown = true;
+      }
+    }
     if (bad.length) return [FAIL, short(bad.join('; '), 400)];
+    if (runnerUnknown) return [UNKNOWN, `public repository; whether the RUNNER variable is set: ${noAccess(api.runnerVar)}`];
     if (pub === undefined) return [UNKNOWN, `${workflows.length} workflows: no pull_request_target, read-only workflow permissions; whether the repository is public: ${noAccess(api.repo)}`];
     return [PASS, `${workflows.length} workflows: no pull_request_target, read-only workflow permissions${pub ? ', no self-hosted runner on this public repository' : ''} (runner hosts: judgment review)`];
   },

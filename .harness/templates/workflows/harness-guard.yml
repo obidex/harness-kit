@@ -3,13 +3,16 @@
 #   1. gitleaks scans the pull request's own commits for secrets (a pinned release, checksummed);
 #   2. a change to agent configuration (CLAUDE.md, AGENTS.md, .claude/**, .harness/**, .mcp.json,
 #      plugin code, git hooks) passes only when every author is in the profile's trusted_actors.
-# Both run from the base branch's copy: the PR's commits are only read, never run, and a PR cannot
-# change the guard, its gitleaks config or the trusted list that judges it.
+# The guard's code, its gitleaks config and the trusted list come from the base branch; the PR's commits
+# are only read, never run. This workflow file itself runs from the PR (pull_request), so a change under
+# .github/ is judged like agent configuration, and a session never merges an untrusted PR that touches
+# .github/workflows/ (A21).
 name: harness-guard
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    # edited: a PR whose base branch was changed is judged again against the new base
+    types: [opened, synchronize, reopened, edited]
 
 permissions:
   contents: read

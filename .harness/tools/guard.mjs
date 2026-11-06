@@ -11,6 +11,13 @@
 // from the pull request, so a PR cannot trust itself. A profile with no `trusted_actors` warns and
 // passes: the project has not opted in yet.
 //
+// Limits, stated so nobody leans on more than this gives:
+// - On pull_request GitHub runs the workflow file from the PR itself, so a PR may rewrite this check.
+//   That is why a change under .github/ counts as agent configuration here, and why A21 has the
+//   merging session confirm that an untrusted PR leaves .github/workflows/ alone (judgment).
+// - GitHub links a commit to an account by its email, so the PR's author (its opener) is the strong
+//   signal; a commit's author is only as strong as its email.
+//
 // Run by `.github/workflows/harness-guard.yml` with the workflow's read-only token (GH_TOKEN).
 
 import { readFileSync, existsSync, appendFileSync } from 'node:fs';
@@ -18,7 +25,9 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /** Paths whose content agents load or execute. */
-export const AGENT_CONFIG = /(^|\/)(CLAUDE\.md|AGENTS\.md|CLAUDE\.local\.md|\.mcp\.json)$|(^|\/)\.claude\/|^\.harness\/|(^|\/)\.claude-plugin\/|^plugins\/|^\.githooks\/|^\.husky\//;
+// .github/ too: a PR that edits its own workflows could replace this very check (it runs from the PR's
+// merge ref on pull_request), so a workflow change is judged like agent configuration
+export const AGENT_CONFIG = /(^|\/)(CLAUDE\.md|AGENTS\.md|CLAUDE\.local\.md|\.mcp\.json)$|(^|\/)\.claude\/|^\.harness\/|(^|\/)\.claude-plugin\/|^plugins\/|^\.githooks\/|^\.husky\/|^\.github\/|^\.gitleaks\.toml$/;
 /** GitHub's committer for commits it makes on a user's behalf (web edits, squash, update-branch). */
 export const WEB_FLOW_ID = 19864447;
 
@@ -78,6 +87,8 @@ async function main() {
   let trusted;
   if (profilePath && existsSync(profilePath)) trusted = JSON.parse(readFileSync(profilePath, 'utf8')).trusted_actors;
   const [pr, files, commits] = await Promise.all([get(`/repos/${repo}/pulls/${n}`), all(`/repos/${repo}/pulls/${n}/files`, 30), all(`/repos/${repo}/pulls/${n}/commits`, 3)]);
+  // GitHub lists at most 250 commits of a PR: a longer one is refused, never judged in part
+  if (Number.isInteger(pr.commits) && pr.commits !== commits.length) throw new Error(`the PR has ${pr.commits} commits but GitHub listed ${commits.length}; refusing to judge it in part`);
   const v = verdict({ pr, commits, files: files.flatMap((f) => [f.filename, f.previous_filename].filter(Boolean)), trusted });
   if (!v.touched.length) { console.log('guard: no agent configuration changed'); summary('- No agent configuration changed.'); return; }
   const list = v.touched.slice(0, 20).join(', ') + (v.touched.length > 20 ? ` and ${v.touched.length - 20} more` : '');
