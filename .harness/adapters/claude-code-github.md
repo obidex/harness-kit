@@ -76,9 +76,9 @@
 - **A23 Name the model and the effort on every thread.** O06's roles, named as of Nov 2026: building
   on the smallest reliable model (Sonnet 5.5 for clear, bounded work); Opus 5.5 for architecture,
   accounting, security, hard or risky work, whatever the tier, and preferred for tier-3 review
-  (C10, O07); Haiku 5.5 only for reading logs and summarizing when that saves real
-  work, never for review or for money, stock or permission code. Plain status stays on existing checks, with no extra turn. Effort: low for a log
-  digest, the default for building, high only for a tier-3 design or a review. The coordinator names
+  (C10, O07); Haiku 5.5 only for reading logs and summarizing when that saves real work, never for
+  review or for money, stock or permission code. Plain status stays on existing checks, with no
+  extra turn. Effort: low for a log digest, the default for building, high only for a tier-3 design or a review. The coordinator names
   both when it starts a thread; a thread never switches model mid-session. A long thread hands over
   (C04) and starts clean (`/clear`, or a fresh thread) rather than compacting a cold context. The
   coordinator reads `/usage` once a week and puts one line in the daily summary.
