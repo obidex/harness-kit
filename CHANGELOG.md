@@ -3,6 +3,30 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.30.0 · 2026-11-07 · disposable, event-fired coordinators (K033)
+
+From the Nov 2026 radar (roadmap #48, P4).
+
+- New `harness-wake` workflow and `tools/wake.mjs`. The label `wake` on an issue or pull request
+  starts one fresh coordinator run through the project's scheduled task (`/fire`), and the job posts
+  the run's session link as the receipt. Only one run is on at a time: the claim label
+  `coordinator-running` sits on the project's STATE issue. When a run removes its claim, a wake
+  still queued starts the next run. The STATE issue is one per repository, opened by the job; its
+  body is the coordinator's state, which each run reads first and writes last.
+- Caps: 8 runs a day per repository, 3 a day per issue. They count the job's own receipts, which
+  it posts before each fire and reads from the whole repository. A cut-off listing fails closed, and
+  an edited job comment counts as a run. `WAKE_DAILY_CAP` may lower the daily cap, never raise it. A
+  claim older than 6 hours is a dead run and is cleared.
+- Stops that hold until a person lifts them (labels, never aged out):
+  - `wake-stopped` on an issue with 9 runs in 30 days, or that 3 backstop runs could not move;
+  - `wake-paused` after 3 failed starts or 8 hand-offs in a row, lifted only by a run started by hand;
+  - `backstop-off` after 3 empty days, lifted by the next run.
+- Daily backstop: it starts a run only when a script sees work a run can move (a queued wake, a dead
+  run's claim, or C15 stale work other than drafts).
+- Inert until a project sets `WAKE_ROUTINE_URL` (Actions variable) and `WAKE_ROUTINE_TOKEN`
+  (secret). `wake.md` has the setup, the run's contract, the cost, and how to retire the old
+  wake-channel pull requests once the proof holds.
+
 ## 0.29.2 · 2026-11-06 · the model and the effort on every thread (K032)
 
 From the Nov 2026 radar (roadmap #48, P5).
