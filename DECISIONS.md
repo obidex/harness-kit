@@ -754,10 +754,11 @@ From the Nov 2026 radar (roadmap #48, P3; owner's approval of #48, 6 Nov 2026).
 
 From the Nov 2026 radar (roadmap #48, P5; owner's approval of #48, 6 Nov 2026).
 
-1. **By risk.** O06's roles get today's names in the adapter (A23): Sonnet 5.5 for tiers 1-2, Opus 5.5
-   for tier 3 and every independent review, Haiku 5.5 for automations and read-only helpers. A new
-   model release changes A23, never core or the owner defaults.
-2. **Effort too.** Low for status and log reading, the default for building, high only for tier-3
+1. **O06's roles, named.** The adapter (A23) only names O06's roles: Sonnet 5.5 as the smallest
+   reliable builder, Opus 5.5 for architecture, accounting, security, hard or risky work and every
+   independent review, Haiku 5.5 only for log reading and summaries. A23 adds no role O06 lacks. A
+   new model release changes A23, never core or the owner defaults.
+2. **Effort too.** Low for log reading, the default for building, high only for tier-3
    design and review.
 3. **Fixed per thread.** Named when the thread starts, never switched; a long thread hands over and
    starts clean instead of compacting a cold context.

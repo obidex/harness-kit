@@ -7,9 +7,11 @@ Each version is the tag `v<version>` on this repository, never moved (K003). Pro
 
 From the Nov 2026 radar (roadmap #48, P5).
 
-- Adapter A23 (new, judgment): O06 on Claude as of Nov 2026. Sonnet 5.5 for risk tiers 1-2, Opus 5.5
-  for tier 3 and every independent review, Haiku 5.5 for automations and read-only helpers; effort
-  low for status reads and log digests, default for building, high only for tier-3 design or review.
+- Adapter A23 (new, judgment): O06's roles named as of Nov 2026. Sonnet 5.5 as the smallest reliable
+  builder, Opus 5.5 for architecture, accounting, security, hard or risky work and every independent
+  review, Haiku 5.5 only for log reading and summaries (never review or money, stock or permission
+  code); plain status stays on existing checks; effort low for log digests, default for building,
+  high only for tier-3 design or review.
   The coordinator names model and effort when it starts a thread; no switch mid-session; a long
   thread hands over and starts clean rather than compacting cold; `/usage` read weekly, one line in
   the daily summary. Model names live in the adapter, so a new model changes one line here, never

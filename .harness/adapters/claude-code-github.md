@@ -73,13 +73,15 @@
   several-repository project on 7-8 Oct 2026: nine refusals, every one a shell edit or a shell
   command after one; eleven file-tool edits of rule files in one thread, none refused. A refused
   shell edit is still reported (C14).
-- **A23 Name the model and the effort on every thread.** O06 on Claude, as of Nov 2026: Sonnet 5.5 for
-  risk tiers 1 and 2; Opus 5.5 for tier 3 and for every independent review (C10); Haiku 5.5 for
-  automations and read-only helpers (log digests, status reads). Effort follows the work: low for a
-  status read or a log digest, the default for building, high only for a tier-3 design or a review.
-  The coordinator names both when it starts a thread; a thread never switches model mid-session. A
-  long thread hands over (C04) and starts clean (`/clear`, or a fresh thread) rather than compacting a
-  cold context. The coordinator reads `/usage` once a week and puts one line in the daily summary.
+- **A23 Name the model and the effort on every thread.** O06's roles, named as of Nov 2026: building
+  on the smallest reliable model (Sonnet 5.5 for clear, bounded work); Opus 5.5 for architecture,
+  accounting, security, hard or risky work, whatever the tier, and for every independent review
+  (C10); Haiku 5.5 only for reading logs and summarizing, never for review or for money, stock or
+  permission code. Plain status stays on existing checks, with no extra turn. Effort: low for a log
+  digest, the default for building, high only for a tier-3 design or a review. The coordinator names
+  both when it starts a thread; a thread never switches model mid-session. A long thread hands over
+  (C04) and starts clean (`/clear`, or a fresh thread) rather than compacting a cold context. The
+  coordinator reads `/usage` once a week and puts one line in the daily summary.
 
 ## GitHub enforcement
 
