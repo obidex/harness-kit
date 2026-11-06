@@ -3,6 +3,20 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.29.2 · 2026-11-06 · the model and the effort on every thread (K032)
+
+From the Nov 2026 radar (roadmap #48, P5).
+
+- Adapter A23 (new, judgment): O06's roles named as of Nov 2026. Sonnet 5.5 as the smallest reliable
+  builder, Opus 5.5 for architecture, accounting, security, hard or risky work (preferred for tier-3
+  review), Haiku 5.5 only for log reading and summaries (never review or money, stock or permission
+  code); plain status stays on existing checks; effort low for log digests, default for building,
+  high only for tier-3 design or review.
+  The coordinator names model and effort when it starts a thread; no switch mid-session; a long
+  thread hands over and starts clean rather than compacting cold; `/usage` read weekly, one line in
+  the daily summary. Model names live in the adapter, so a new model changes one line here, never
+  core or the owner defaults.
+
 ## 0.29.1 · 2026-11-06 · what a cloud thread loads (K031)
 
 From the Nov 2026 radar (roadmap #48, P3).
