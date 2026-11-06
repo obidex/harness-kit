@@ -47,7 +47,19 @@ if (rulesChanged.length) {
   try { out = execFileSync(process.execPath, ['tools/replay.mjs', 'check', res], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }); } catch (e) { fail(`${rulesChanged.join(', ')} changed, so ${res} must pass the replay check (replay/README.md): ${(e.stderr || e.message).trim()}`); }
   console.log(out.trim());
 }
+// stored results are history: a release adds its own, never edits or deletes an earlier one
+for (const line of git('diff', '--name-status', `${base}...HEAD`, '--', 'replay/results').split('\n').filter(Boolean)) {
+  const [st, f] = line.split('\t');
+  if (st !== 'A') fail(`${f} is an earlier replay result (${st}): results are added, never edited or removed`);
+}
 const setChanged = git('diff', '--name-only', `${base}...HEAD`).split('\n').some((f) => f === 'replay/tasks.json');
+if (setChanged) {
+  // the set only grows: no task removed, no expected answer changed
+  let was = [];
+  try { was = JSON.parse(execFileSync('git', ['show', `${base}:replay/tasks.json`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })); } catch { /* new set */ }
+  const now = new Map(JSON.parse(readFileSync('replay/tasks.json', 'utf8')).map((t) => [t.id, t.expect]));
+  for (const t of was) if (now.get(t.id) !== t.expect) fail(`replay task ${t.id} was removed or its expected answer changed: the set only grows`);
+}
 if (setChanged) {
   const entry = (readFileSync('CHANGELOG.md', 'utf8').split(new RegExp(`^## ${now.replace(/\./g, '\\.')}\\b`, 'm'))[1] || '').split(/^## /m)[0];
   if (!/replay set/i.test(entry)) fail(`replay/tasks.json changed but the ${now} changelog entry does not say "replay set"`);

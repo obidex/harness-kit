@@ -69,11 +69,11 @@ export function grade(answers, list = tasks()) {
   return { rows, passed: rows.filter((r) => r.pass).length, total: rows.length };
 }
 
-/** Earlier results made on the same task set (results on another set are history, not a floor). */
-function earlierSameSet(version, setHash) {
+/** Every earlier stored result, oldest first (whatever set it was made on). */
+function earlierResults(version) {
   const dir = join(root, 'replay/results');
   const v = existsSync(dir) ? readdirSync(dir).map((f) => f.replace(/\.json$/, '')).filter((x) => /^\d+\.\d+\.\d+$/.test(x) && cmp(x, version) < 0).sort(cmp) : [];
-  return v.map((x) => JSON.parse(read(`replay/results/${x}.json`))).filter((r) => r.tasks_sha256 === setHash);
+  return v.map((x) => JSON.parse(read(`replay/results/${x}.json`)));
 }
 
 /** The set a result was graded on: its own stored expectations ({id: letter}). */
@@ -102,14 +102,23 @@ export function resultProblems(r, { current = true } = {}) {
   if (g.passed !== r.passed) p.push(`says ${r.passed} passed, re-grading gives ${g.passed}`);
   if (g.passed < Math.ceil(FLOOR * g.total)) p.push(`${g.passed}/${g.total} is under the floor of ${Math.round(FLOOR * 100)}%`);
   if (current && r.kit) {
-    // the floor never wears down: at most one task fewer than the BEST earlier result on this set,
-    // and at most one task the newest earlier result passed may now fail
-    const before = earlierSameSet(r.kit, tasksHash());
-    if (before.length) {
-      const best = before.reduce((a, b) => (b.passed > a.passed ? b : a));
-      if (g.passed < best.passed - 1) p.push(`${g.passed} passed, more than one fewer than the best earlier result (${best.kit}: ${best.passed})`);
-      const last = before[before.length - 1];
-      const lost = grade(last.answers || {}, list).rows.filter((x) => x.pass).map((x) => x.id).filter((id) => !g.rows.find((y) => y.id === id).pass);
+    // the floor never wears down, whatever tasks were added since: on the tasks an earlier result
+    // shares with this set (same id, same expected answer), at most one fewer than the best earlier
+    // result, and at most one task the newest earlier result passed may now fail
+    const now = new Map(g.rows.map((x) => [x.id, x]));
+    const key = keyOf(list);
+    const before = earlierResults(r.kit);
+    let best = null;
+    for (const e of before) {
+      const shared = asList(e.expected).filter((t) => key[t.id] === t.expect).map((t) => t.id);
+      const was = grade(e.answers || {}, asList(e.expected)).rows.filter((x) => x.pass && shared.includes(x.id)).length;
+      const is = shared.filter((id) => now.get(id).pass).length;
+      if (!best || was - is > best.drop) best = { kit: e.kit, was, is, drop: was - is };
+    }
+    if (best && best.drop > 1) p.push(`on the tasks it shares with ${best.kit}, ${best.is} pass where ${best.was} did: more than one fewer`);
+    const last = before[before.length - 1];
+    if (last) {
+      const lost = grade(last.answers || {}, asList(last.expected)).rows.filter((x) => x.pass && key[x.id] === last.expected[x.id] && !now.get(x.id).pass).map((x) => x.id);
       if (lost.length > 1) p.push(`${lost.length} tasks ${last.kit} passed now fail (${lost.join(', ')})`);
     }
   }

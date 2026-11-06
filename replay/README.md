@@ -22,15 +22,17 @@ and is replayed too. `tools/check-version.mjs` fails a kit PR that changes those
 3. Commit the result with the change. A task that fails is named in the PR with why; a rule change that
    loses a task it used to pass is a finding for the reviewer.
 
-**Floor.** At least 80% of the tasks; at most one task below the best earlier result on the same set;
-and at most one task the newest earlier result passed may now fail (models are not perfectly
-repeatable; two lost tasks are a regression). Each result stores the expected answers it was graded
-on, so a later change of the set never breaks an older result, and a new set starts its own floor.
+**Floor.** At least 80% of the tasks. On the tasks an earlier result shares with the set (same id,
+same answer), at most one fewer than any earlier result, and at most one task the newest earlier
+result passed may now fail (models are not perfectly repeatable; two lost tasks are a regression).
+Adding tasks never resets it. Each result stores the answers it was graded on, so it stays valid as
+the set grows; results are only ever added, never edited (`check-version`).
 
 **Grading.** Deterministic: the reply's `CHOICE:` letter against the expected one. CI re-grades every
 stored result; nothing is taken on trust except that a model wrote the answers.
 
-**Changing the set.** The set is frozen. Adding or changing a task is a decision: the new hash goes
-below, and the release's changelog entry says "replay set". A task is never dropped to raise a score.
+**Changing the set.** The set is frozen and only grows. Adding a task is a decision: the new hash goes
+below, and the release's changelog entry says "replay set". `check-version` refuses a release that
+removes a task or changes an expected answer.
 
 Frozen set: sha256 07138d24961e3e3f346c71d1b17e96b715df2606b77c8542b3a239640a16cbf0
