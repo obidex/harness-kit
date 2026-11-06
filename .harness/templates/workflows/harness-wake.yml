@@ -7,7 +7,7 @@
 # C15 stale work); it stops after 3 empty days, or after 3 runs for the same work with nothing moved
 # (one red exception). Caps (wake.mjs): 8 runs a day per repository, 3 a day per issue, counted from
 # this job's own receipts. Stops that hold until a person lifts them: an issue that started 9 runs in
-# 30 days or made no progress (`wake-stopped`); 3 failed starts or 16 hand-offs in a row (`wake-paused`).
+# 30 days or made no progress (`wake-stopped`); 3 failed starts or 8 hand-offs in a row (`wake-paused`).
 # Inert until the project sets the Actions variable WAKE_ROUTINE_URL and the secret WAKE_ROUTINE_TOKEN
 # (.harness/wake.md "Setup"): with no URL every job is skipped and costs nothing.
 # Safe on a self-hosted runner: it runs only the default branch's .harness/tools, never PR scripts, and

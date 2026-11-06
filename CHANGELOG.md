@@ -19,7 +19,7 @@ From the Nov 2026 radar (roadmap #48, P4).
   claim older than 6 hours is a dead run and is cleared.
 - Stops that hold until a person lifts them (labels, never aged out):
   - `wake-stopped` on an issue with 9 runs in 30 days, or that 3 backstop runs could not move;
-  - `wake-paused` after 3 failed starts or 16 hand-offs in a row, lifted only by a run started by hand;
+  - `wake-paused` after 3 failed starts or 8 hand-offs in a row, lifted only by a run started by hand;
   - `backstop-off` after 3 empty days, lifted by the next run.
 - Daily backstop: it starts a run only when a script sees work a run can move (a queued wake, a dead
   run's claim, or C15 stale work other than drafts).

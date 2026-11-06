@@ -27,8 +27,8 @@
 // - Stops that hold until a person lifts them (labels, so they never age out):
 //   `wake-stopped` on an issue that started ISSUE_TOTAL runs in LEDGER_DAYS, or that STUCK_STOP backstop
 //   runs in a row did not move (one red exception each); `wake-paused` on the STATE issue after
-//   STUCK_STOP failed starts in a row or CHAIN_STOP hand-off runs in a row (lifted only by a run started
-//   by hand); `backstop-off` on the STATE issue after EMPTY_STOP empty days (lifted by the next run).
+//   STUCK_STOP failed starts in a row, CHAIN_STOP hand-off runs in a row, or a run that keeps dying
+//   (lifted only by a run started by hand); `backstop-off` on the STATE issue after EMPTY_STOP empty days (lifted by the next run).
 //   The daily backstop starts a run only for work a script can see (a queued wake, a dead run's claim,
 //   C15 stale work other than drafts). Labels are removed by the owner's account; agents never do (C12).
 // - Nothing is lost when a wake is refused (a run already on, a cap): the label stays, and the end of
@@ -56,7 +56,7 @@ export const ISSUE_TOTAL = 9;        // runs per woken issue in LEDGER_DAYS, the
 export const CLAIM_TTL_H = 6;        // a claim older than this belongs to a run that died
 export const EMPTY_STOP = 3;         // empty backstops in a row, then the backstop stops
 export const STUCK_STOP = 3;         // backstop runs in a row for the same work, or failed fires in a row: stop
-export const CHAIN_STOP = 16;        // runs in a row started only by a run ending (hand-offs), then pause
+export const CHAIN_STOP = 8;         // hand-off runs in a row with no outside wake between, then pause
 export const LEDGER_DAYS = 30;       // how far back the receipts are read
 const HOUR = 3600e3, DAY = 24 * HOUR;
 
@@ -107,8 +107,18 @@ export function failStreak(led) {
   return n;
 }
 
-/** Runs in a row, newest last, that a run's end started (hand-offs with nothing else between). */
-export const chainLength = (fires) => { let n = 0; for (let i = fires.length - 1; i >= 0 && fires[i].via === 'queue'; i--) n++; return n; };
+/** Runs in a row, newest last, with no outside wake between: started by a run ending, or by the
+ *  backstop for a queued wake. Only a wake label seen while no run was on, or a run by hand, resets it. */
+export const chainLength = (fires) => {
+  let n = 0;
+  for (let i = fires.length - 1; i >= 0; i--) {
+    const f = fires[i];
+    if (f.via === 'queue' || (f.via === 'backstop' && f.issue != null) || f.via === 'edited') n++;
+    else if (f.via === 'backstop') continue;   // a stale-work run neither extends nor ends a chain
+    else break;
+  }
+  return n;
+};
 
 /** What this event does. Pure: every input is read before, every effect is done after.
  *  in: { event, label, issue: { number, open, labels, isState } | null, claim, paused, backstopOff,
@@ -137,13 +147,18 @@ export function decide({ event, label, issue = null, claim = false, paused = fal
   } else if (event === 'schedule') {
     const empties = led.filter((e) => e.kind === 'empty' && (!lastFire || e.at > lastFire.at)).length;
     if (backstopOff || empties >= EMPTY_STOP) return { act: 'none', why: 'the backstop rests until the next run re-arms it' };
+    if (paused) return { act: 'empty', why: 'backstop: wakes are paused', last: empties + 1 >= EMPTY_STOP, n: empties + 1 };
     if (busy) return { act: 'none', why: 'backstop: a run is on' };
     sig = signature(open, work, dead);
     if (!sig) return { act: 'empty', why: queue.length ? 'backstop: only wakes at their daily cap' : 'backstop: nothing to do', last: empties + 1 >= EMPTY_STOP, n: empties + 1 };
     // no progress: the last STUCK_STOP runs were all backstop runs for this same work
     const tail = fires.slice(-STUCK_STOP);
-    if (tail.length === STUCK_STOP && tail.every((e) => e.via === 'backstop' && e.sig === sig))
-      return { act: 'stuck', why: `${STUCK_STOP} backstop runs in a row for the same work changed nothing`, sig, items: [...open, ...work.map((w) => w.number)] };
+    if (tail.length === STUCK_STOP && tail.every((e) => e.via === 'backstop' && e.sig === sig)) {
+      const items = [...open, ...work.map((w) => w.number)];
+      // nothing to label (only a run that keeps dying): pause everything instead
+      if (!items.length) return { act: 'pause', why: `${STUCK_STOP} backstop runs in a row died holding the claim`, clearClaim: dead };
+      return { act: 'stuck', why: `${STUCK_STOP} backstop runs in a row for the same work changed nothing`, sig, items };
+    }
     target = open[0] ?? null; via = 'backstop';
     why = open.length ? 'backstop: a wake still queued' : dead ? 'backstop: a run died holding the claim' : `backstop: stale item(s) ${work.map((w) => `#${w.number}`).join(' ')}`;
   } else if (event === 'workflow_dispatch') {
@@ -291,6 +306,7 @@ async function runFire(repo, { event, issue, label }) {
     return;
   }
   if (d.act === 'pause') {
+    if (d.clearClaim) for (const n of s.claimed) await unclaim(repo, n);
     await addLabel(s.st.number, PAUSED);
     await comment(repo, s.st.number, `Needs a person: ${d.why}. Wakes are paused (\`${PAUSED}\`): no run starts until one is started by hand (Actions, harness-wake, Run workflow), which lifts the pause.`);
     process.exitCode = 3;

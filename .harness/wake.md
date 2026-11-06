@@ -48,15 +48,17 @@ each run is short and fresh: it starts on an event, reads the state, acts, write
 | Label | Set on | When | Lifted by |
 | --- | --- | --- | --- |
 | `wake-stopped` | an issue | It started 9 runs in 30 days, or 3 backstop runs in a row for the same work changed nothing. The job removes its `wake` label, posts "needs a person" on it, and turns one run red. | A person removing the label |
-| `wake-paused` | the STATE issue | 3 failed starts in a row (an expired token, an outage), or 16 runs in a row started only by hand-offs between runs. One red run. | A run started by hand (Actions → harness-wake → Run workflow) |
+| `wake-paused` | the STATE issue | 3 failed starts in a row (an expired token, an outage); 8 runs in a row started only by hand-offs, with no outside wake between; or 3 backstop runs for a run that keeps dying. One red run. | A run started by hand (Actions → harness-wake → Run workflow) |
 | `backstop-off` | the STATE issue | 3 empty backstop days in a row | The next run of any kind |
 
 So a stuck wake, owner-only work, a run that always dies, a self-feeding chain and a broken token
 each end in one exception, never in a monthly repeat.
 
 **Who can lift a stop.** The labels and receipts are protected only by rules. The owner's account,
-which agents also act as, can remove a label or edit a comment. No agent does either (C12: gates are
-never worked around), and the run's contract forbids it. Edited receipts still count.
+which agents also act as, can remove a label, edit a comment or start the workflow by hand. No agent
+does any of these to lift a stop (C12: gates are never worked around), and the run's contract
+forbids it. Edited receipts still count against the daily cap. While wakes are paused, the backstop
+counts empty days and then rests too.
 
 **A capped wake** keeps its label and gets one note. A later run or the backstop picks it up once it
 is under its daily cap.
@@ -82,8 +84,8 @@ The scheduled task's saved prompt says this. Each run:
    to continue its own work past the per-issue cap.
 
 A run never changes its own scheduled task, the workflow or the caps. It never removes
-`wake-stopped`, `wake-paused` or `backstop-off`, never edits the job's comments, and never touches
-any permission or secret.
+`wake-stopped`, `wake-paused` or `backstop-off`, never edits the job's comments, never starts the
+workflow by hand, and never touches any permission or secret.
 
 ## Setup in a project (once)
 
