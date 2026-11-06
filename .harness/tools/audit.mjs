@@ -186,7 +186,9 @@ const checks = {
     if (missing.length) return [FAIL, `CLAUDE.md does not import ${missing.join(', ')}`];
     const absent = need.map((i) => i.slice(1)).filter((p) => !has(p));
     if (absent.length) return [FAIL, `imported but missing: ${absent.join(', ')}`];
-    return [PASS, 'CLAUDE.md imports core, owner defaults and VERSION, and they exist (fresh-session and resume probes: judgment review)'];
+    // the rulebook: a cloud thread loads CLAUDE.md and its imports, never AGENTS.md by itself
+    if (has('AGENTS.md') && !/^@AGENTS\.md\s*$/m.test(t)) return [FAIL, 'AGENTS.md exists but CLAUDE.md does not import it (@AGENTS.md), so no Claude session loads the rulebook'];
+    return [PASS, `CLAUDE.md imports core, owner defaults and VERSION${has('AGENTS.md') ? ' and the rulebook (AGENTS.md)' : ''}, and they exist (fresh-session and resume probes: judgment review)`];
   },
   A02() {
     const imports = has('CLAUDE.md') ? [...read('CLAUDE.md').matchAll(/^@(\S+)/gm)].map((m) => m[1]) : [];
@@ -613,6 +615,8 @@ const checks = {
   },
   A22() {
     if (!repo) return [UNKNOWN, noAccess(undefined)];
+    // GitHub sets interaction limits on public repositories only (a private one answers 405)
+    if (isPublic() === false) return [NA, 'a private repository: interaction limits apply only to public ones'];
     if (api.limits?.status !== 200) return [UNKNOWN, `interaction limits: ${noAccess(api.limits)}`];
     const live = api.limits.data && api.limits.data.limit;
     if (!live) return [settingsFile?.interaction_limits ? FAIL : PASS, settingsFile?.interaction_limits ? 'the settings file declares interaction limits but none is live (lapsed; the drift check should have applied it)' : 'no interaction limit is live or declared'];

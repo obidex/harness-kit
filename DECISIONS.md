@@ -730,3 +730,21 @@ Claude configuration paths).
    what is missing as UNKNOWN, so a kit update never turns a project red.
 
 **Status:** STANDING.
+
+## K031 · 2026-11-06 · STANDING — a cloud thread runs on instructions; enforcement lives in GitHub
+
+From the Nov 2026 radar (roadmap #48, P3; owner's approval of #48, 6 Nov 2026).
+
+1. **What loads.** A Claude Projects cloud thread loads `CLAUDE.md`, its imports and `.claude/rules/`.
+   It does not load a repository's `.claude/settings.json`, hooks, skills or `.mcp.json`. So the kit
+   puts every rule a thread must follow in what loads (core, owner defaults, the rulebook through
+   `@AGENTS.md`), and audit A01 checks the rulebook import.
+2. **What enforces.** Anything that must not be skipped (no push to the default branch, no force
+   push, required checks, the attribution scrubber, the trusted-author guard) is a ruleset, a required
+   check or a hands App workflow, never only a deny rule in settings.
+3. **Plugins.** Plugins the owner enables on the account or in Project settings load in cloud threads,
+   hooks included (tested 6 Nov 2026). The kit never depends on one; a project may use them as an
+   extra layer.
+
+**Status:** STANDING.
+

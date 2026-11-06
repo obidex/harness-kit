@@ -196,7 +196,8 @@ function initProjectFiles(kit) {
     written.push('CLAUDE.md (created from the kit example)');
   } else {
     const t = readFileSync(at('CLAUDE.md'), 'utf8');
-    const missing = [...imports, '@.harness/VERSION'].filter((i) => !t.split('\n').includes(i));
+    // the project's own rulebook too: a cloud thread loads CLAUDE.md and its imports, never AGENTS.md by itself
+    const missing = [...imports, '@.harness/VERSION', ...(existsSync(at('AGENTS.md')) ? ['@AGENTS.md'] : [])].filter((i) => !t.split('\n').includes(i));
     if (missing.length) {
       const block = `${missing.join('\n')}\n`;
       // after the first heading if there is one, else at the top

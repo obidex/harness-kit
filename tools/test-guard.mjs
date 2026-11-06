@@ -155,7 +155,8 @@ ok(audit().A17.result === 'FAIL', 'A17 fails on a cooldown under 3 days');
     const s = createServer((req, res) => {
       const u = new URL(req.url, 'http://x');
       const send = (code, data) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(data)); };
-      if (u.pathname === '/repos/o/r') return send(200, { private: false, owner: { type: st.org ? 'Organization' : 'User' } });
+      if (u.pathname === '/repos/o/r') return send(200, { private: !!st.private, owner: { type: st.org ? 'Organization' : 'User' } });
+      if (u.pathname === '/repos/o/r/interaction-limits') return st.private ? send(405, {}) : send(200, st.limit ? { limit: st.limit, expires_at: '2027-04-09T00:00:00Z' } : {});
       if (u.pathname === '/repos/o/r/actions/variables/RUNNER') return send(st.repoVar, st.repoVar === 200 ? { name: 'RUNNER', value: 'self-hosted' } : {});
       if (u.pathname === '/repos/o/r/actions/organization-variables') return send(st.orgCode ?? 200, { total_count: st.orgTotal ?? (st.orgVars || []).length, variables: st.orgVars || [] });
       return send(404, {});
@@ -168,7 +169,7 @@ ok(audit().A17.result === 'FAIL', 'A17 fails on a cooldown under 3 days');
     st = s;
     const f = join(tmpdir(), `a19-${n}.json`);
     await new Promise((done) => execFile(process.execPath, [join(kit, '.harness/tools/audit.mjs'), proj, '--repo', 'o/r', '--json', f], { env: { ...process.env, GITHUB_API_URL: `http://127.0.0.1:${api.address().port}`, GITHUB_TOKEN: 't' } }, () => done()));
-    return JSON.parse(readFileSync(f, 'utf8')).results.find((x) => x.id === 'A19');
+    return JSON.parse(readFileSync(f, 'utf8')).results.find((x) => x.id === (s.rule || 'A19'));
   };
   ok((await a19({ repoVar: 404 })).result === 'PASS', 'A19: a public repository whose RUNNER variable is not set passes (the kit lane runs GitHub-hosted)');
   ok((await a19({ repoVar: 200 })).result === 'FAIL', 'A19: a public repository with RUNNER set fails');
@@ -176,6 +177,9 @@ ok(audit().A17.result === 'FAIL', 'A17 fails on a cooldown under 3 days');
   ok((await a19({ repoVar: 404, org: true, orgVars: [{ name: 'RUNNER' }] })).result === 'FAIL', 'A19: an organisation-level RUNNER fails though the repository has none');
   ok((await a19({ repoVar: 404, org: true, orgCode: 403 })).result === 'UNKNOWN', 'A19: unreadable organisation variables are UNKNOWN');
   ok((await a19({ repoVar: 404, org: true, orgVars: [{ name: 'X' }], orgTotal: 31 })).result === 'UNKNOWN', 'A19: an organisation list longer than one page is UNKNOWN, never clear');
+  ok((await a19({ rule: 'A22', repoVar: 404, private: true })).result === 'NOT APPLICABLE', 'A22: a private repository is not applicable (GitHub answers 405 there), never UNKNOWN');
+  ok((await a19({ rule: 'A22', repoVar: 404 })).result === 'PASS', 'A22: a public repository with no live limit and none declared passes');
+  ok((await a19({ rule: 'A22', repoVar: 404, limit: 'collaborators_only' })).result === 'FAIL', 'A22: a live limit the settings file does not declare fails (it would lapse)');
   api.close();
 }
 rmSync(proj, { recursive: true, force: true });
