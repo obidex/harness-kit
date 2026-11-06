@@ -53,7 +53,7 @@ const events = [
   { event: 'reopened', created_at: ago(9 * D), issue: { number: 9 } },
 ];
 const pulls = {
-  1: { body: 'Round 1: 2 blocks\nRound 2: no blocks', merge_commit_sha: 'm1', commits: ['a1', 'a2'], comments: [{ body: 'Round 2 had 1 block' }], reviews: [] },
+  1: { body: 'Round 1: 2 blocks\nRound 2: no blocks', merge_commit_sha: 'm1', commits: ['a1', 'a2'], comments: [{ body: 'Round 2 had 1 block' }], reviews: [{ state: 'CHANGES_REQUESTED', body: 'see round 1' }] },
   2: { body: 'no review', merge_commit_sha: 'm2', commits: ['b1', 'b2'], comments: [], reviews: [{ state: 'CHANGES_REQUESTED', body: '' }, { state: 'APPROVED', body: '' }] },
 };
 const checks = { a1: [{ status: 'completed', conclusion: 'failure' }], a2: [{ status: 'completed', conclusion: 'success' }], b1: [], b2: [{ status: 'completed', conclusion: 'success' }, { status: 'completed', conclusion: 'skipped' }, { status: 'in_progress', conclusion: null }] };
@@ -86,12 +86,14 @@ const m = await measure('o/r', { now: NOW, days: 7, owner: 'own' });
 ok(m.errors.length === 0 && m.partial.length === 0, 'a readable repository has no errors and no partial listings');
 ok(m.agentPrsMerged === 2, 'agent PRs merged: the app-made and the marked PR; not the bot, the person\'s revert, or a merge before the window');
 ok(m.firstPass.measured === 2 && m.firstPass.green === 1 && m.firstPass.rate === 0.5, 'first pass: #1 red on its first commit (green later does not count); #2 judged on its first commit with finished checks');
-ok(m.reviewBlocks.reviewedPrs === 2 && m.reviewBlocks.blocks === 4 && m.reviewBlocks.perReviewedPr === 2, 'review blocks: round lines from body and comments (2 + 1), plus a changes-requested review (1)');
+ok(m.reviewBlocks.reviewedPrs === 2 && m.reviewBlocks.blocks === 4 && m.reviewBlocks.perReviewedPr === 2, 'review blocks: round lines from body and comments (2 + 1), a changes-requested review not counted again; a PR with no round line counts its changes-requested review (1)');
 ok(m.falseDone.total === 3 && m.falseDone.mainRed.join() === '1' && m.falseDone.reverted.join() === '4' && m.falseDone.reopened.join() === '6', 'false DONEs: main red at the merge commit, a merged revert, an issue reopened in the window (not one reopened before it)');
 ok(m.stalls.count === 3 && m.stalls.items.join() === '10,12,15', 'stalls: idle non-draft PRs and card/inbox/risk issues over 24 h; not drafts, other labels or fresh items');
 ok(m.ownerTouches.count === 3 && m.ownerTouches.perWeek === 3, 'owner touches: the revert PR, the issue and the plain comment; not app-made, marked, other people\'s or older writes');
 ok(seen.every((s) => s.auth === 'Bearer T'), 'every read carries the token');
 
+const noOwner = await measure('o/r', { now: NOW, days: 7 });
+ok(noOwner.ownerTouches === null && noOwner.errors.some((e) => /no --owner/.test(e)), 'without --owner, owner touches are "?" with the reason, never a zero');
 const bad = await measure('o/bad', { now: NOW, days: 7 });
 ok(bad.agentPrsMerged === null && bad.firstPass === null && bad.falseDone === null && bad.stalls === null && bad.ownerTouches === null && bad.errors.length >= 3, 'an unreadable repository gives null metrics with errors, never zeros');
 const md = render([m, bad]);

@@ -14,13 +14,13 @@
 //   first-pass CI green  of those, the share whose FIRST commit with finished checks had them all
 //                        pass (success, neutral or skipped)
 //   review BLOCKs        blocks the independent reviewer raised (C10), per PR with a recorded review:
-//                        "Round N: K blocks" lines in the PR body and comments, plus "changes requested"
-//                        reviews
+//                        "Round N: K blocks" lines in the PR body and comments; a PR with none counts its
+//                        "changes requested" reviews instead
 //   false DONEs          work reported done that was not: an agent PR whose merge commit's push run on
 //                        the default branch failed, a merged revert, an issue or PR reopened
 //   stalls               open now and idle over 24 hours: non-draft PRs, and issues labelled card,
 //                        risk:* or inbox
-//   owner touches        writes from the owner's own account that no agent app made and that carry no
+//   owner touches        (needs --owner) writes from the owner's own account that no agent app made and that carry no
 //                        hidden <!-- marker -->: issues and PRs opened, comments. An UPPER bound: an agent
 //                        writing through a plain token is counted too.
 // A section whose reads fail is null ("?" in Markdown), never a zero. A listing cut at its page cap is
@@ -92,7 +92,7 @@ async function section(errors, name, fn) {
 }
 
 /** The metrics of one repository. */
-export async function measure(repo, { now = Date.now(), days = 7, owner = repo.split('/')[0], apps = ['claude'] } = {}) {
+export async function measure(repo, { now = Date.now(), days = 7, owner = null, apps = ['claude'] } = {}) {
   const start = now - days * DAY;
   const since = new Date(start).toISOString();
   const errors = [], partial = [];
@@ -123,7 +123,8 @@ export async function measure(repo, { now = Date.now(), days = 7, owner = repo.s
         number: i.number,
         firstPass: await firstPass(repo, commits),
         reviewed: rounds.size > 0 || changes > 0,
-        blocks: [...rounds.values()].reduce((s, k) => s + k, 0) + changes,
+        // a PR that records rounds counts them; "changes requested" counts only where it records none
+        blocks: rounds.size ? [...rounds.values()].reduce((s, k) => s + k, 0) : changes,
         mainRed: runs.some((r) => r.status === 'completed' && FAILED_RUN.has(r.conclusion)),
       });
     }
@@ -167,7 +168,7 @@ export async function measure(repo, { now = Date.now(), days = 7, owner = repo.s
     if (r.cut) partial.push('comments');
     return r.items;
   });
-  if (recent && comments) {
+  if (!owner) { errors.push('owner touches: no --owner given'); out.ownerTouches = null; } else if (recent && comments) {
     const human = (x) => x.user?.login === owner && !x.performed_via_github_app && !hasMarker(x.body) && Date.parse(x.created_at) >= start;
     const count = recent.filter(human).length + comments.filter(human).length;
     out.ownerTouches = { count, perWeek: Math.round((count * 7 * 10) / days) / 10 };
@@ -211,7 +212,7 @@ async function main() {
   const now = one('--now') ? Date.parse(one('--now')) : Date.now();
   const apps = (process.env.METRICS_AGENT_APPS || 'claude').split(',').map((s) => s.trim()).filter(Boolean);
   const results = [];
-  for (const repo of repos) results.push(await measure(repo, { now, days, owner: one('--owner') || repo.split('/')[0], apps }));
+  for (const repo of repos) results.push(await measure(repo, { now, days, owner: one('--owner') || null, apps }));
   console.log(args.includes('--json') ? JSON.stringify(results, null, 2) : render(results, { days }));
   // exit 1 only when nothing at all could be read: a partial page is still a page
   if (results.every((m) => m.agentPrsMerged === null && m.stalls === null)) process.exit(1);

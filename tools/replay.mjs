@@ -9,8 +9,9 @@
 //                                                 write replay/results/<VERSION>.json from the answers
 //   node tools/replay.mjs check <results.json>    the result is for this rule text and this set, every
 //                                                 task answered, the stored score re-grades, and it holds
-//                                                 the floor: at least 80% and at most one fewer than the
-//                                                 newest earlier result
+//                                                 the floor: at least 80%, at most one task below the best
+//                                                 earlier result on the same set, and at most one task the
+//                                                 newest earlier one passed now failing
 //
 // Grading is deterministic: each task is multiple choice, and an answer passes when its `CHOICE:` line
 // names the expected letter. A model writes the answers; this script only grades them, so CI can
@@ -68,28 +69,50 @@ export function grade(answers, list = tasks()) {
   return { rows, passed: rows.filter((r) => r.pass).length, total: rows.length };
 }
 
-function earlier(version) {
+/** Earlier results made on the same task set (results on another set are history, not a floor). */
+function earlierSameSet(version, setHash) {
   const dir = join(root, 'replay/results');
   const v = existsSync(dir) ? readdirSync(dir).map((f) => f.replace(/\.json$/, '')).filter((x) => /^\d+\.\d+\.\d+$/.test(x) && cmp(x, version) < 0).sort(cmp) : [];
-  return v.length ? JSON.parse(read(`replay/results/${v[v.length - 1]}.json`)) : null;
+  return v.map((x) => JSON.parse(read(`replay/results/${x}.json`))).filter((r) => r.tasks_sha256 === setHash);
 }
 
-/** Problems with one stored result; `current` also demands this checkout's rule text and set. */
+/** The set a result was graded on: its own stored expectations ({id: letter}). */
+const keyOf = (list) => Object.fromEntries(list.map((t) => [t.id, t.expect]));
+const asList = (key) => Object.entries(key || {}).map(([id, expect]) => ({ id, expect }));
+
+/**
+ * Problems with one stored result. `current` (a release) demands this checkout's rule text, adapters
+ * and frozen set; otherwise (history) the result is re-graded against the expectations it stored, so
+ * a later change of the set never breaks an older result.
+ */
 export function resultProblems(r, { current = true } = {}) {
   const p = [];
-  const list = tasks();
+  const list = current ? tasks() : asList(r.expected);
   if (!/^\d+\.\d+\.\d+$/.test(r.kit || '')) p.push('no kit version');
   if (!ROLES.includes(r.role)) p.push(`role "${r.role}" is not an A23 role (${ROLES.join(', ')})`);
-  if (r.tasks_sha256 !== tasksHash()) p.push('answers a different task set');
-  if (current && r.rules_sha256 !== rulesHash()) p.push('was run on different loaded rules (core.md, owner-defaults.md) than this checkout');
-  if (current && r.adapters_sha256 !== adaptersHash()) p.push('was run with different adapters (A23 names the models) than this checkout');
+  if (!list.length) p.push('stores no expected answers');
+  if (current) {
+    if (r.tasks_sha256 !== tasksHash() || JSON.stringify(r.expected) !== JSON.stringify(keyOf(list))) p.push('answers a different task set');
+    if (r.rules_sha256 !== rulesHash()) p.push('was run on different loaded rules (core.md, owner-defaults.md) than this checkout');
+    if (r.adapters_sha256 !== adaptersHash()) p.push('was run with different adapters (A23 names the models) than this checkout');
+  }
   const missing = list.filter((t) => !r.answers?.[t.id]).map((t) => t.id);
   if (missing.length) p.push(`no answer for ${missing.join(', ')}`);
   const g = grade(r.answers || {}, list);
   if (g.passed !== r.passed) p.push(`says ${r.passed} passed, re-grading gives ${g.passed}`);
   if (g.passed < Math.ceil(FLOOR * g.total)) p.push(`${g.passed}/${g.total} is under the floor of ${Math.round(FLOOR * 100)}%`);
-  const before = r.kit ? earlier(r.kit) : null;
-  if (before && g.passed < before.passed - 1) p.push(`${g.passed} passed, more than one fewer than ${before.kit}'s ${before.passed}`);
+  if (current && r.kit) {
+    // the floor never wears down: at most one task fewer than the BEST earlier result on this set,
+    // and at most one task the newest earlier result passed may now fail
+    const before = earlierSameSet(r.kit, tasksHash());
+    if (before.length) {
+      const best = before.reduce((a, b) => (b.passed > a.passed ? b : a));
+      if (g.passed < best.passed - 1) p.push(`${g.passed} passed, more than one fewer than the best earlier result (${best.kit}: ${best.passed})`);
+      const last = before[before.length - 1];
+      const lost = grade(last.answers || {}, list).rows.filter((x) => x.pass).map((x) => x.id).filter((id) => !g.rows.find((y) => y.id === id).pass);
+      if (lost.length > 1) p.push(`${lost.length} tasks ${last.kit} passed now fail (${lost.join(', ')})`);
+    }
+  }
   return p;
 }
 
@@ -106,7 +129,7 @@ function main() {
     if (cmd === 'grade') return;
     const role = opt('--role');
     const version = read('.harness/VERSION').trim();
-    const out = { kit: version, role, date: new Date().toISOString().slice(0, 10), tasks_sha256: tasksHash(), rules_sha256: rulesHash(), adapters_sha256: adaptersHash(), passed: g.passed, total: g.total, answers };
+    const out = { kit: version, role, date: new Date().toISOString().slice(0, 10), tasks_sha256: tasksHash(), expected: keyOf(tasks()), rules_sha256: rulesHash(), adapters_sha256: adaptersHash(), passed: g.passed, total: g.total, answers };
     const p = resultProblems(out);
     if (p.length) { console.error(`replay: not recorded: ${p.join('; ')}`); process.exit(1); }
     writeFileSync(join(root, `replay/results/${version}.json`), JSON.stringify(out, null, 2) + '\n');

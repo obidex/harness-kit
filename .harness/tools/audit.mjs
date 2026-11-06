@@ -403,6 +403,7 @@ const checks = {
     // the whole always-loaded set against its token budget (K034): per-file caps alone let it grow
     const budget = profile.canon.load_budget_tokens || DEFAULT_BUDGET;
     const load = loadSet(root);
+    if (!load.files.length) problems.push('no CLAUDE.md, so nothing is loaded (A01)');
     if (load.tokens > budget) problems.push(`always-loaded set about ${load.tokens} tokens > budget ${budget} (${load.files.map((f) => f.path).join(', ')}; node .harness/tools/load.mjs lists it)`);
     const d = profile.canon.decisions;
     if (!has(d)) problems.push(`decisions file ${d} missing`);

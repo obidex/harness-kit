@@ -19,8 +19,8 @@ From the Nov 2026 radar (roadmap #48, P7). Definitions in `.harness/metrics.md`.
 - Replay set (new): `replay/tasks.json`, a frozen set of 28 past incidents (multiple choice, graded
   deterministically), and `tools/replay.mjs`. `check-version` now requires
   `replay/results/<version>.json` for a release that changes `core.md`, `owner-defaults.md` or an
-  adapter (A23 names the models), and CI re-grades it: at least 80% and at most one task below the
-  previous result. Baseline 0.31.0: 28/28 by fresh builder-role agents.
+  adapter (A23 names the models), and CI re-grades it: at least 80%, at most one task below the best
+  earlier result on the same set, and at most one task the newest earlier result passed now failing. Baseline 0.31.0: 28/28 by fresh builder-role agents.
 
 ## 0.30.0 · 2026-11-07 · disposable, event-fired coordinators (K033)
 

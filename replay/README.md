@@ -22,8 +22,10 @@ and is replayed too. `tools/check-version.mjs` fails a kit PR that changes those
 3. Commit the result with the change. A task that fails is named in the PR with why; a rule change that
    loses a task it used to pass is a finding for the reviewer.
 
-**Floor.** At least 80% of the tasks, and at most one fewer than the newest earlier result (models are
-not perfectly repeatable; two lost tasks are a regression).
+**Floor.** At least 80% of the tasks; at most one task below the best earlier result on the same set;
+and at most one task the newest earlier result passed may now fail (models are not perfectly
+repeatable; two lost tasks are a regression). Each result stores the expected answers it was graded
+on, so a later change of the set never breaks an older result, and a new set starts its own floor.
 
 **Grading.** Deterministic: the reply's `CHOICE:` letter against the expected one. CI re-grades every
 stored result; nothing is taken on trust except that a model wrote the answers.

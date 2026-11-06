@@ -35,8 +35,10 @@ ok(resultProblems({ ...stored, role: 'whatever' }).some((x) => /not an A23 role/
 const low = wrong(Math.floor(list.length * 0.2) + 1);
 ok(resultProblems({ ...stored, answers: low, passed: grade(low).passed }).some((x) => /under the floor/.test(x)), 'under 80% fails');
 const lost2 = wrong(2), lost1 = wrong(1);
-ok(resultProblems({ ...stored, kit: '9.9.9', answers: lost2, passed: grade(lost2).passed }).some((x) => /more than one fewer than 0\.31\.0/.test(x)), 'two tasks fewer than the newest earlier result is a regression');
-ok(!resultProblems({ ...stored, kit: '9.9.9', answers: lost1, passed: grade(lost1).passed }).some((x) => /fewer than/.test(x)), 'one task fewer is tolerated (models are not perfectly repeatable)');
+ok(resultProblems({ ...stored, kit: '9.9.9', answers: lost2, passed: grade(lost2).passed }).some((x) => /more than one fewer than the best earlier result \(0\.31\.0: 28\)/.test(x)), 'two tasks fewer than the best earlier result is a regression');
+ok(resultProblems({ ...stored, kit: '9.9.9', answers: lost1, passed: grade(lost1).passed }).length === 0, 'one task fewer is tolerated (models are not perfectly repeatable)');
+const swap = { ...lost1, [list[1].id]: `CHOICE: ${list[1].expect === 'A' ? 'B' : 'A'}`, [list[0].id]: `CHOICE: ${list[0].expect}` };
+ok(resultProblems({ ...stored, kit: '9.9.9', answers: swap, passed: grade(swap).passed }).length === 0 && grade(swap).passed === list.length - 1, 'losing a different single task is also tolerated');
 
 // the release gate, end to end on a copy of the kit
 const tmp = mkdtempSync(join(tmpdir(), 'replay-'));
@@ -67,7 +69,8 @@ ok(res.status === 1 && /different loaded rules/.test(res.stdout), 'a result made
 // an adapter change (A23 names the models) needs one too
 g('checkout', '-q', '-B', 'model', 'base');
 appendFileSync(join(r, '.harness/adapters/claude-code-github.md'), '\n'); bump('9.0.0'); g('commit', '-qam', 'model');
-ok(check().status === 1, 'an adapter change (a new model in A23) needs a replay result');
+res = check();
+ok(res.status === 1 && /adapters\/claude-code-github\.md changed, so replay\/results\/9\.0\.0\.json/.test(res.stdout), 'an adapter change (a new model in A23) needs a replay result');
 // the set is frozen
 g('checkout', '-q', '-B', 'set', 'base');
 const t = JSON.parse(readFileSync(join(r, 'replay/tasks.json'), 'utf8')); t[0].expect = t[0].expect === 'A' ? 'B' : 'A';
@@ -77,6 +80,16 @@ ok(ck.stdout.includes('not the frozen'), 'check-kit refuses a changed set whose 
 bump('9.0.0'); g('commit', '-qam', 'set');
 res = check();
 ok(res.status === 1 && /does not say "replay set"/.test(res.stdout), 'changing the set needs a release that says "replay set"');
+// the legitimate path: a new task, its hash recorded, the release saying "replay set"; older results still re-grade
+g('checkout', '-q', '-B', 'set2', 'base');
+const t2 = JSON.parse(readFileSync(join(r, 'replay/tasks.json'), 'utf8')); t2.push({ ...t2[0], id: 'R99' });
+writeFileSync(join(r, 'replay/tasks.json'), JSON.stringify(t2));
+const h2 = spawnSync(process.execPath, ['tools/replay.mjs', 'hash'], { cwd: r, encoding: 'utf8' }).stdout.trim();
+writeFileSync(join(r, 'replay/README.md'), readFileSync(join(r, 'replay/README.md'), 'utf8').replace(/^Frozen set: sha256 [0-9a-f]{64}$/m, `Frozen set: sha256 ${h2}`));
+const ck2 = spawnSync(process.execPath, ['tools/check-kit.mjs'], { cwd: r, encoding: 'utf8' });
+ok(ck2.status === 0, `a recorded set change keeps check-kit green; the older result re-grades on the set it stored (${ck2.stdout.trim().split('\n').pop()})`);
+bump('9.0.0'); writeFileSync(join(r, 'CHANGELOG.md'), readFileSync(join(r, 'CHANGELOG.md'), 'utf8').replace('- x\n', '- replay set: R99\n')); g('add', '-A'); g('commit', '-qm', 'set2');
+ok(check().status === 0, 'and the release that says "replay set" passes');
 
 rmSync(tmp, { recursive: true, force: true });
 ok(tasksHash() && rulesHash(), 'hashes compute');

@@ -67,7 +67,7 @@ put(a, 'AGENTS.md', 'x'.repeat(4000));
 put(a, prof.canon.decisions, '# d\n');
 for (const g of prof.canon.generated || []) put(a, g, 'g');
 const audit = (budget) => {
-  put(a, '.harness/profile.json', JSON.stringify({ ...prof, canon: { ...prof.canon, caps: {}, load_budget_tokens: budget } }));
+  put(a, '.harness/profile.json', JSON.stringify({ ...prof, canon: { ...prof.canon, caps: {}, generated: [], load_budget_tokens: budget } }));
   const g = (...x) => spawnSync('git', ['-C', a, ...x], { encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' } });
   g('init', '-q'); g('add', '-A'); g('commit', '-qm', 'fixture');
   spawnSync(process.execPath, [join(kit, '.harness/tools/audit.mjs'), a, '--json', join(tmp, 'out.json')], { encoding: 'utf8' });
@@ -77,7 +77,7 @@ const audit = (budget) => {
 let c17 = audit(1000);
 ok(c17.result === 'FAIL' && new RegExp(`always-loaded set about ${tokens(4011)} tokens > budget 1000`).test(c17.evidence), 'audit C17 FAILs when the always-loaded set is over the budget');
 c17 = audit(5000);
-ok(!/always-loaded set about \d+ tokens >/.test(c17.evidence) && new RegExp(`always-loaded set about ${tokens(4011)} of 5000 tokens|generated`).test(c17.evidence), 'under the budget C17 does not raise it');
+ok(c17.result === 'PASS' && new RegExp(`always-loaded set about ${tokens(4011)} of 5000 tokens`).test(c17.evidence), 'under the budget C17 passes and reports the total');
 
 rmSync(tmp, { recursive: true, force: true });
 console.log(`test-load: OK · ${n} cases`);

@@ -15,10 +15,10 @@ It is one file with no imports outside Node, so a host pins it by its SHA-256.
 |---|---|---|
 | Agent PRs merged | merged PRs made through an agent app (`METRICS_AGENT_APPS`, default `claude`) or carrying the `claude-projects-attribution` marker | the volume the rest is a share of |
 | First-pass CI green | of those, the share whose first commit with finished checks had every check pass (success, neutral, skipped); a PR whose first five commits had none is left out | work that was right before CI said so (C07) |
-| Review BLOCKs per reviewed PR | `Round N: K blocks` lines in the PR body and comments (each round counted once, at its highest), plus "changes requested" reviews; divided by PRs that record a review | how much the independent review catches (C10) |
+| Review BLOCKs per reviewed PR | `Round N: K blocks` lines in the PR body and comments (each round counted once, at its highest); a PR with no such line counts its "changes requested" reviews instead; divided by the PRs with either (an approval alone records no review) | how much the independent review catches (C10) |
 | False DONEs | an agent PR whose merge commit's push run on the default branch failed (C13), a merged PR titled `Revert`, an issue or PR reopened | work reported done that was not |
 | Stalls | open now and idle over 24 hours: non-draft PRs, issues labelled `card`, `inbox` or `risk:*` | silent stalls (C04, C15), stricter than the stale-work list |
-| Owner touches a week | the owner's own-account issues, PRs and comments that no agent app made and that carry no hidden `<!-- -->` marker, scaled to 7 days | how much the owner still has to do by hand (O01, O17) |
+| Owner touches a week | (only with `--owner <login>`; without it "?") the owner's own-account issues, PRs and comments that no agent app made and that carry no hidden `<!-- -->` marker, scaled to 7 days | how much the owner still has to do by hand (O01, O17) |
 
 Limits, said on the page: "?" means GitHub could not be read for it, never zero. Owner touches are
 an upper bound: an agent writing through a plain token on the owner's account looks like him. Review
