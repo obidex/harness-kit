@@ -158,6 +158,7 @@ const serve = (state, { sticky = true } = {}) => new Promise((done) => {
       if (rest.startsWith('/contents/')) return send(404, {});
       if (rest === '/rulesets') return send(200, r.rulesets.map(({ id, name, target, source_type }) => ({ id, name, target, source_type })));
       if (rest.startsWith('/rulesets/')) return send(200, r.rulesets.find((x) => String(x.id) === rest.split('/')[2]));
+      if (rest === '/interaction-limits' && req.method === 'GET') return send(200, r.interaction || {});
       if (rest === '/labels' && req.method === 'GET') return send(200, u.searchParams.get('page') === '1' ? r.labels : []);
       if (rest === '/labels' && req.method === 'POST') { const l = JSON.parse(body); if (sticky) r.labels.push(l); return send(201, l); }
       return send(404, {});
@@ -428,6 +429,39 @@ const run = (srv, args, env = {}) => new Promise((done) => {
   ok(on && on.if === "always() && steps.open.outputs.pr != ''" && /hands-keep\.yml\/enable/.test(on.run) && /hands-keep\.yml\/dispatches/.test(on.run) && on.env.GH_TOKEN === '${{ github.token }}' && hu.permissions.actions === 'write',
     'hands-update turns hands-keep on and runs it once whenever a kit PR is open, with this repository\'s own token');
   ok((files['hands-update.yml'].match(/echo "pr=/g) || []).length === 2, 'both paths that leave a PR open (opened now, or found open) say so');
+}
+
+// --- K030: secret protections and interaction limits ---------------------------------------------
+{
+  const root = mkdtempSync(join(tmpdir(), 'hands-k030-'));
+  mkdirSync(join(root, '.github/workflows'), { recursive: true });
+  writeFileSync(join(root, '.github/workflows/ci.yml'), 'on: pull_request\njobs:\n  ci:\n    runs-on: ubuntu-latest\n    steps:\n      - run: true\n');
+  const sa = { secret_scanning: { status: 'enabled' }, secret_scanning_push_protection: { status: 'enabled' } };
+  const want = { ...desired, repository: { ...desired.repository, security_and_analysis: sa } };
+  const liveSa = { ...matching, repository: { ...matching.repository, security_and_analysis: { ...sa, dependabot_security_updates: { status: 'disabled' } } } };
+  ok(plan('o/r', want, liveSa).length === 0, 'security_and_analysis: a live object that names more keys still matches');
+  const off = { ...matching, repository: { ...matching.repository, security_and_analysis: { secret_scanning: { status: 'enabled' }, secret_scanning_push_protection: { status: 'disabled' } } } };
+  const st = plan('o/r', want, off);
+  ok(st.length === 1 && st[0].call.method === 'PATCH' && st[0].call.body.security_and_analysis.secret_scanning_push_protection.status === 'enabled', 'security_and_analysis: push protection off is turned on with one PATCH');
+  ok(validate(want, root).length === 0, 'a file with security_and_analysis is valid');
+  ok(validate({ ...desired, repository: { security_and_analysis: { secret_scanning: { status: 'on' } } } }, root).length > 0, 'a wrong status is refused');
+
+  const now = Date.parse('2026-11-06T00:00:00Z');
+  const il = { limit: 'existing_users', expiry: 'six_months' };
+  const withIl = { ...desired, interaction_limits: il };
+  const live = (x) => ({ ...matching, interaction_limits: x });
+  const day = 86400000;
+  ok(plan('o/r', withIl, live({ limit: 'existing_users', expires_at: new Date(now + 90 * day).toISOString() }), now).length === 0, 'interaction limits: 90 days left, nothing to do');
+  const near = plan('o/r', withIl, live({ limit: 'existing_users', expires_at: new Date(now + 10 * day).toISOString() }), now);
+  ok(near.length === 1 && near[0].call.method === 'PUT' && near[0].call.path === '/repos/o/r/interaction-limits' && JSON.stringify(near[0].call.body) === '{"limit":"existing_users","expiry":"six_months"}', 'interaction limits: 10 days left, applied again before GitHub lifts it');
+  ok(plan('o/r', withIl, live({}), now).length === 1, 'interaction limits: an expired (absent) limit is applied again');
+  ok(plan('o/r', withIl, live({ limit: 'collaborators_only', expires_at: new Date(now + 90 * day).toISOString() }), now).length === 1, 'interaction limits: a different live limit is replaced');
+  ok(plan('o/r', { ...withIl, interaction_limits: { ...il, renew_days: 5 } }, live({ limit: 'existing_users', expires_at: new Date(now + 10 * day).toISOString() }), now).length === 0, 'interaction limits: renew_days sets the window');
+  ok(plan('o/r', desired, live({}), now).length === 0, 'a file without interaction_limits leaves them alone');
+  ok(validate({ ...desired, interaction_limits: { limit: 'existing_users', expiry: 'one_month' } }, root).some((e) => e.includes('renew_days')), 'a renewal window as long as the expiry is refused (it would re-apply every run)');
+  ok(validate({ ...desired, interaction_limits: { ...il, renew_days: 61 } }, root).some((e) => e.includes('above 60')), 'the schema enforces maximum');
+  ok(validate(withIl, root).length === 0, 'a six-month limit with the default window is valid');
+  rmSync(root, { recursive: true, force: true });
 }
 
 console.log(`test-hands: OK · ${n} checks`);

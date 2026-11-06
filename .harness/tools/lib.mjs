@@ -36,6 +36,7 @@ export function validateSchema(schema, value) {
       if (s.pattern && !new RegExp(s.pattern).test(x)) err(path, `does not match ${s.pattern}`);
     }
     if (typeof x === 'number' && s.minimum !== undefined && x < s.minimum) err(path, `below ${s.minimum}`);
+    if (typeof x === 'number' && s.maximum !== undefined && x > s.maximum) err(path, `above ${s.maximum}`);
     if (Array.isArray(x)) {
       if (s.minItems && x.length < s.minItems) err(path, `fewer than ${s.minItems} items`);
       if (s.maxItems !== undefined && x.length > s.maxItems) err(path, `more than ${s.maxItems} items`);

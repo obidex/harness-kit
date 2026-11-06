@@ -55,6 +55,7 @@ for (const [what, body] of [['50k brackets then a link', `${'['.repeat(50000)} h
 const repo = { full_name: 'o/r' };
 eq(target('issues', { repository: repo, issue: { number: 3 } })?.path, '/repos/o/r/issues/3', 'issue body');
 eq(target('pull_request_target', { repository: repo, pull_request: { number: 4 } })?.path, '/repos/o/r/pulls/4', 'PR body');
+eq(target('pull_request', { repository: repo, pull_request: { number: 4 } })?.path, '/repos/o/r/pulls/4', 'PR body on pull_request (K030)');
 eq(target('issue_comment', { repository: repo, issue: { number: 4 }, comment: { id: 9 } })?.path, '/repos/o/r/issues/comments/9', 'issue or PR comment');
 eq(target('pull_request_review_comment', { repository: repo, comment: { id: 8 } })?.path, '/repos/o/r/pulls/comments/8', 'review comment');
 eq(target('pull_request_review', { repository: repo, pull_request: { number: 4 }, review: { id: 7 } })?.method, 'PUT', 'review body is saved with PUT');
