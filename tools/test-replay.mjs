@@ -103,6 +103,12 @@ g('checkout', '-q', '-B', 'edit', 'base');
 const old = JSON.parse(readFileSync(join(r, 'replay/results/0.31.0.json'), 'utf8')); old.date = '2000-01-01';
 writeFileSync(join(r, 'replay/results/0.31.0.json'), JSON.stringify(old)); appendFileSync(join(r, '.harness/tools/load.mjs'), '\n'); bump('9.0.0'); g('commit', '-qam', 'edit');
 ok(/0\.31\.0\.json is an earlier replay result \(M\)/.test(check().stdout), 'an earlier result is never edited');
+g('checkout', '-q', '-B', 'editonly', 'base');
+writeFileSync(join(r, 'replay/results/0.31.0.json'), JSON.stringify(old)); g('commit', '-qam', 'edit only');
+ok(/is an earlier replay result \(M\)/.test(check().stdout), 'even in a PR that changes nothing else');
+g('checkout', '-q', '-B', 'addold', 'base');
+writeFileSync(join(r, 'replay/results/0.1.0.json'), JSON.stringify({ ...stored, kit: '0.1.0' })); g('add', '-A'); g('commit', '-qm', 'add old');
+ok(/a release adds only its own result/.test(check().stdout), 'a PR cannot add a result for another version');
 
 rmSync(tmp, { recursive: true, force: true });
 ok(tasksHash() && rulesHash(), 'hashes compute');
