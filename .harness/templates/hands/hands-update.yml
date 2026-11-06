@@ -187,7 +187,7 @@ jobs:
           process.stdout.write(out.join('\n'));
           JS
           )"
-          body="$(printf 'Kit %s → %s (%s), opened by hands-update.\n\nOnly kit-managed files change; project-owned files are untouched.\n\nRoll back: run hands-update with version %s.' "$current" "$target" "$verb" "$current")"
+          body="$(printf 'Kit %s → %s (%s), opened by hands-update.\n\nOnly kit-managed files change, and CLAUDE.md only to add a missing rulebook import (@AGENTS.md); other project-owned files are untouched.\n\nRoll back: run hands-update with version %s.' "$current" "$target" "$verb" "$current")"
           [ -z "$extra" ] || body="$(printf '%s\n\n%s' "$body" "$extra")"
           open="$(gh pr list --repo "$REPO" --head "$branch" --state open --json number --jq '.[0].number // empty')"
           if [ -n "$open" ]; then

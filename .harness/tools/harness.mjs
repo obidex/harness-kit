@@ -290,7 +290,10 @@ switch (cmd) {
     if (!lock) die('the kit is not installed here');
     let before = {};
     try { before = JSON.parse(run('git', ['-C', root, 'show', `HEAD:${LOCK}`])).files || {}; } catch { /* no committed lock yet */ }
-    console.log([...new Set([...Object.keys(before), ...Object.keys(lock.files), LOCK])].sort().join('\n'));
+    // CLAUDE.md too when the update added its missing rulebook import (K031): the one project-owned change
+    let claude = [];
+    try { if (existsSync(at('CLAUDE.md')) && run('git', ['-C', root, 'status', '--porcelain', '--', 'CLAUDE.md']).trim()) claude = ['CLAUDE.md']; } catch { /* not a git checkout */ }
+    console.log([...new Set([...Object.keys(before), ...Object.keys(lock.files), LOCK, ...claude])].sort().join('\n'));
     break;
   }
   case 'latest': {

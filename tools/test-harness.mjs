@@ -145,12 +145,14 @@ rmSync(join(proj, '.harness/added-in-next.md'));
   const u = tool(['update', '--version', v2], up);
   const c = readFileSync(join(up, 'CLAUDE.md'), 'utf8');
   ok(u.status === 0 && (c.match(/^@AGENTS\.md$/gm) || []).length === 1 && /added @AGENTS\.md/.test(u.stdout) && c.includes('Local note.'), `update adds @AGENTS.md once to a CLAUDE.md that lacked it and keeps the rest (${u.stdout.trim()})`);
+  ok(tool(['paths'], up).stdout.split('\n').includes('CLAUDE.md'), 'paths lists CLAUDE.md, so the update PR commits the added line');
   spawnSync('node', [join(up, '.harness/tools/audit.mjs'), up, '--json', join(work, 'up.json')], { encoding: 'utf8' });
   ok(JSON.parse(readFileSync(join(work, 'up.json'), 'utf8')).results.find((x) => x.id === 'A01').result === 'PASS', 'and A01 passes after that update');
   rmSync(up, { recursive: true, force: true });
 }
 r = tool(['update', '--version', v2]);
 ok(r.status === 0, `update ${v1} → ${v2}: ${r.stdout.trim()}`);
+ok(!tool(['paths']).stdout.split('\n').includes('CLAUDE.md'), 'paths leaves out a CLAUDE.md the update did not change');
 ok(tool(['paths']).stdout.split('\n').includes('.claude/next-only.md') && tool(['paths']).stdout.includes('.harness/presets/public-website.md'), 'paths lists what the update PR must stage: added and removed paths outside .harness too');
 ok(/applied by kit .*own tool/.test(r.stdout) && existsSync(join(proj, '.claude/next-only.md')), 'the new version\'s own tool applied it (a path only it manages arrived)');
 ok(readFileSync(join(proj, '.harness/VERSION'), 'utf8').trim() === v2, 'VERSION moved');
