@@ -50,3 +50,9 @@ jobs:
         run: node tools/test-guard.mjs
       - name: Stale-work check and the kit workflows' runner lane
         run: node tools/test-stale.mjs
+      - name: Always-loaded token budget (load)
+        run: node tools/test-load.mjs
+      - name: Agent metrics (the health page's numbers)
+        run: node tools/test-metrics.mjs
+      - name: Replay set and its grader
+        run: node tools/test-replay.mjs

@@ -22,6 +22,7 @@ Installed in each project as a pinned copy (K001). Layers, not systems:
 | Disposable, event-fired coordinators (K033): the `wake` label starts one fresh run through the project's scheduled task, one at a time, capped, with a daily backstop that stops when idle | `wake.md`, `tools/wake.mjs`, `templates/workflows/harness-wake.yml` | Lookup |
 | Stale work (C15): one daily tracking issue "Stale work"; missed scheduled runs (36 h overdue); alerts through `notify.mjs` | `tools/stale.mjs`, `templates/workflows/harness-stale.yml` | Run, never loaded |
 | Supply-chain floor (K030): `harness-guard`, a required PR check that runs gitleaks on the PR's commits and lets only the profile's `trusted_actors` change agent configuration | `tools/guard.mjs`, `templates/workflows/harness-guard.yml`; rules A17-A22 | Run, never loaded |
+| Measuring the agents (K034): GitHub numbers for the health page, the always-loaded token budget (audit C17), the replay set for rule and model changes | `metrics.md`, `tools/metrics.mjs`, `tools/load.mjs` | Lookup; tools run, never loaded |
 | Audit: structural script and judgment review | `tools/audit.mjs`, `audit/README.md` | Run, never loaded |
 | Installer and updater | `tools/harness.mjs`, workflows from `templates/workflows/` (each on the project's `RUNNER` lane, `hands.md`) | Run, never loaded |
 | Kit skills: `correct` (C19 prevention ladder), `inbox` (O14 requests) | `templates/skills/<name>/`, installed as `.claude/skills/<name>/` | Loaded when named |

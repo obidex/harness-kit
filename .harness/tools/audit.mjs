@@ -24,6 +24,7 @@ import { fileURLToPath } from 'node:url';
 import { parseYaml, triggers, gh, validateSchema, fileHash } from './lib.mjs';
 import { scrub } from './scrub.mjs';
 import { plan as settingsPlan, validate as settingsValidate, SETTINGS_PATH } from './hands.mjs';
+import { loadSet, DEFAULT_BUDGET } from './load.mjs';
 
 const argv = process.argv.slice(2);
 const opt = (name) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : undefined; };
@@ -399,6 +400,10 @@ const checks = {
       const n = Buffer.byteLength(read(f));
       if (n > max) problems.push(`${f} ${n} B > cap ${max}`);
     }
+    // the whole always-loaded set against its token budget (K034): per-file caps alone let it grow
+    const budget = profile.canon.load_budget_tokens || DEFAULT_BUDGET;
+    const load = loadSet(root);
+    if (load.tokens > budget) problems.push(`always-loaded set about ${load.tokens} tokens > budget ${budget} (${load.files.map((f) => f.path).join(', ')}; node .harness/tools/load.mjs lists it)`);
     const d = profile.canon.decisions;
     if (!has(d)) problems.push(`decisions file ${d} missing`);
     else {
@@ -409,7 +414,7 @@ const checks = {
     for (const g of profile.canon.generated || []) if (!has(g)) problems.push(`generated ${g} missing`);
     const drift = (profile.canon.generated || []).length && /git diff --exit-code|--check|drift/i.test(wfText);
     if ((profile.canon.generated || []).length && !drift) problems.push('no CI drift check for generated references found');
-    return problems.length ? [FAIL, short(problems.join('; '), 500)] : [PASS, `caps hold (${Object.keys(profile.canon.caps || {}).length} files); ${d} only gained lines in its last 50 commits; generated references have a drift check`];
+    return problems.length ? [FAIL, short(problems.join('; '), 500)] : [PASS, `caps hold (${Object.keys(profile.canon.caps || {}).length} files); always-loaded set about ${load.tokens} of ${budget} tokens; ${d} only gained lines in its last 50 commits; generated references have a drift check`];
   },
 
   // ---- owner defaults

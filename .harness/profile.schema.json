@@ -131,7 +131,8 @@
         "decisions": { "type": "string" },
         "decision_prefix": { "type": "string" },
         "generated": { "type": "array", "items": { "type": "string" } },
-        "caps": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 1 }, "description": "File path → maximum bytes (C17)." }
+        "caps": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 1 }, "description": "File path → maximum bytes (C17)." },
+        "load_budget_tokens": { "type": "integer", "minimum": 1000, "maximum": 30000, "description": "Estimated tokens a session loads before its first word: CLAUDE.md, its @-imports and unconditional .claude/rules (C17, K034; .harness/tools/load.mjs). Default 8000." }
       }
     },
     "alerts": {

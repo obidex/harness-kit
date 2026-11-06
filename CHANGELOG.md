@@ -3,6 +3,25 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.31.0 · 2026-11-07 · measuring the agents (K034)
+
+From the Nov 2026 radar (roadmap #48, P7). Definitions in `.harness/metrics.md`.
+
+- New `tools/metrics.mjs`: per repository over 7 days, agent PRs merged, first-pass CI green,
+  review BLOCKs per reviewed PR, false DONEs (default branch red at the merge commit, reverts,
+  reopens), stalls (open and idle over 24 h) and owner touches a week (an upper bound). Read-only,
+  one self-contained file a host pins by SHA-256; Markdown of counts for a public page, "?" (never 0)
+  where GitHub could not be read.
+- New `tools/load.mjs` and a token budget: what a session loads before its first word (`CLAUDE.md`,
+  its `@` imports to 5 hops, unconditional `.claude/rules`), estimated at bytes / 3.5. Audit C17 now
+  FAILs over `profile.canon.load_budget_tokens` (default 8000), so `harness-audit` checks it on PRs.
+  `check-kit` keeps a fresh install at most half the default.
+- Replay: `replay/tasks.json`, a frozen set of 28 past incidents (multiple choice, graded
+  deterministically), and `tools/replay.mjs`. `check-version` now requires
+  `replay/results/<version>.json` for a release that changes `core.md`, `owner-defaults.md` or an
+  adapter (A23 names the models), and CI re-grades it: at least 80% and at most one task below the
+  previous result. Baseline 0.31.0: 28/28 by fresh builder-role agents.
+
 ## 0.30.0 · 2026-11-07 · disposable, event-fired coordinators (K033)
 
 From the Nov 2026 radar (roadmap #48, P4).
