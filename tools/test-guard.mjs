@@ -157,7 +157,7 @@ ok(audit().A17.result === 'FAIL', 'A17 fails on a cooldown under 3 days');
       const send = (code, data) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(data)); };
       if (u.pathname === '/repos/o/r') return send(200, { private: false, owner: { type: st.org ? 'Organization' : 'User' } });
       if (u.pathname === '/repos/o/r/actions/variables/RUNNER') return send(st.repoVar, st.repoVar === 200 ? { name: 'RUNNER', value: 'self-hosted' } : {});
-      if (u.pathname === '/repos/o/r/actions/organization-variables') return send(st.orgCode ?? 200, { variables: st.orgVars || [] });
+      if (u.pathname === '/repos/o/r/actions/organization-variables') return send(st.orgCode ?? 200, { total_count: st.orgTotal ?? (st.orgVars || []).length, variables: st.orgVars || [] });
       return send(404, {});
     });
     s.listen(0, '127.0.0.1', () => done(s));
@@ -175,6 +175,7 @@ ok(audit().A17.result === 'FAIL', 'A17 fails on a cooldown under 3 days');
   ok((await a19({ repoVar: 403 })).result === 'UNKNOWN', 'A19: an unreadable RUNNER variable is UNKNOWN, never PASS');
   ok((await a19({ repoVar: 404, org: true, orgVars: [{ name: 'RUNNER' }] })).result === 'FAIL', 'A19: an organisation-level RUNNER fails though the repository has none');
   ok((await a19({ repoVar: 404, org: true, orgCode: 403 })).result === 'UNKNOWN', 'A19: unreadable organisation variables are UNKNOWN');
+  ok((await a19({ repoVar: 404, org: true, orgVars: [{ name: 'X' }], orgTotal: 31 })).result === 'UNKNOWN', 'A19: an organisation list longer than one page is UNKNOWN, never clear');
   api.close();
 }
 rmSync(proj, { recursive: true, force: true });

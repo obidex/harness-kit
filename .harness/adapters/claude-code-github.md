@@ -110,7 +110,8 @@
   (`CLAUDE.md`, `AGENTS.md`, `.claude/**`, `.harness/**`, `.mcp.json`, plugin code, git hooks) or
   `.github/**` passes `harness-guard` only when its author and every commit come from the profile's
   `trusted_actors`, by numeric ID, read from the base branch. The workflow file runs from the PR, so
-  a session never merges a PR from an untrusted account that touches `.github/workflows/`.
+  a session never merges a PR from an untrusted account that touches `.github/workflows/`, and merges
+  Dependabot's only when its workflow diff changes nothing but action pins.
 - **A22 Limits that expire are renewed.** A repository that limits who may comment or open issues
   and PRs declares it in its settings file; the daily drift check applies it again before GitHub
   lets it lapse (six months at most).

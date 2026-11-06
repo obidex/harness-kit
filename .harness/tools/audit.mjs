@@ -580,7 +580,8 @@ const checks = {
       if (/self-hosted/.test(r)) bad.push(`${w.file}#${k}: a self-hosted runner on a public repository`);
       else if (/vars\.RUNNER/.test(r)) {
         const orgSet = api.orgVars?.status === 200 && (api.orgVars.data?.variables || []).some((v) => v.name === 'RUNNER');
-        const orgUnread = api.orgVars && api.orgVars.status !== 200;
+        // one page (30, the endpoint's most): a longer list may hide RUNNER, so it is unread, never clear
+        const orgUnread = api.orgVars && (api.orgVars.status !== 200 || (api.orgVars.data?.total_count ?? 0) > (api.orgVars.data?.variables || []).length);
         if (api.runnerVar?.status === 200 || orgSet) bad.push(`${w.file}#${k}: the RUNNER variable is set on a public repository${orgSet ? ' (by its organisation)' : ''}`);
         else if (api.runnerVar?.status !== 404 || orgUnread) runnerUnknown = true;
       }
