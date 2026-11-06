@@ -3,7 +3,7 @@
 //
 //   node tools/check-version.mjs <base ref>      exit 0 = fine, 1 = bump or changelog missing
 //
-// Kit content is .harness/** (what projects install). If it changed against the base, VERSION must
+// Kit content is .harness/** (what projects install) and the frozen replay set. If it changed against the base, VERSION must
 // be higher than the base's, no tag v<VERSION> may exist yet (tags are immutable, K003), and
 // CHANGELOG.md must have a "## <VERSION>" entry.
 
@@ -15,7 +15,22 @@ const git = (...a) => execFileSync('git', a, { encoding: 'utf8' }).trim();
 const cmp = (a, b) => { const x = a.split('.').map(Number), y = b.split('.').map(Number); for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] - y[i]; return 0; };
 const fail = (m) => { console.log(`check-version: FAIL ${m}`); process.exit(1); };
 
-const changed = git('diff', '--name-only', `${base}...HEAD`).split('\n').filter((f) => f.startsWith('.harness/'));
+// stored results are history: a release adds its own, never edits or deletes an earlier one
+for (const line of git('diff', '--name-status', `${base}...HEAD`, '--', 'replay/results').split('\n').filter(Boolean)) {
+  const [st, f] = line.split('\t');
+  if (st !== 'A') fail(`${f} is an earlier replay result (${st}): results are added, never edited or removed`);
+  const v = readFileSync('.harness/VERSION', 'utf8').trim();
+  if (f !== `replay/results/${v}.json`) fail(`${f} is added, but a release adds only its own result (replay/results/${v}.json)`);
+}
+const setChanged = git('diff', '--name-only', `${base}...HEAD`).split('\n').some((f) => f === 'replay/tasks.json');
+if (setChanged) {
+  // the set only grows: no task removed, no expected answer changed
+  let was = [];
+  try { was = JSON.parse(execFileSync('git', ['show', `${base}:replay/tasks.json`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })); } catch { /* new set */ }
+  const ids = new Map(JSON.parse(readFileSync('replay/tasks.json', 'utf8')).map((t) => [t.id, t.expect]));
+  for (const t of was) if (ids.get(t.id) !== t.expect) fail(`replay task ${t.id} was removed or its expected answer changed: the set only grows`);
+}
+const changed = git('diff', '--name-only', `${base}...HEAD`).split('\n').filter((f) => f.startsWith('.harness/') || f === 'replay/tasks.json');
 if (!changed.length) { console.log('check-version: OK · no kit content changed'); process.exit(0); }
 const now = readFileSync('.harness/VERSION', 'utf8').trim();
 const was = git('show', `${base}:.harness/VERSION`).trim();
@@ -36,5 +51,19 @@ if (changed.includes(SA)) {
     const text = (blockOf(after).match(/\(kit text ([0-9.]+);/) || [])[1];
     if (text !== now) fail(`the standing-approvals block changed but its "kit text" is ${text || 'missing'}, not ${now}`);
   }
+}
+// the replay (K034): a change to the text every session loads, or to an adapter (A23 names the models),
+// ships with a replay result for this version that re-grades and holds the floor
+const LOADS = ['.harness/core.md', '.harness/owner-defaults.md'];
+const rulesChanged = changed.filter((f) => LOADS.includes(f) || f.startsWith('.harness/adapters/'));
+if (rulesChanged.length) {
+  const res = `replay/results/${now}.json`;
+  let out;
+  try { out = execFileSync(process.execPath, ['tools/replay.mjs', 'check', res], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }); } catch (e) { fail(`${rulesChanged.join(', ')} changed, so ${res} must pass the replay check (replay/README.md): ${(e.stderr || e.message).trim()}`); }
+  console.log(out.trim());
+}
+if (setChanged) {
+  const entry = (readFileSync('CHANGELOG.md', 'utf8').split(new RegExp(`^## ${now.replace(/\./g, '\\.')}\\b`, 'm'))[1] || '').split(/^## /m)[0];
+  if (!/replay set/i.test(entry)) fail(`replay/tasks.json changed but the ${now} changelog entry does not say "replay set"`);
 }
 console.log(`check-version: OK · ${changed.length} kit file(s) changed; ${was} → ${now}, untagged, in the changelog`);

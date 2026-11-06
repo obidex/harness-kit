@@ -6,7 +6,8 @@
 // 1. Every rule worded in a layer file (`- **<ID> Title.**`) has exactly one catalogue record, and
 //    every record has wording. IDs are unique and carry their layer's prefix.
 // 2. Every record row has all five columns non-empty, and Verify says `script:` or `judgment:`.
-// 3. Always-loaded files stay under their byte caps (C17).
+// 3. Always-loaded files stay under their byte caps (C17), and a fresh install (the example
+//    CLAUDE.md with the kit's imports) loads at most half the default token budget (K034).
 // 4. examples/profile.example.json validates against .harness/profile.schema.json.
 // 5. Preset capability lists use only capabilities the schema knows.
 // 6. Nothing that looks like a secret is committed in the kit's text.
@@ -15,6 +16,8 @@ import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { validateSchema, parseYaml, plainValueProblems } from '../.harness/tools/lib.mjs';
 import { controlProblems } from '../.harness/tools/hands.mjs';
+import { tokens, DEFAULT_BUDGET } from '../.harness/tools/load.mjs';
+import { setProblems, resultProblems } from './replay.mjs';
 
 const root = process.argv[2] || new URL('..', import.meta.url).pathname;
 const read = (p) => readFileSync(join(root, p), 'utf8');
@@ -77,6 +80,12 @@ const caps = { '.harness/core.md': 7168, '.harness/owner-defaults.md': 4096 };
 for (const [f, max] of Object.entries(caps)) {
   const n = Buffer.byteLength(read(f));
   if (n > max) fail(`${f} is ${n} bytes, over its cap of ${max}`);
+}
+// a fresh install: the example CLAUDE.md and what it imports from the kit (its AGENTS.md is the
+// project's). At most half the default budget, so the project's own rulebook keeps the other half.
+{
+  const fresh = ['examples/CLAUDE.md', '.harness/core.md', '.harness/owner-defaults.md', '.harness/VERSION'].reduce((s, f) => s + Buffer.byteLength(read(f)), 0);
+  if (tokens(fresh) > DEFAULT_BUDGET / 2) fail(`a fresh install loads about ${tokens(fresh)} tokens, over half the default budget (${DEFAULT_BUDGET})`);
 }
 
 // --- 4. profile example against the schema ------------------------------------------------------
@@ -141,6 +150,14 @@ for (const f of wfFiles) {
     if (/[\w.+-]+@[\w-]+\.[\w.]+/.test(text)) fail(`${f} contains an email address; use {{OWNER_EMAIL}}`);
     if (/github\.com\//.test(text)) fail(`${f} links a repository; use {{REPOS}}`);
   }
+}
+
+// --- 9. the frozen replay set, and every stored result re-grades (K034) ----------------------------
+for (const p of setProblems()) fail(`replay: ${p}`);
+for (const f of existsSync(join(root, 'replay/results')) ? readdirSync(join(root, 'replay/results')).filter((x) => x.endsWith('.json')) : []) {
+  const r = JSON.parse(read(`replay/results/${f}`));
+  if (f !== `${r.kit}.json`) fail(`replay/results/${f} holds kit ${r.kit}`);
+  for (const p of resultProblems(r, { current: false })) fail(`replay/results/${f}: ${p}`);
 }
 
 const rules = worded.size;

@@ -796,3 +796,25 @@ From the Nov 2026 radar (roadmap #48, P4; owner's approval of #48, 6 Nov 2026). 
 
 **Status:** STANDING.
 
+
+## K034 · 2026-11-07 · STANDING — the agents are measured
+
+From the Nov 2026 radar (roadmap #48, P7; owner's approval of #48, 6 Nov 2026).
+
+1. **Numbers from GitHub, not from the agents.** Six counts per repository (`.harness/metrics.md`),
+   computed by a read-only script from what GitHub recorded. Each has one written definition; a
+   number that could not be read shows "?", never zero. Owner touches are an upper bound and say so.
+2. **The health page carries them.** A host runs the pinned script daily with a read token and
+   publishes the counts; no AI on the host.
+3. **One budget for everything a session loads.** Per-file byte caps let the total grow by adding
+   files; the audit now also totals the always-loaded set against a token budget (default 8000,
+   estimated). The kit's own share stays at most half of it.
+4. **Rule and model changes are replayed.** A frozen set of past incidents, graded by script, runs
+   on fresh agents for any release that changes the loaded text or an adapter (where A23 names the
+   models). The release carries the result and CI re-grades it. The set changes only by a release
+   that says "replay set", and a task is never dropped to raise a score.
+5. **What it is not.** The replay is a regression floor, multiple choice on known incidents: it
+   catches a rule change that breaks a lesson already learned, not new kinds of failure. The
+   numbers come from the health page; their trend is read by the coordinator, not alerted on.
+
+**Status:** STANDING.
