@@ -274,6 +274,41 @@ ok(c.code === 0 && /PROBLEM \d+ sent and RESOLVED as a reply/.test(c.out), 'noti
 c = await cli(['find']);
 ok(c.code === 0 && /bot @example_alerts_bot/.test(c.out) && /group "Owner alerts" id -1009 \(Topics on\)/.test(c.out) && !/id 55/.test(c.out), 'find names the bot and the groups it was added to, with their ids');
 
+// capped problems (--max-sends, K035): a host that checks every 2 minutes (the file store's 10-minute hold),
+// at most one message a day and N in all, never escalated or reminded by tick; RESOLVED still goes out
+{
+  delete process.env.ALERTS_HOLD_MINUTES;
+  const cs = store(`file:${join(dir, 'capped.json')}`), tg = telegram();
+  const k = { key: 'vps/stale-sql-live', topic: 'ops', text: 'sql-live: last run 3 days ago', maxSends: 3 };
+  let bad = 0;
+  for (const o of [{ ...k, maxSends: 0 }, { ...k, maxSends: 11 }, { ...k, maxSends: '2.5' }, { ...k, topic: 'needs' }, { ...k, outage: true }, { ...k, action: true }]) await problem(cs, tg, o).catch(() => { bad++; });
+  ok(bad === 6, '--max-sends is 1-10, and never for an outage or "Needs you"');
+  const m0 = mark();
+  at('2026-10-11T09:00:00Z'); let r = await problem(cs, tg, { ...k, maxSends: '3' });
+  for (let i = 1; i <= 4; i++) { at(`2026-10-11T09:0${i * 2}:00Z`); r = await problem(cs, tg, k); }
+  ok(r.status === 'held' && since(m0).length === 0, 'a capped problem is held like any other on a host: nothing within its first 10 minutes');
+  at('2026-10-11T09:12:00Z'); r = await problem(cs, tg, k);
+  const p0 = since(m0)[0];
+  ok(since(m0).length === 1 && p0.message_thread_id === T('ops') && p0.disable_notification === true && /^🔴 PROBLEM · sql-live: last run 3 days ago/.test(p0.text), 'then one PROBLEM, silent, in its topic');
+  for (const iso of ['2026-10-11T13:00:00Z', '2026-10-11T20:58:00Z']) { at(iso); await problem(cs, tg, { ...k, text: 'sql-live: last run 3 days 4 h ago' }); }
+  at('2026-10-11T16:00:00Z'); const tk = await tick(cs, tg);
+  ok(since(m0).length === 1 && !tk.length && !since(m0).some((c) => c.message_thread_id === T('needs')), 'the rest of that day: repeats send nothing, and tick neither escalates it to "Needs you" after 3 hours nor reminds it');
+  at('2026-10-11T21:05:00Z'); r = await problem(cs, tg, { ...k, text: 'sql-live: last run 3 days 12 h ago' });
+  ok(r.status === 'reminded' && since(m0).length === 2 && since(m0)[1].reply_parameters.message_id === p0.message_id && /^🟠 STILL OPEN after 12 h 5 min \(alert 2 of 3\) · sql-live: last run 3 days 12 h ago$/.test(since(m0)[1].text) && since(m0)[1].disable_notification === true,
+    'a new day in Damascus (00:05, quiet hours: silent like every message then): one STILL OPEN reply, alert 2 of 3, saying how it stands now');
+  at('2026-10-12T21:00:00Z'); r = await problem(cs, tg, k);
+  ok(r.status === 'reminded' && since(m0).length === 3 && /\(alert 3 of 3, the last: from now on only a line in the daily digest until it clears\)/.test(since(m0)[2].text), 'the next day, alert 3 of 3, the last');
+  for (const iso of ['2026-10-13T21:00:00Z', '2026-10-14T21:00:00Z', '2026-10-15T09:00:00Z']) { at(iso); r = await problem(cs, tg, k); await tick(cs, tg); }
+  ok(r.status === 'capped-out' && since(m0).length === 3 && /\(alerted 3 of 3\)/.test(await digestText([cs])), 'after that, nothing more from the sender or tick: one digest line, marked alerted 3 of 3');
+  at('2026-10-15T10:00:00Z'); r = await resolveKey(cs, tg, { key: k.key, text: 'sql-live ran' });
+  ok(r.status === 'resolved' && since(m0).length === 4 && since(m0)[3].reply_parameters.message_id === p0.message_id && /^✅ Fixed after 4 days/.test(since(m0)[3].text), 'and its RESOLVED still goes out as a reply to the PROBLEM');
+  const plain = { key: 'vps/plain', topic: 'ops', text: 'an uncapped problem' };
+  at('2026-10-16T09:00:00Z'); await problem(cs, tg, plain); at('2026-10-16T09:11:00Z'); await problem(cs, tg, plain); at('2026-10-17T09:30:00Z'); r = await problem(cs, tg, plain);
+  ok(r.status === 'repeat' && !('maxSends' in r.inc), 'without --max-sends a problem behaves as before: a repeat sends nothing (tick escalates and reminds it)');
+  await resolveKey(cs, tg, { key: plain.key });
+  process.env.ALERTS_HOLD_MINUTES = '0';
+}
+
 // hands-report's alert step, as GitHub runs it (bash -e), against the stand-ins: failure opens, success resolves
 {
   const { parseYaml } = await import('../.harness/tools/lib.mjs');

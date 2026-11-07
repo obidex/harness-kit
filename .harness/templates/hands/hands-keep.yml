@@ -1,4 +1,5 @@
 # Harness Kit control repository (K007, K012): copied into the owner's control repository, never into a project.
+# Action group: approval (its changes land only behind a gate; .harness/tools/actions.mjs)
 # Keeps the kit update PRs that hands-update opens current. Under a strict required-checks rule such a
 # PR goes "behind" when its base branch moves, and GitHub's auto-merge then waits forever: it never
 # updates the branch itself. Each run brings every behind one up to date through the App (GitHub's

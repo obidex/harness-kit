@@ -5,7 +5,9 @@
 //   node .harness/tools/notify.mjs setup        check the group, create the missing topics, pin the config
 //                                               (unpinning anything pinned after it: only the config stays)
 //   node .harness/tools/notify.mjs problem --key <k> --topic <t> --text <t> [--link <url>] [--title <t>]
-//        [--action] [--outage] [--you <line>]   open a problem (a repeat of an open key sends nothing)
+//        [--action] [--outage] [--you <line>] [--max-sends <n>]
+//                                               open a problem (a repeat of an open key sends nothing,
+//                                               except a capped problem's daily repeat, below)
 //   node .harness/tools/notify.mjs resolve --key <k> [--text <t>]
 //                                               reply RESOLVED to the problem's message and close it
 //   node .harness/tools/notify.mjs tick [--stores <spec,…>]
@@ -28,6 +30,11 @@
 // - Hold: in a host's file store a problem is sent only once it is still open 10 minutes after it was
 //   first seen (ALERTS_HOLD_MINUTES), by a later `problem` call or `tick`; one resolved sooner was never
 //   sent and sends nothing. A GitHub store (ticked daily) and an outage send at once.
+// - Capped problems (--max-sends N, 1-10; K035): at most N messages in all, at most one a day (the
+//   owner's calendar day). The PROBLEM is the first; while it stays open, the sender's own repeat call
+//   on a later day sends one STILL OPEN reply, until N. Never escalated, never reminded by `tick`; past
+//   N it is only a line in the daily digest until its RESOLVED. For a sender that checks the same thing
+//   every day (stale work, stale data), so one stuck item cannot alert forever.
 // - Format: a PROBLEM ends with one "You:" line (--you: "nothing", "<who> is fixing it" or "Needs you:
 //   <exact step>"); a RESOLVED is the short reply "✅ Fixed after N min". Messages carry no commands,
 //   and any time in them is the owner's time zone.
@@ -83,6 +90,15 @@ export function isQuiet(t, r = rules()) {
 export const loud = (topic, outage, t, r = rules()) => !!outage || (topic === 'needs' && !isQuiet(t, r));
 const age = (ms) => { const m = Math.round(ms / 60e3); return m < 60 ? `${m} min` : m < 2880 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${Math.round(m / 1440)} days`; };
 const one = (s) => String(s ?? '').replace(/\s*\n\s*/g, ' ').trim();
+/** The owner's calendar day of a time ("2026-11-07"): a capped problem sends at most once a day. */
+export const dayOf = (t, tz = rules().tz) => localTime(t, tz).slice(0, 10);
+/** The --max-sends value: an integer 1-10, or undefined for an uncapped problem. */
+export function maxSendsOf(v) {
+  if (v === undefined || v === null || v === '') return undefined;
+  const n = Number(v);
+  if (!Number.isInteger(n) || n < 1 || n > 10) throw new Error(`--max-sends is a whole number from 1 to 10, not "${v}"`);
+  return n;
+}
 
 // --- Telegram -------------------------------------------------------------------------------------
 const chatId = () => env('ALERTS_CHAT_ID') || (env('ALERTS_CHAT_ID_FILE') && existsSync(env('ALERTS_CHAT_ID_FILE')) ? readFileSync(env('ALERTS_CHAT_ID_FILE'), 'utf8').trim() : '') || env('TELEGRAM_CHAT_ID');
@@ -129,7 +145,8 @@ export function telegram({ token = env('ALERTS_BOT_TOKEN') || env('TELEGRAM_BOT_
 }
 
 // --- stores: where open problems live ---------------------------------------------------------------
-// An incident: { key, topic, text, title, link, outage, opened, sentAt, msg, escalated, escMsg, remindedAt, count, open, closed }
+// An incident: { key, topic, text, title, link, outage, opened, sentAt, msg, escalated, escMsg, remindedAt, count, open, closed,
+//   maxSends, sends, sentDay }  (the last three only on a capped problem)
 function fileStore(path) {
   const lock = `${path}.lock`;
   const read = () => (existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : { incidents: {} });
@@ -215,6 +232,17 @@ async function sendProblem(tg, inc, list, t, r) {
   if (!tg.ready || capped(list, inc, t, r)) return false;
   inc.msg = await tg.send(inc.topic, headline(inc), { outage: inc.outage, t });
   inc.sentAt = t;
+  if (inc.maxSends) { inc.sends = 1; inc.sentDay = dayOf(t, r.tz); }
+  return true;
+}
+
+/** A capped problem's repeat: one STILL OPEN reply on a new day while under its cap; true when sent. */
+async function sendRepeat(tg, inc, t, r) {
+  const sends = inc.sends || 1;
+  if (!tg.ready || !inc.msg || sends >= inc.maxSends || inc.sentDay === dayOf(t, r.tz)) return false;
+  const n = sends + 1, last = n >= inc.maxSends;
+  await tg.send(inc.topic, `🟠 STILL OPEN after ${age(t - inc.opened)} (alert ${n} of ${inc.maxSends}${last ? ', the last: from now on only a line in the daily digest until it clears' : ''}) · ${one(inc.text)}`, { reply: inc.msg, t });
+  inc.sends = n; inc.sentDay = dayOf(t, r.tz); inc.remindedAt = t;
   return true;
 }
 
@@ -224,16 +252,21 @@ export async function problem(st, tg, o) {
   if (o.you && !YOU.test(one(o.you))) throw new Error('--you is "nothing", "<who> is fixing it" or "Needs you: <exact step>"');
   const topic = o.outage || o.action ? 'needs' : o.topic;
   if (!topic) throw new Error('--topic is required (needs, erp, website, kit, ops, or another set up topic)');
+  const maxSends = maxSendsOf(o.maxSends);
+  if (maxSends && (o.outage || topic === 'needs')) throw new Error('--max-sends is for a silent topic\'s problem, never an outage or "Needs you"');
   return st.locked(async () => {
     const open = await st.get(o.key);
     if (open) {
       open.count = (open.count || 1) + 1; open.lastSeen = t;
+      if (open.maxSends) open.text = one(o.text); // a capped repeat says how it stands now (its age moves)
       await st.save(open);
-      if (o.link) await st.note(open, `Still failing: ${o.link}`);
-      if (!open.msg && tg.ready && due(st, open, t)) { const list = await st.list(); if (await sendProblem(tg, open, list, t, r)) await st.save(open); }
+      if (o.link && !open.maxSends) await st.note(open, `Still failing: ${o.link}`);
+      if (!open.msg && tg.ready && due(st, open, t)) { const list = await st.list(); if (await sendProblem(tg, open, list, t, r)) { await st.save(open); return { status: 'repeat', inc: open }; } }
+      if (open.maxSends && await sendRepeat(tg, open, t, r)) { await st.save(open); await st.note(open, `STILL OPEN: alert ${open.sends} of ${open.maxSends} sent.`); return { status: 'reminded', inc: open }; }
+      if (open.maxSends && open.msg && (open.sends || 1) >= open.maxSends) return { status: 'capped-out', inc: open };
       return { status: open.msg || due(st, open, t) ? 'repeat' : 'held', inc: open };
     }
-    const inc = { key: o.key, topic, text: one(o.text), title: o.title, link: o.link, outage: !!o.outage, ...(o.you ? { you: one(o.you) } : {}), opened: t, msg: null, count: 1, open: true };
+    const inc = { key: o.key, topic, text: one(o.text), title: o.title, link: o.link, outage: !!o.outage, ...(o.you ? { you: one(o.you) } : {}), ...(maxSends ? { maxSends, sends: 0 } : {}), opened: t, msg: null, count: 1, open: true };
     const list = await st.list();
     let sent = false, err;
     const now0 = due(st, inc, t);
@@ -286,7 +319,7 @@ export async function tick(st, tg) {
     for (const inc of list.filter((i) => i.open)) {
       let changed = false;
       if (!inc.msg && due(st, inc, t)) { if (await sendProblem(tg, inc, list, t, r)) { changed = true; did.push(`sent ${inc.key}`); } }
-      if (inc.msg && hushed(inc, t)) { /* acknowledged or muted in the control panel */ }
+      if (inc.msg && (hushed(inc, t) || inc.maxSends)) { /* acknowledged or muted in the control panel; a capped problem's repeats are its sender's */ }
       else if (inc.msg && inc.topic !== 'needs' && !inc.escalated && t - inc.opened >= r.escalateAfter && !quiet && !capped(list, { topic: 'needs' }, t, r)) {
         const original = await tg.link(inc.topic, inc.msg);
         const you = youOf(inc).startsWith('Needs you:') ? youOf(inc) : 'Needs you: it has not cleared in 3 hours; pass this message to its project\'s coordinator';
@@ -310,7 +343,7 @@ export async function digestText(stores, t = now()) {
   for (const st of stores) {
     for (const i of await st.list()) {
       const where = i.url || i.link || '';
-      if (i.open) { open++; lines.push(`🟠 open ${age(t - i.opened)} · ${one(i.text)}${i.escalated ? ' (escalated)' : ''} ${where}`.trim()); }
+      if (i.open) { open++; lines.push(`🟠 open ${age(t - i.opened)} · ${one(i.text)}${i.escalated ? ' (escalated)' : ''}${i.maxSends && i.msg ? ` (alerted ${i.sends || 1} of ${i.maxSends})` : ''} ${where}`.trim()); }
       else if (t - i.closed < day) { resolved++; lines.push(`✅ resolved after ${age(i.closed - i.opened)} · ${one(i.text)}`); }
       if (t - i.opened < day) opened++;
     }
@@ -367,7 +400,7 @@ async function main(argv) {
   switch (cmd) {
     case 'setup': for (const l of await setup(tg)) say(l); break;
     case 'problem': {
-      const r = await problem(store(), tg, { key: opt('--key'), topic: opt('--topic'), text: opt('--text'), link: opt('--link'), title: opt('--title'), action: flag('--action'), outage: flag('--outage'), you: opt('--you') });
+      const r = await problem(store(), tg, { key: opt('--key'), topic: opt('--topic'), text: opt('--text'), link: opt('--link'), title: opt('--title'), action: flag('--action'), outage: flag('--outage'), you: opt('--you'), maxSends: opt('--max-sends') });
       say(`${r.status} ${r.inc.key}${r.inc.url ? ` (${r.inc.url})` : ''}`);
       if (r.status === 'queued' && env('ALERTS_REQUIRE_SEND') === '1') { console.error('notify: no bot token or chat id here, so the problem was recorded but not sent'); process.exit(2); }
       break;

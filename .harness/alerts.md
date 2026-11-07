@@ -50,9 +50,17 @@ A new project gets its own topic: add it to `TOPICS` in `notify.mjs` (a kit rele
    except `--outage` (a production outage), which is always loud.
 6. **Caps.** At most 5 new messages per topic per hour (10 in "Needs you"); the rest are kept and sent
    by a later tick. An outage is never capped.
-7. **Never success or progress.** A RESOLVED is the only good news, and only for a problem that was
+7. **Capped problems** (`--max-sends N`, K035). A sender that checks the same thing every day (stale
+   work, stale data) opens its problem capped: the PROBLEM, then at most one STILL OPEN reply a day
+   (the owner's day) from the sender's own repeat while it stays open, N messages in all (the kit's
+   senders use 3). Never escalated, never reminded by `tick`; past N it is only a line in the digest,
+   marked "alerted N of N", until its RESOLVED. Not for an outage or "Needs you".
+8. **Stale is never OK.** A check that reads an outside source (a job's last run, a report page, an
+   API answer) and finds it older than its threshold says STALE, never OK, and opens a capped problem;
+   a check that could not read the source at all says so, never "none found" (K035).
+9. **Never success or progress.** A RESOLVED is the only good news, and only for a problem that was
    sent. Routine news waits for the digest.
-8. **No sender talks to Telegram directly.** Everything goes through `notify.mjs`, so the rules hold
+10. **No sender talks to Telegram directly.** Everything goes through `notify.mjs`, so the rules hold
    everywhere (audit O10).
 
 ## Senders

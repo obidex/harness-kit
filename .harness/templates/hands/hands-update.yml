@@ -1,4 +1,5 @@
 # Harness Kit control repository (K007): copied into the owner's control repository, never into a project.
+# Action group: approval (its changes land only behind a gate; .harness/tools/actions.mjs)
 # Weekly, or on dispatch, moves every enrolled project's pinned kit (and this repository's own
 # HANDS_KIT_VERSION) to the newest release, or to the version given (a rollback), through a PR the
 # hands App opens and sets to auto-merge; the project's required checks decide. Replaces the

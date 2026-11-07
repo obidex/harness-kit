@@ -1,4 +1,5 @@
 # Kit-managed (Harness Kit): installed and updated by .harness/tools/harness.mjs; never edit here.
+# Action group: auto (it checks, reports, alerts or wakes by itself; .harness/tools/actions.mjs)
 # The supply-chain floor's PR check (K030, A20 and A21), meant to be a required check:
 #   1. gitleaks scans the pull request's own commits for secrets (a pinned release, checksummed);
 #   2. a change to agent configuration (CLAUDE.md, AGENTS.md, .claude/**, .harness/**, .mcp.json,

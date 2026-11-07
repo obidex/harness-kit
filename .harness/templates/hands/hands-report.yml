@@ -1,4 +1,5 @@
 # Harness Kit control repository (K007): the record and the alert for every hands run.
+# Action group: auto (it checks, reports, alerts or wakes by itself; .harness/tools/actions.mjs)
 # Each run that changed something adds one comment, listing every write, to this month's log issue
 # here. Alerts follow the owner's one standard (O10, K010, `.harness/alerts.md`): a failure is one
 # problem, kept as an issue here, sent once to the "Kit & Hands" topic; a repeat only comments on that

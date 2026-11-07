@@ -1,4 +1,5 @@
 # Harness Kit control repository (K007): copied into the owner's control repository, never into a project.
+# Action group: approval (its changes land only behind a gate; .harness/tools/actions.mjs)
 # Applies each enrolled repository's .github/harness-settings.json (from its default branch, so only
 # reviewed and merged settings) with the hands App, at two moments (K008, resource rule O13):
 # - on dispatch, right after a PR that changes a settings file merges: the merging session runs

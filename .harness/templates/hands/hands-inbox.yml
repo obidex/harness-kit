@@ -1,4 +1,5 @@
 # Harness Kit control repository (K007, K024): copied into the owner's control repository, never into a project.
+# Action group: auto (it checks, reports, alerts or wakes by itself; .harness/tools/actions.mjs)
 # Inbox wake for a repository whose own harness-inbox job cannot post it (no kit, or a kit older than
 # 0.22.0): `inbox.mjs send` dispatches this with the repository and the request's issue number, and
 # this job posts the wake comment on that repository's wake-channel pull request with the hands App.
