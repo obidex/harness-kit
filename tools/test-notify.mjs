@@ -294,14 +294,22 @@ ok(c.code === 0 && /bot @example_alerts_bot/.test(c.out) && /group "Owner alerts
   at('2026-10-11T16:00:00Z'); const tk = await tick(cs, tg);
   ok(since(m0).length === 1 && !tk.length && !since(m0).some((c) => c.message_thread_id === T('needs')), 'the rest of that day: repeats send nothing, and tick neither escalates it to "Needs you" after 3 hours nor reminds it');
   at('2026-10-11T21:05:00Z'); r = await problem(cs, tg, { ...k, text: 'sql-live: last run 3 days 12 h ago' });
-  ok(r.status === 'reminded' && since(m0).length === 2 && since(m0)[1].reply_parameters.message_id === p0.message_id && /^🟠 STILL OPEN after 12 h 5 min \(alert 2 of 3\) · sql-live: last run 3 days 12 h ago$/.test(since(m0)[1].text) && since(m0)[1].disable_notification === true,
-    'a new day in Damascus (00:05, quiet hours: silent like every message then): one STILL OPEN reply, alert 2 of 3, saying how it stands now');
-  at('2026-10-12T21:00:00Z'); r = await problem(cs, tg, k);
+  ok(r.status === 'repeat' && since(m0).length === 1, 'a new day in Damascus only 12 hours after the PROBLEM sends nothing yet: a repeat needs a new day and 20 h since the last message');
+  at('2026-10-12T06:00:00Z'); r = await problem(cs, tg, { ...k, text: 'sql-live: last run 4 days ago' });
+  ok(r.status === 'reminded' && since(m0).length === 2 && since(m0)[1].reply_parameters.message_id === p0.message_id && /^🟠 STILL OPEN after 21 h 0 min \(alert 2 of 3\) · sql-live: last run 4 days ago$/.test(since(m0)[1].text) && since(m0)[1].disable_notification === true,
+    'the next morning: one STILL OPEN reply, silent, alert 2 of 3, saying how it stands now');
+  at('2026-10-13T06:30:00Z'); r = await problem(cs, tg, k);
   ok(r.status === 'reminded' && since(m0).length === 3 && /\(alert 3 of 3, the last: from now on only a line in the daily digest until it clears\)/.test(since(m0)[2].text), 'the next day, alert 3 of 3, the last');
   for (const iso of ['2026-10-13T21:00:00Z', '2026-10-14T21:00:00Z', '2026-10-15T09:00:00Z']) { at(iso); r = await problem(cs, tg, k); await tick(cs, tg); }
   ok(r.status === 'capped-out' && since(m0).length === 3 && /\(alerted 3 of 3\)/.test(await digestText([cs])), 'after that, nothing more from the sender or tick: one digest line, marked alerted 3 of 3');
   at('2026-10-15T10:00:00Z'); r = await resolveKey(cs, tg, { key: k.key, text: 'sql-live ran' });
   ok(r.status === 'resolved' && since(m0).length === 4 && since(m0)[3].reply_parameters.message_id === p0.message_id && /^✅ Fixed after 4 days/.test(since(m0)[3].text), 'and its RESOLVED still goes out as a reply to the PROBLEM');
+  const hk = { key: 'vps/stale-hushed', topic: 'ops', text: 'acknowledged in the panel', maxSends: 3 };
+  at('2026-10-20T09:00:00Z'); await problem(cs, tg, hk); at('2026-10-20T09:11:00Z'); await problem(cs, tg, hk);
+  await hush(cs, hk.key, { ack: true });
+  const mh = mark(); at('2026-10-21T10:00:00Z'); r = await problem(cs, tg, hk);
+  ok(r.status !== 'reminded' && since(mh).length === 0, 'an acknowledged capped problem gets no STILL OPEN replies (K025)');
+  await resolveKey(cs, tg, { key: hk.key });
   const plain = { key: 'vps/plain', topic: 'ops', text: 'an uncapped problem' };
   at('2026-10-16T09:00:00Z'); await problem(cs, tg, plain); at('2026-10-16T09:11:00Z'); await problem(cs, tg, plain); at('2026-10-17T09:30:00Z'); r = await problem(cs, tg, plain);
   ok(r.status === 'repeat' && !('maxSends' in r.inc), 'without --max-sends a problem behaves as before: a repeat sends nothing (tick escalates and reminds it)');

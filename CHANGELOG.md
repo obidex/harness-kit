@@ -8,7 +8,8 @@ Each version is the tag `v<version>` on this repository, never moved (K003). Pro
 From the strategist's S-033 (roadmap #48, P10).
 
 - `notify.mjs problem --max-sends N` (1-10): a capped problem sends the PROBLEM, then at most one
-  STILL OPEN reply a day (the owner's day) from the sender's own repeat, N messages in all; never
+  STILL OPEN reply a day (a new day in the owner's time zone and 20 h since the last message) from
+  the sender's own repeat, N messages in all, none once acknowledged or muted; never
   escalated or reminded by `tick`; past N only a digest line ("alerted N of N") until RESOLVED.
   Refused for an outage or "Needs you". Problems without it behave as before.
 - `stale.mjs`: thresholds in hours, as data: the profile's new optional `stale` object (or

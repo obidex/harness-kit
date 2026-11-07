@@ -31,8 +31,8 @@
 //   first seen (ALERTS_HOLD_MINUTES), by a later `problem` call or `tick`; one resolved sooner was never
 //   sent and sends nothing. A GitHub store (ticked daily) and an outage send at once.
 // - Capped problems (--max-sends N, 1-10; K035): at most N messages in all, at most one a day (the
-//   owner's calendar day). The PROBLEM is the first; while it stays open, the sender's own repeat call
-//   on a later day sends one STILL OPEN reply, until N. Never escalated, never reminded by `tick`; past
+//   owner's calendar day, and 20 h since the last). The PROBLEM is the first; while it stays open, the
+//   sender's own repeat call on a later day sends one STILL OPEN reply, until N (none once acknowledged or muted). Never escalated, never reminded by `tick`; past
 //   N it is only a line in the daily digest until its RESOLVED. For a sender that checks the same thing
 //   every day (stale work, stale data), so one stuck item cannot alert forever.
 // - Format: a PROBLEM ends with one "You:" line (--you: "nothing", "<who> is fixing it" or "Needs you:
@@ -61,6 +61,7 @@ export const TOPICS = {
 };
 export const CONFIG_MARK = 'harness-alerts config';
 const HOUR = 3600e3;
+const REPEAT_GAP = 20 * 3600e3; // a capped problem's repeats: a new day and at least this long since its last message
 const env = (k, d) => process.env[k] ?? d;
 export const rules = () => ({
   tz: env('ALERTS_TZ', 'Asia/Damascus'),
@@ -239,7 +240,9 @@ async function sendProblem(tg, inc, list, t, r) {
 /** A capped problem's repeat: one STILL OPEN reply on a new day while under its cap; true when sent. */
 async function sendRepeat(tg, inc, t, r) {
   const sends = inc.sends || 1;
-  if (!tg.ready || !inc.msg || sends >= inc.maxSends || inc.sentDay === dayOf(t, r.tz)) return false;
+  // a new day in the owner's time zone AND 20 h since the last send: a PROBLEM at 23:50 is not followed at 00:00;
+  // an acknowledged or muted problem (control panel, K025) is never reminded
+  if (!tg.ready || !inc.msg || sends >= inc.maxSends || inc.sentDay === dayOf(t, r.tz) || t - (inc.remindedAt || inc.sentAt || 0) < REPEAT_GAP || hushed(inc, t)) return false;
   const n = sends + 1, last = n >= inc.maxSends;
   await tg.send(inc.topic, `🟠 STILL OPEN after ${age(t - inc.opened)} (alert ${n} of ${inc.maxSends}${last ? ', the last: from now on only a line in the daily digest until it clears' : ''}) · ${one(inc.text)}`, { reply: inc.msg, t });
   inc.sends = n; inc.sentDay = dayOf(t, r.tz); inc.remindedAt = t;
