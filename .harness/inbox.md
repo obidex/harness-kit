@@ -15,7 +15,20 @@ progress are comments on it.
 A request proceeds only if an existing, verified owner decision or standing delegation covers its
 scope; citing a decision never expands it.
 
-## Pickup (K018, K024)
+## Pickup by label (K035)
+
+A repository whose coordinator runs are event-fired (`wake.md`, K033; its STATE issue exists) is
+woken by the label `wake` on the request itself, never by a comment. `send` always dispatches the
+control repository's `hands-inbox.yml` for it, whatever its kit: a label set with a workflow's own
+`GITHUB_TOKEN` starts no workflow, so the receiver's own `harness-inbox.yml` stands aside. The hands
+App sets the label (set again on `--again`, so GitHub sends a new event), and "Woke" is written once
+GitHub confirmed it. The receiver's wake job then starts a run or queues it behind the one running;
+its receipts are on the STATE issue and the request. While wakes are paused there (`wake-paused`),
+the label is set and waits, the request gets "Not delivered" with why, and the old channel is never
+used to get around the pause. Its old wake channel is no longer used and can close (`wake.md`,
+"Retiring the old wake channels"). Senders need no new kit: `hands-inbox` decides.
+
+## Pickup by channel (K018, K024)
 
 1. The sender files the request with `inbox.mjs send`. The wake is a comment on the receiving
    repository's **wake channel**: its open draft pull request from the branch `inbox-wake`, never

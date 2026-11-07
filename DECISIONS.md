@@ -818,3 +818,20 @@ From the Nov 2026 radar (roadmap #48, P7; owner's approval of #48, 6 Nov 2026).
    numbers come from the health page; their trend is read by the coordinator, not alerted on.
 
 **Status:** STANDING.
+
+## K035 · 2026-11-07 · STANDING — an inbox wake to an event-fired coordinator is a label
+
+From the Nov 2026 radar (roadmap #48, after P4; owner's approval of #48, 6 Nov 2026).
+
+1. **The label, not the channel.** A repository whose coordinator runs are event-fired (K033; its
+   STATE issue exists, opened by the wake job) gets an inbox wake as the label `wake` on the request
+   itself. Its wake job, caps and stops then decide, exactly as for any other wake.
+2. **Still only a job wakes (K024).** The hands App sets the label from `hands-inbox`. A label set
+   with a workflow's own `GITHUB_TOKEN` starts no workflow, so the receiver's own `harness-inbox`
+   stands aside for such a repository. A person's token is refused, as for the channel.
+3. **A pause is never routed around.** While `wake-paused` holds, the label waits and the request
+   says "Not delivered"; the old channel is not used instead (C12).
+4. **One switch, in one place.** The control repository's kit pin decides, so senders need no new
+   release; the old channel retires once nothing else posts on it.
+
+**Status:** STANDING.
