@@ -37,7 +37,7 @@ const dispatches = [];     // hands-inbox dispatches in the control repository o
 const jobs = [];           // the wake jobs those events started (each runs the real tool)
 const job = (n, env = {}) => { jobs.push(run(['wake', '--repo', 'o/r', '--issue', String(n)], env)); };
 const own = { INBOX_OWN_TOKEN: 'true' };   // the receiver's own harness-inbox job runs with its GITHUB_TOKEN
-let stateIssue = null, stateDown = false, echoLabel = true;     // K033: the receiver's STATE issue (it wakes its coordinator by label)
+let stateIssue = null, stateDown = false, stateDownOnce = 0, echoLabel = true;     // K033: the receiver's STATE issue (it wakes its coordinator by label)
 const wakeLabels = [];     // `wake` labels set on requests (each one a new labeled event)
 const srv = createServer((q, res) => {
   let data = '';
@@ -62,7 +62,7 @@ const srv = createServer((q, res) => {
       return send(200, channel && u.searchParams.get('head') === `o:${channelBranch}` ? [{ number: 99, draft: true, html_url: 'https://gh.test/o/r/pull/99' }] : []);
     }
     if (u.pathname === '/repos/o/r/issues/99/comments' && q.method === 'POST') { if (refuse) return send(403, { message: 'refused' }); wakes.push(JSON.parse(data).body); return send(201, { id: 500 + wakes.length }); }
-    if (u.pathname === '/repos/o/r/issues' && q.method === 'GET' && u.searchParams.get('labels') === 'coordinator-state') return stateDown ? send(502, {}) : send(200, stateIssue ? [stateIssue] : []);
+    if (u.pathname === '/repos/o/r/issues' && q.method === 'GET' && u.searchParams.get('labels') === 'coordinator-state') return stateDown || stateDownOnce-- > 0 ? send(502, {}) : send(200, stateIssue ? [stateIssue] : []);
     if (u.pathname === '/repos/o/r/issues' && q.method === 'GET') {
       // like GitHub, the label listing lags a new issue: with lag on, it misses it on the next four listings
       const seen = issues.filter((i) => i.labels.some((l) => l.name === u.searchParams.get('labels')) && !(i.hidden-- > 0));
@@ -215,6 +215,16 @@ ok(again.code === 0 && wakes.length === 2 && issues[0].comments.some((c) => c.st
   await settle();
   ok(l9.code === 3 && /could not read whether o\/r wakes by label/.test(l9.out) && wakes.length === w0, 'an unreadable STATE lookup is "Not delivered", never a fallback to the old channel (which could route around a pause)');
   stateDown = false;
+  {
+    const lo = await run(lab('kit/label-flaky'), { INBOX_WAIT_MS: '0' });
+    await settle();
+    const rf = issues.find((i) => parse(i.body).id === 'kit/label-flaky');
+    rf.comments = []; rf.labels = rf.labels.filter((l) => l.name !== 'wake');
+    stateDownOnce = 1;   // the receiver's own job: its first STATE lookup fails, the next one answers
+    const oj = await run(['wake', '--repo', 'o/r', '--issue', String(rf.number)], own);
+    ok(!rf.labels.some((l) => l.name === 'wake') && !rf.comments.some((c) => c.startsWith('<!-- inbox-woke -->')) && oj.code === 3, 'the receiver\'s own job never sets the label or writes "Woke", even when its first STATE lookup fails and the next one answers');
+    stateDownOnce = 0;
+  }
   stateIssue.labels = [{ name: 'coordinator-state' }];
   echoLabel = false;
   const l10 = await run(lab('kit/label-unconfirmed'));
@@ -237,7 +247,7 @@ ok(again.code === 0 && wakes.length === 2 && issues[0].comments.some((c) => c.st
   await settle();
   ok(l8.code === 0 && wakes.length === w0 + 2 && !issues.find((i) => parse(i.body).id === 'kit/label-forged').labels.some((l) => l.name === 'wake'), 'a STATE issue a person opened does not count: that repository keeps its channel');
   stateIssue = null; channel = hadChannel;
-  for (const id of ['kit/label-1', 'kit/label-own', 'kit/label-person', 'kit/label-refused', 'kit/label-paused', 'kit/label-forged', 'kit/label-down', 'kit/label-unconfirmed', 'kit/label-stopped', 'kit/label-login']) issues.find((i) => parse(i.body).id === id).labels = [];  // keep the rest about kit/proof-1
+  for (const id of ['kit/label-1', 'kit/label-own', 'kit/label-person', 'kit/label-refused', 'kit/label-paused', 'kit/label-forged', 'kit/label-down', 'kit/label-unconfirmed', 'kit/label-stopped', 'kit/label-login', 'kit/label-flaky']) issues.find((i) => parse(i.body).id === id).labels = [];  // keep the rest about kit/proof-1
 }
 ok(/wake channel is https:\/\/gh\.test\/o\/r\/pull\/99;/.test((await run(['channel', '--repo', 'o/r'])).out), 'channel names the open wake-channel PR');
 channel = false;

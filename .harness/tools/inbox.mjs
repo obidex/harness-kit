@@ -205,6 +205,9 @@ export async function deliver(call, repo, r) {
  *  channel: a person's label would start a run too, but only the job wakes (K024, one rule). */
 async function deliverByLabel(call, repo, r, lw) {
   let why = null;
+  // the receiver's own job (its GITHUB_TOKEN) never sets the label, whatever path reaches here: that
+  // label would start no workflow, and its "Woke" would stop hands-inbox from setting one that does
+  if (process.env.INBOX_OWN_TOKEN === 'true') return { delivered: false, why: `${repo} wakes its coordinator by label; only the control repository's hands-inbox job sets it` };
   const me = await tokenOwner(call);
   if (me.user) why = `this token is ${me.user}'s own account; only the wake job (hands-inbox) sets the wake label`;
   else if (!me.app) why = `could not confirm the token is an App's or Actions' (${me.why}), so no wake label is set under a person's account`;
