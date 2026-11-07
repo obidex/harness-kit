@@ -3,7 +3,7 @@
 # C15 no silent stall: once a day, lists open PRs (green-unmerged, red, conflicted, draft, waiting;
 # bot PRs too), inbox requests queued or working, `card` or `risk:*` issues, and, where the profile
 # names them, initiatives and C22 wait records, each idle past its threshold in hours
-# (.harness/tools/stale.mjs; the data is the profile's `stale` object, K035), in ONE tracking issue
+# (.harness/tools/stale.mjs; the data is the profile's `stale` object, K036), in ONE tracking issue
 # "Stale work", updated in place and closed when the list is empty. Alerts go through notify.mjs (O10,
 # .harness/alerts.md): one capped problem per stale item, `stale:<repo>#<n>`, in the project's topic
 # (profile alerts.topic): at most one message a day and 3 in all, never escalated, then only a line in

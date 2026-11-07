@@ -6,6 +6,9 @@
 # job posts the wake comment on the wake-channel pull request the coordinator subscribes to: a
 # session cannot, because a subscribed session never receives a comment its own account posted.
 # A project without a channel may fire a routine instead (INBOX_ROUTINE_URL, INBOX_ROUTINE_TOKEN).
+# A project whose coordinator runs are event-fired (harness-wake, K033) is woken by the `wake` label,
+# which the control repository's hands-inbox job sets with the hands App; this job then stands aside,
+# since a label set with its own GITHUB_TOKEN would start no workflow (K036).
 # Cost (O13): one short job per labelled or reopened inbox issue, nothing otherwise.
 name: harness-inbox
 
@@ -41,6 +44,7 @@ jobs:
       - name: Wake the coordinator if this is a queued request
         env:
           GH_TOKEN: ${{ github.token }}
+          INBOX_OWN_TOKEN: 'true'
           ISSUE: ${{ github.event.issue.number }}
           INBOX_ROUTINE_URL: ${{ secrets.INBOX_ROUTINE_URL }}
           INBOX_ROUTINE_TOKEN: ${{ secrets.INBOX_ROUTINE_TOKEN }}

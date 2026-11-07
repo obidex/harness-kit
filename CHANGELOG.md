@@ -3,6 +3,25 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.33.0 · 2026-11-07 · inbox wakes by label (K036)
+
+From the Nov 2026 radar (roadmap #48, after P4).
+
+- `inbox.mjs` wakes a repository whose coordinator runs are event-fired (its K033 STATE issue exists,
+  opened by `github-actions[bot]`) with the label `wake` on the request itself, never a comment on its
+  wake channel. Only the control repository's `hands-inbox` job sets it, with the hands App: a label
+  set with a workflow's own `GITHUB_TOKEN` starts no workflow, so `send` always dispatches
+  `hands-inbox` for such a repository and its own `harness-inbox` (new env `INBOX_OWN_TOKEN`)
+  stands aside. `--again` sets the label again (a new event). "Woke" is written once GitHub
+  confirmed the label; the receiver's wake job and its caps decide the run.
+- While wakes are paused there, the label is set and waits, and the request gets "Not delivered"
+  with why; the old channel is never used to get around a pause. A STATE issue a person opened
+  does not count.
+- Senders need no new kit: `hands-inbox` (the control repository's pin) decides. Once it runs
+  0.33.0 (and, for a receiver with its own `harness-inbox`, once that receiver does too), a
+  label-woken repository's old wake channel carries no inbox wakes and can close (`wake.md`,
+  "Retiring the old wake channels"). An unreadable STATE lookup is "Not delivered", never the
+  channel; a request carrying `wake-stopped` is not labelled.
 ## 0.32.0 · 2026-11-07 · "ran OK" is not "worked": stale data, capped alerts, action groups (K035)
 
 From the strategist's S-033 (roadmap #48, P10).
