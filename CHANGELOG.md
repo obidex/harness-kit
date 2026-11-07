@@ -18,8 +18,10 @@ From the Nov 2026 radar (roadmap #48, after P4).
   with why; the old channel is never used to get around a pause. A STATE issue a person opened
   does not count.
 - Senders need no new kit: `hands-inbox` (the control repository's pin) decides. Once it runs
-  0.32.0, a label-woken repository's old wake channel carries no inbox wakes and can close
-  (`wake.md`, "Retiring the old wake channels").
+  0.32.0 (and, for a receiver with its own `harness-inbox`, once that receiver does too), a
+  label-woken repository's old wake channel carries no inbox wakes and can close (`wake.md`,
+  "Retiring the old wake channels"). An unreadable STATE lookup is "Not delivered", never the
+  channel; a request carrying `wake-stopped` is not labelled.
 
 ## 0.31.0 · 2026-11-07 · measuring the agents (K034)
 

@@ -118,8 +118,9 @@ A project whose proof (Setup step 3) has held retires the old wake channel in th
 
 1. Senders set `wake` instead of commenting on its draft pull request (`inbox-wake` or
    `wake-channel`). For inbox requests this is automatic once the control repository runs kit
-   0.32.0 or later (`inbox.md`, "Pickup by label", K035); any other poster of that pull request
-   (a project's own jobs) moves to the label first.
+   0.32.0 or later (`inbox.md`, "Pickup by label", K035), and, for a project with its own
+   `harness-inbox` job, once that project runs 0.32.0 too (an older one answers first, through the
+   channel). Any other poster of that pull request (a project's own jobs) moves to the label first.
 2. Close the draft pull request.
 3. The coordinator stops subscribing to it.
 

@@ -26,7 +26,10 @@ GitHub confirmed it. The receiver's wake job then starts a run or queues it behi
 its receipts are on the STATE issue and the request. While wakes are paused there (`wake-paused`),
 the label is set and waits, the request gets "Not delivered" with why, and the old channel is never
 used to get around the pause. Its old wake channel is no longer used and can close (`wake.md`,
-"Retiring the old wake channels"). Senders need no new kit: `hands-inbox` decides.
+"Retiring the old wake channels") once nothing else posts on it. Senders need no new kit:
+`hands-inbox` decides. A receiver with its own `harness-inbox` job takes 0.32.0 before its channel
+closes: an older job answers first, through the channel or with "Not delivered". An unreadable STATE
+lookup is "Not delivered", never the channel; a request carrying `wake-stopped` is not labelled.
 
 ## Pickup by channel (K018, K024)
 

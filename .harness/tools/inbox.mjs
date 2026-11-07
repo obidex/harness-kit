@@ -166,10 +166,14 @@ export async function deliver(call, repo, r) {
   const notes = await comments(call, repo, r.number);
   const st = wakeState(notes);
   if (st.woken) return { delivered: true, already: true };
-  let lw = null;
-  try { lw = await labelWakes(call, repo); } catch { /* unreadable: the channel route below decides */ }
+  let lw = null, why, pr = null;
+  // fails closed: an unreadable STATE lookup never falls back to the channel (it could route around a pause)
+  try { lw = await labelWakes(call, repo); } catch (e) { why = `could not read whether ${repo} wakes by label (${e.message.slice(0, 120)})`; }
   if (lw) return deliverByLabel(call, repo, r, lw);
-  let why, pr = null;
+  if (why) {
+    await call('POST', `/repos/${repo}/issues/${r.number}/comments`, { body: `${UNDELIVERED_MARK}\nNot delivered to the receiving coordinator: ${why}. Nothing is lost: the request stays queued, and the next send or the coordinator's own inbox check picks it up.` }).catch(() => {});
+    return { delivered: false, why };
+  }
   try { pr = await findChannel(call, repo); } catch (e) { why = `could not look for the wake channel (${e.message.slice(0, 120)})`; }
   if (!pr && !why) why = `no open ${WAKE_BRANCH} pull request in ${repo}`;
   // K024: a wake posted as a person's account never reaches that person's subscribed sessions. Actions
@@ -207,10 +211,11 @@ async function deliverByLabel(call, repo, r, lw) {
   if (!why) {
     try {
       const i = await call('GET', `/repos/${repo}/issues/${r.number}`);
+      if ((i.labels || []).some((x) => (x.name ?? x) === 'wake-stopped')) throw new Error(`#${r.number} carries wake-stopped, which only a person lifts`);
       if ((i.labels || []).some((x) => (x.name ?? x) === WAKE_LABEL)) await call('DELETE', `/repos/${repo}/issues/${r.number}/labels/${WAKE_LABEL}`);
       const got = await call('POST', `/repos/${repo}/issues/${r.number}/labels`, { labels: [WAKE_LABEL] });
       if (!(got || []).some((x) => (x.name ?? x) === WAKE_LABEL)) why = 'GitHub did not confirm the wake label';
-    } catch (e) { why = `the wake label was refused (${e.message.slice(0, 120)})`; }
+    } catch (e) { why = /wake-stopped/.test(e.message) ? e.message : `the wake label was refused (${e.message.slice(0, 120)})`; }
   }
   if (!why && lw.paused) why = `wakes are paused in ${repo} (${PAUSED_LABEL} on #${lw.state}); the wake label is set and waits until a person starts a run by hand`;
   if (!why) {
@@ -396,7 +401,8 @@ async function main() {
     if (!mine || !queued(mine) || (first && first.number < n)) { console.log(`inbox: #${n} is not a queued request; nobody woken`); return; }
     // K035: an event-fired receiver is woken by the `wake` label, which only the hands App's label
     // starts at once; the receiver's own job (its GITHUB_TOKEN) stands aside, since `send` starts hands-inbox.
-    const lw = await labelWakes(api, repo).catch(() => null);
+    let lw = null;
+    try { lw = await labelWakes(api, repo); } catch { report(await deliver(api, repo, mine)); return; }   // deliver fails closed and says why
     if (lw && process.env.INBOX_OWN_TOKEN === 'true') { console.log(`inbox: ${repo} wakes its coordinator by label; the control repository's hands-inbox job sets it (a label this job's own token set would start nothing)`); return; }
     if (lw) { report(await deliver(api, repo, mine)); return; }
     // This job posts the wake: its author is a bot, which a subscribed session receives (K024).

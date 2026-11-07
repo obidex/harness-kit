@@ -37,7 +37,7 @@ const dispatches = [];     // hands-inbox dispatches in the control repository o
 const jobs = [];           // the wake jobs those events started (each runs the real tool)
 const job = (n, env = {}) => { jobs.push(run(['wake', '--repo', 'o/r', '--issue', String(n)], env)); };
 const own = { INBOX_OWN_TOKEN: 'true' };   // the receiver's own harness-inbox job runs with its GITHUB_TOKEN
-let stateIssue = null;     // K033: the receiver's STATE issue (it wakes its coordinator by label)
+let stateIssue = null, stateDown = false, echoLabel = true;     // K033: the receiver's STATE issue (it wakes its coordinator by label)
 const wakeLabels = [];     // `wake` labels set on requests (each one a new labeled event)
 const srv = createServer((q, res) => {
   let data = '';
@@ -62,7 +62,7 @@ const srv = createServer((q, res) => {
       return send(200, channel && u.searchParams.get('head') === `o:${channelBranch}` ? [{ number: 99, draft: true, html_url: 'https://gh.test/o/r/pull/99' }] : []);
     }
     if (u.pathname === '/repos/o/r/issues/99/comments' && q.method === 'POST') { if (refuse) return send(403, { message: 'refused' }); wakes.push(JSON.parse(data).body); return send(201, { id: 500 + wakes.length }); }
-    if (u.pathname === '/repos/o/r/issues' && q.method === 'GET' && u.searchParams.get('labels') === 'coordinator-state') return send(200, stateIssue ? [stateIssue] : []);
+    if (u.pathname === '/repos/o/r/issues' && q.method === 'GET' && u.searchParams.get('labels') === 'coordinator-state') return stateDown ? send(502, {}) : send(200, stateIssue ? [stateIssue] : []);
     if (u.pathname === '/repos/o/r/issues' && q.method === 'GET') {
       // like GitHub, the label listing lags a new issue: with lag on, it misses it on the next four listings
       const seen = issues.filter((i) => i.labels.some((l) => l.name === u.searchParams.get('labels')) && !(i.hidden-- > 0));
@@ -75,7 +75,7 @@ const srv = createServer((q, res) => {
     if (lb && q.method === 'POST' && JSON.parse(data).labels[0] === 'wake') {
       if (refuse) return send(403, { message: 'refused' });
       if (!li.labels.some((l) => l.name === 'wake')) { li.labels.push({ name: 'wake' }); wakeLabels.push(li.number); }
-      return send(200, li.labels);
+      return send(200, echoLabel ? li.labels : li.labels.filter((l) => l.name !== 'wake'));
     }
     if (lb && q.method === 'POST') { li.labels = [{ name: 'inbox' }, ...li.labels.filter((l) => l.name === 'wake')]; send(200, li.labels); return job(lb[1], own); }
     const m = u.pathname.match(/^\/repos\/o\/r\/issues\/(\d+)(\/comments)?$/);
@@ -210,12 +210,34 @@ ok(again.code === 0 && wakes.length === 2 && issues[0].comments.some((c) => c.st
   const r7 = issues.find((i) => parse(i.body).id === 'kit/label-paused');
   ok(l7.code === 3 && /wakes are paused in o\/r/.test(l7.out) && r7.labels.some((l) => l.name === 'wake') && wakes.length === w0, 'while wakes are paused there the label is set and waits, send says so and exits non-zero, and the old channel is never used to route around the pause');
 
+  stateDown = true;
+  const l9 = await run(lab('kit/label-down'));
+  await settle();
+  ok(l9.code === 3 && /could not read whether o\/r wakes by label/.test(l9.out) && wakes.length === w0, 'an unreadable STATE lookup is "Not delivered", never a fallback to the old channel (which could route around a pause)');
+  stateDown = false;
+  stateIssue.labels = [{ name: 'coordinator-state' }];
+  echoLabel = false;
+  const l10 = await run(lab('kit/label-unconfirmed'));
+  await settle();
+  ok(l10.code === 3 && /did not confirm the wake label/.test(l10.out), 'a label GitHub does not confirm is not a delivery');
+  echoLabel = true;
+  const l11 = await run(lab('kit/label-stopped'), { INBOX_WAIT_MS: '0' });
+  const r11 = issues.find((i) => parse(i.body).id === 'kit/label-stopped');
+  await settle();
+  r11.labels.push({ name: 'wake-stopped' });
+  r11.comments = [];
+  const l11b = await run(['wake', '--repo', 'o/r', '--issue', String(r11.number)]);
+  ok(l11b.code === 3 && /carries wake-stopped/.test(l11b.out) && wakeLabels.filter((x) => x === r11.number).length === 1, 'a request carrying wake-stopped is not labelled again');
+  stateIssue = { ...stateIssue, user: { login: 'owner', type: 'Bot' } };
+  const l12 = await run(lab('kit/label-login'));
+  await settle();
+  ok(l12.code === 0 && wakes.length === w0 + 1 && !issues.find((i) => parse(i.body).id === 'kit/label-login').labels.some((l) => l.name === 'wake'), 'a STATE issue opened by any account other than github-actions[bot] does not count');
   stateIssue = { ...stateIssue, labels: [{ name: 'coordinator-state' }], user: { login: 'owner', type: 'User' } };
   const l8 = await run(lab('kit/label-forged'));
   await settle();
-  ok(l8.code === 0 && wakes.length === w0 + 1 && !issues.find((i) => parse(i.body).id === 'kit/label-forged').labels.some((l) => l.name === 'wake'), 'a STATE issue a person opened does not count: that repository keeps its channel');
+  ok(l8.code === 0 && wakes.length === w0 + 2 && !issues.find((i) => parse(i.body).id === 'kit/label-forged').labels.some((l) => l.name === 'wake'), 'a STATE issue a person opened does not count: that repository keeps its channel');
   stateIssue = null; channel = hadChannel;
-  for (const id of ['kit/label-1', 'kit/label-own', 'kit/label-person', 'kit/label-refused', 'kit/label-paused', 'kit/label-forged']) issues.find((i) => parse(i.body).id === id).labels = [];  // keep the rest about kit/proof-1
+  for (const id of ['kit/label-1', 'kit/label-own', 'kit/label-person', 'kit/label-refused', 'kit/label-paused', 'kit/label-forged', 'kit/label-down', 'kit/label-unconfirmed', 'kit/label-stopped', 'kit/label-login']) issues.find((i) => parse(i.body).id === id).labels = [];  // keep the rest about kit/proof-1
 }
 ok(/wake channel is https:\/\/gh\.test\/o\/r\/pull\/99;/.test((await run(['channel', '--repo', 'o/r'])).out), 'channel names the open wake-channel PR');
 channel = false;
