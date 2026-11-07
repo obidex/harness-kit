@@ -185,6 +185,19 @@
         "properties": { "id": { "type": "integer", "minimum": 1 }, "login": { "type": "string", "minLength": 1 } }
       }
     },
+    "stale": {
+      "description": "Optional. The stale-work check's data (stale.mjs, K035): thresholds in hours, which issue labels are a board's initiatives and its C22 wait records, which kinds to watch, and how many alerts one stale item may send (at most one a day).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "hours": { "type": "object", "additionalProperties": false, "description": "Idle hours before an item is stale. Defaults: pr 48, conflict 24, inbox 24, card 48, initiative 48, wait 48.",
+          "properties": { "pr": { "type": "number", "minimum": 1 }, "conflict": { "type": "number", "minimum": 1 }, "inbox": { "type": "number", "minimum": 1 }, "card": { "type": "number", "minimum": 1 }, "initiative": { "type": "number", "minimum": 1 }, "wait": { "type": "number", "minimum": 1 } } },
+        "initiative_labels": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+        "wait_labels": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+        "watch": { "type": "array", "items": { "enum": ["pr", "card", "inbox", "initiative", "wait"] }, "uniqueItems": true, "minItems": 1 },
+        "alerts_max": { "type": "integer", "minimum": 1, "maximum": 10 }
+      }
+    },
     "kit_updates": {
       "description": "Optional. How the hands App's kit update (and rollback) PRs are written for this project.",
       "type": "object",

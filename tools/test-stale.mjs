@@ -9,7 +9,7 @@ import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { readFileSync, readdirSync, mkdtempSync, mkdirSync, copyFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { parseCron, nextRun, scheduleState, overdueHours, schedules, alertSchedules, missedText, isTracking, checkState, classifyPr, classifyIssue, select, thresholds, render, readMarkers, signature, freshItems, message, topicOf, profileTopic, report, DEFAULTS, MAX_LISTED, MARKER } from '../.harness/tools/stale.mjs';
+import { parseCron, nextRun, scheduleState, overdueHours, schedules, alertSchedules, missedText, isTracking, checkState, classifyPr, classifyIssue, select, settings, loadData, render, signature, idleText, itemKey, itemText, topicOf, profileTopic, report, DEFAULTS, MARKER } from '../.harness/tools/stale.mjs';
 import { body as inboxBody, setField } from '../.harness/tools/inbox.mjs';
 import { parseYaml } from '../.harness/tools/lib.mjs';
 
@@ -66,26 +66,49 @@ const cands = [
   { number: 8, url: 'u8', title: 'plain issue', kind: null, updatedAt: ago(30) },
   { number: 9, url: 'u9', title: 'Bump x from 1 to 2', kind: 'red', updatedAt: ago(9) },
 ];
-const picked = select(cands, NOW, DEFAULTS);
-ok(signature(picked) === '1,3,5,7,9', `defaults: PRs 2 days, conflicted 1, inbox 1, card/risk 3; a bot PR counts (${signature(picked)})`);
-ok(picked[0].number === 9 && picked[0].days === 9 && picked.at(-1).days === 1, 'longest idle first, with whole days idle');
-const t = thresholds({ HARNESS_STALE_PR_DAYS: '1', HARNESS_STALE_CARD_DAYS: '2', HARNESS_STALE_INBOX_DAYS: '' });
-ok(t.prDays === 1 && t.cardDays === 2 && t.inboxDays === 1 && t.conflictDays === 1 && signature(select(cands, NOW, t)) === '1,2,3,5,6,7,9', 'each threshold is overridable by env; an empty value keeps the default');
-let threw = false;
-try { thresholds({ HARNESS_STALE_PR_DAYS: 'two' }); } catch { threw = true; }
-ok(threw, 'a threshold that is not a number is refused');
+const S = settings();
+const picked = select(cands, NOW, S);
+ok(signature(picked) === '1,3,5,6,7,9' && DEFAULTS.pr === 48 && DEFAULTS.card === 48 && DEFAULTS.conflict === 24 && DEFAULTS.inbox === 24, `defaults in hours: PRs 48, conflicted 24, inbox 24, card/risk 48; a bot PR counts (${signature(picked)})`);
+ok(picked[0].number === 9 && picked[0].hours === 216 && picked[0].limit === 48 && picked.at(-1).hours === 24 && picked.at(-1).limit === 24, 'longest idle first, with whole hours idle and the threshold each met');
+const t = settings({}, { HARNESS_STALE_PR_DAYS: '1', HARNESS_STALE_CARD_DAYS: '3', HARNESS_STALE_INBOX_DAYS: '' });
+ok(t.hours.pr === 24 && t.hours.card === 72 && t.hours.inbox === 24 && t.hours.conflict === 24 && signature(select(cands, NOW, t)) === '1,2,3,5,7,9', 'the legacy Actions variables (days) still override; an empty value keeps the default');
+const fromData = settings({ hours: { card: 120, pr: 72 } });
+ok(fromData.hours.card === 120 && fromData.hours.pr === 72 && signature(select(cands, NOW, fromData)) === '3,5,7,9', 'thresholds are data: the profile\'s stale.hours (or a --config file) sets them, no code change');
+let threw = 0;
+for (const bad of [[{ hours: { card: 'two' } }, {}], [{ hours: { soon: 3 } }, {}], [{ hours: { card: 0 } }, {}], [{ watch: ['prs'] }, {}], [{ alerts_max: 0 }, {}], [{ initiative_labels: 'Now' }, {}], [{}, { HARNESS_STALE_PR_DAYS: 'two' }], [[], {}]]) { try { settings(...bad); } catch { threw++; } }
+ok(threw === 8, 'a threshold, watch, cap or label list it cannot read is refused, never a silent default');
+{
+  const d = mkdtempSync(join(tmpdir(), 'stale-data-'));
+  writeFileSync(join(d, 'p.json'), JSON.stringify({ alerts: { topic: 'kit' }, stale: { hours: { card: 30 } } }));
+  writeFileSync(join(d, 'c.json'), JSON.stringify({ hours: { initiative: 24 }, initiative_labels: ['Now'] }));
+  ok(loadData(undefined, join(d, 'p.json')).hours.card === 30 && loadData(join(d, 'c.json')).initiative_labels[0] === 'Now' && Object.keys(loadData(undefined, join(d, 'none.json'))).length === 0,
+    'the data comes from the profile\'s `stale` object, or the whole --config file; no profile means the defaults');
+  rmSync(d, { recursive: true, force: true });
+}
+// initiatives and wait records (S-033 item 1): a board's Now items and its STATE issue
+const B = settings({ initiative_labels: ['Now'], wait_labels: ['coordinator-state', 'wake'], watch: ['initiative', 'wait'] });
+ok(classifyIssue({ labels: [{ name: 'Now' }, { name: 'initiative' }] }, B) === 'initiative' && classifyIssue({ labels: ['coordinator-state'] }, B) === 'wait' && classifyIssue({ labels: ['card'] }, B) === 'card'
+  && classifyIssue({ labels: ['Now'], body: '<!-- harness-alert: {} -->' }, B) === null && classifyIssue({ labels: ['Now'] }) === null,
+  'an issue with an initiative label is an initiative, with a wait label a wait record; an alert\'s own issue is never listed');
+const board = [
+  { number: 12, url: 'u12', title: 'Launch readiness', kind: 'initiative', updatedAt: ago(23) },
+  { number: 48, url: 'u48', title: 'Radar', kind: 'initiative', updatedAt: ago(0) },
+  { number: 54, url: 'u54', title: 'Coordinator state', kind: 'wait', updatedAt: ago(3) },
+  { number: 60, url: 'u60', title: 'a card', kind: 'card', updatedAt: ago(9) },
+  { number: 61, url: 'u61', title: 'a PR', kind: 'red', updatedAt: ago(9) },
+];
+ok(signature(select(board, NOW, B)) === '12,54', 'watching initiatives and wait records only: a Now item and the STATE issue idle past 48 h are stale; cards and PRs are left to their own repository\'s check');
+ok(signature(select(board.filter((c) => c.kind !== 'initiative'), NOW, B)) === '', 'a wait record counts only while an initiative is open');
+ok(signature(select(board.filter((c) => c.kind !== 'initiative'), NOW, settings({ wait_labels: ['coordinator-state'] }))) === '54,60,61', 'with no initiative label configured, a wait record always counts');
 
-// --- body, signature, the alert text ---------------------------------------------------------------
-const b = render(picked, { announced: [9, 1] });
-const back = readMarkers(b);
-ok(b.startsWith(MARKER) && signature(back.announced) === '1,9' && b.includes('| [#9](u9) Bump x from 1 to 2 | red | 9 |'), 'the body round-trips: marker first, the list, the announced set');
-ok(readMarkers(render([], {})).announced.length === 0 && readMarkers('no markers').announced.length === 0, 'an empty list and a foreign body read as nothing announced');
-ok(render([{ number: 1, url: 'u', title: 'a | b @someone [x]', kind: 'card', days: 3 }]).includes('a \\| b @​someone \\[x\\]'), 'titles cannot break the table or mention anyone');
-ok(freshItems(picked, [1, 3, 5, 7, 9]).length === 0 && signature(freshItems(picked, [1, 3])) === '5,7,9' && freshItems([], [1]).length === 0, 'new items are those not announced before; an empty list has none');
-const many = Array.from({ length: 14 }, (_, i) => ({ number: i + 1, url: `u${i}`, title: `t${i}`, kind: 'red', days: 3 }));
-const msg = message('o/r', many, many.slice(12));
-ok((msg.match(/#\d+ red/g) || []).length === MAX_LISTED && msg.includes('and 4 more') && /: #13 red 3d \(new\), #14/.test(msg) && !msg.includes('\n'), 'the problem text lists at most 10 items, new ones first, then "and N more", on one line');
-ok(topicOf('website') === 'website' && topicOf('erp') === 'erp' && topicOf('needs') === null && topicOf('daily') === null && topicOf('nope') === null && topicOf('') === null, "ALERTS_TOPIC names one of notify.mjs's project topics; never Needs you or Daily");
+// --- body, the alert text --------------------------------------------------------------------------
+const b = render(picked);
+ok(b.startsWith(MARKER) && b.includes('| [#9](u9) Bump x from 1 to 2 | red | 9 days | 48 h |') && b.includes('Thresholds in hours: PRs 48') && b.includes('3 times'), 'the body: marker first, each item with its kind, idle time and threshold, then the thresholds');
+ok(render([{ number: 1, url: 'u', title: 'a | b @someone [x]', kind: 'card', hours: 50, limit: 48 }]).includes('a \\| b @​someone \\[x\\]'), 'titles cannot break the table or mention anyone');
+ok(idleText(5) === '5 h' && idleText(47) === '47 h' && idleText(48) === '2 days' && idleText(77) === '3 days 5 h', 'idle time reads in hours, then days');
+const txt = itemText('o/r', { number: 12, title: 'Launch\nreadiness', kind: 'initiative', hours: 552, limit: 48 });
+ok(itemKey('o/r', 12) === 'stale:o/r#12' && txt === 'Stale initiative in o/r: #12 Launch readiness has had no commit, comment or change for 23 days (threshold 48 h). Resume it or record why it waits.', 'one stable key per item, and a one-line text saying what is stale, for how long, against which threshold');
+ok(topicOf('website') === 'website' && topicOf('erp') === 'erp' && topicOf('kit') === 'kit' && topicOf('needs') === null && topicOf('daily') === null && topicOf('nope') === null && topicOf('') === null, "ALERTS_TOPIC names one of notify.mjs's project topics; never Needs you or Daily");
 {
   const d = mkdtempSync(join(tmpdir(), 'stale-topic-'));
   writeFileSync(join(d, 'p.json'), JSON.stringify({ alerts: { topic: 'website' } }));
@@ -136,47 +159,80 @@ const pr = (number, days, full, runs) => ({ list: { number, title: `PR ${number}
 pulls.push(pr(1, 3, { mergeable: true }, [run('success')]), pr(2, 0, { mergeable: false }, []), pr(3, 1, { mergeable: false }, []));
 issues.push({ number: 10, state: 'open', html_url: 'https://gh.test/o/r/issues/10', title: 'a card', labels: [{ name: 'card' }], body: '', updated_at: ago(4) });
 // someone plants marker issues claiming everything was announced: they must not count
-issues.push({ number: 50, state: 'open', html_url: 'https://gh.test/o/r/issues/50', title: 'Stale work', labels: [], updated_at: ago(0), user: { login: 'mallory', type: 'User' }, body: render([], { announced: [1, 2, 3, 10, 11, 12, 13] }) });
-issues.push({ number: 51, state: 'open', html_url: 'https://gh.test/o/r/issues/51', title: 'Stale work', labels: [], updated_at: ago(0), user: { login: 'github-actions', type: 'User' }, body: render([], { announced: [1, 2, 3, 10, 11, 12, 13] }) });
+issues.push({ number: 50, state: 'open', html_url: 'https://gh.test/o/r/issues/50', title: 'Stale work', labels: [], updated_at: ago(0), user: { login: 'mallory', type: 'User' }, body: render([]) });
+issues.push({ number: 51, state: 'open', html_url: 'https://gh.test/o/r/issues/51', title: 'Stale work', labels: [], updated_at: ago(0), user: { login: 'github-actions', type: 'User' }, body: render([]) });
 const tracking = () => issues.filter((i) => String(i.body).includes(MARKER) && i.user.type === 'Bot');
 const alertIssues = () => issues.filter((i) => String(i.body).includes('<!-- harness-alert:'));
 const add = (number, label, days) => issues.push({ number, state: 'open', html_url: `https://gh.test/o/r/issues/${number}`, title: `issue ${number}`, labels: [{ name: label }], body: '', updated_at: ago(days) });
 
 ok(!isTracking(issues[1]) && !isTracking(issues[2]) && isTracking({ body: MARKER, user: { login: 'github-actions[bot]', type: 'Bot' } }), 'only an issue filed by github-actions[bot] can be the tracking issue; a planted marker issue never counts');
-let r = await report('o/r', NOW);
-ok(signature(r.items) === '1,3,10' && tracking().length === 1 && tracking()[0].title === 'Stale work' && r.alert === 'no topic' && alertIssues().length === 0 && readMarkers(tracking()[0].body).announced.length === 0, 'report files one "Stale work" issue; with no ALERTS_TOPIC it alerts nobody and announces nothing yet');
+const at0 = (ms) => { process.env.ALERTS_NOW = new Date(ms).toISOString(); return ms; };
+const fresh = () => settings({});
+const alertOf = (n) => alertIssues().find((i) => i.body.includes(`"key":"stale:o/r#${n}"`));
+let r = await report('o/r', at0(NOW), fresh());
+ok(signature(r.items) === '1,3,10' && tracking().length === 1 && tracking()[0].title === 'Stale work' && r.alert === 'no topic' && alertIssues().length === 0, 'report files one "Stale work" issue; with no ALERTS_TOPIC it alerts nobody');
 const first = tracking()[0];
-ok(first.body.includes('| green-unmerged | 3 |') && first.body.includes('| conflicted | 1 |'), 'the issue lists each item with its kind and days idle');
+ok(first.body.includes('| green-unmerged | 3 days |') && first.body.includes('| conflicted | 24 h | 24 h |'), 'the issue lists each item with its kind, idle time and threshold');
 process.env.ALERTS_TOPIC = 'website';
-r = await report('o/r', NOW);
-ok(r.alert === 'queued' && alertIssues().length === 1 && /"key":"stale:o\/r"/.test(alertIssues()[0].body) && /"topic":"website"/.test(alertIssues()[0].body) && alertIssues()[0].body.includes(first.html_url) && tg.length === 0 && tracking().length === 1,
-  'with the topic but no ALERTS_BOT_TOKEN/ALERTS_CHAT_ID, notify.mjs records the problem stale:o/r as an issue for the next tick, linking "Stale work"');
+r = await report('o/r', at0(NOW), fresh());
+ok(Object.values(r.alerts).every((x) => x === 'queued') && alertIssues().length === 3 && /"maxSends":3/.test(alertOf(10).body) && /"topic":"website"/.test(alertOf(10).body) && alertOf(10).body.includes('https://gh.test/o/r/issues/10') && tg.length === 0 && tracking().length === 1,
+  'with the topic but no bot token, notify.mjs records one capped problem per stale item (stale:o/r#<n>, at most 3 alerts) as an issue, linking the item');
 Object.assign(process.env, { ALERTS_BOT_TOKEN: 'TOKEN', ALERTS_CHAT_ID: '42' });
-r = await report('o/r', NOW);
-ok(r.alert === 'nothing new' && tg.length === 0 && tracking().length === 1, 'a second run edits the same issue and asks nothing of notify.mjs: nothing new');
-add(11, 'risk:data', 3);
-r = await report('o/r', NOW);
-ok(r.alert === 'repeat' && tg.length === 1 && tg[0].chat_id === '42' && tg[0].message_thread_id === 5 && tg[0].disable_notification === true && /^🔴 PROBLEM · Stale work in o\/r: 3 item\(s\), 3 new: #10 card/.test(tg[0].text) && tg[0].text.includes(first.html_url),
-  'the next new item finds the problem queued and notify.mjs sends it to the project topic, silent, with the issue link');
-add(12, 'card', 6);
-r = await report('o/r', NOW + 3600000);
-ok(r.alert === 'repeat' && tg.length === 1 && alertIssues()[0].comments.some((c) => c.includes(first.html_url)), 'while the problem is open, more new items send nothing more (notify.mjs deduplicates); its issue gets a comment');
-pulls.length = 0; issues.splice(0, issues.length, ...issues.filter((i) => String(i.body).includes(MARKER) || String(i.body).includes('harness-alert')));
-r = await report('o/r', NOW + 2 * DAY);
-ok(tracking()[0].state === 'closed' && /Nothing is stale/.test(tracking()[0].body) && r.alert === 'resolved' && tg.length === 2 && tg[1].reply_parameters.message_id === tg[0].message_id && /^✅ Fixed after /.test(tg[1].text) && alertIssues()[0].state === 'closed',
-  'an empty list closes "Stale work" and resolves stale:o/r: RESOLVED is a reply to the problem\'s message');
+r = await report('o/r', at0(NOW + 3600000), fresh());
+const p10 = tg.find((m) => m.text.includes('#10 a card'));
+ok(tg.length === 3 && r.alerts['stale:o/r#10'] === 'repeat' && p10 && p10.message_thread_id === 5 && p10.disable_notification === true && /^🔴 PROBLEM · Stale card in o\/r: #10 a card has had no commit, comment or change for 4 days/.test(p10.text) && p10.text.includes('https://gh.test/o/r/issues/10'),
+  'the next run sends each queued problem once, to the project topic, silent, linking the item');
+r = await report('o/r', at0(NOW + 5 * 3600000), fresh());
+ok(tg.length === 3 && r.alerts['stale:o/r#10'] === 'repeat', 'a second run the same day sends nothing more: at most one alert a day per item');
+// the stale-fixture proof (S-033 item 6): card #10 stays stale; it alerts once a day, 3 times in all, then stops; RESOLVED when it moves
+pulls.length = 0; issues.splice(0, issues.length, ...issues.filter((i) => i.number === 10 || String(i.body).includes(MARKER) || String(i.body).includes('harness-alert')));
+const DAYMS = 86400000;
+const sent10 = () => tg.filter((m) => m.text.includes('#10 a card') || (m.reply_parameters && m.reply_parameters.message_id === p10.message_id));
+r = await report('o/r', at0(NOW + DAYMS), fresh());
+ok(r.alerts['stale:o/r#10'] === 'reminded' && sent10().length === 2 && sent10()[1].reply_parameters.message_id === p10.message_id && /^🟠 STILL OPEN after 24 h 0 min \(alert 2 of 3\) · Stale card in o\/r: #10 a card has had no commit, comment or change for 5 days/.test(sent10()[1].text) && sent10()[1].disable_notification === true,
+  'still stale the next day: one STILL OPEN reply under the PROBLEM, silent, alert 2 of 3, with how long it has been idle now');
+const { tick: nTick, store: nStore, telegram: nTg, digestText } = await import('../.harness/tools/notify.mjs');
+at0(NOW + DAYMS + 4 * 3600000);
+const ticked = await nTick(nStore('github:o/r'), nTg());
+ok(!ticked.some((l) => /stale:o\/r#/.test(l)) && sent10().length === 2 && !tg.some((m) => m.message_thread_id === 1), 'tick never escalates or reminds a capped stale problem: nothing reaches "Needs you"');
+r = await report('o/r', at0(NOW + 2 * DAYMS), fresh());
+ok(r.alerts['stale:o/r#10'] === 'reminded' && sent10().length === 3 && /\(alert 3 of 3, the last: from now on only a line in the daily digest until it clears\)/.test(sent10()[2].text), 'the third day: alert 3 of 3, which says it is the last');
+r = await report('o/r', at0(NOW + 3 * DAYMS), fresh());
+const r4 = await report('o/r', at0(NOW + 4 * DAYMS), fresh());
+ok(r.alerts['stale:o/r#10'] === 'capped-out' && r4.alerts['stale:o/r#10'] === 'capped-out' && sent10().length === 3, 'after the cap it sends nothing more, day after day');
+const dg = await digestText([nStore('github:o/r')], NOW + 4 * DAYMS);
+ok(/🟠 open 4 days · Stale card in o\/r: #10 a card .*\(alerted 3 of 3\)/.test(dg), 'it stays one line in the daily digest, marked as alerted 3 of 3');
+issues.find((i) => i.number === 10).updated_at = new Date(NOW + 4 * DAYMS + 3600000).toISOString();
+r = await report('o/r', at0(NOW + 4 * DAYMS + 2 * 3600000), fresh());
+const fixedMsg = tg.at(-1);
+ok(r.alerts['stale:o/r#10'] === 'resolved' && sent10().length === 4 && fixedMsg.reply_parameters.message_id === p10.message_id && /^✅ Fixed after /.test(fixedMsg.text) && alertOf(10).state === 'closed' && tracking()[0].state === 'closed' && /Nothing is stale/.test(tracking()[0].body),
+  'the fixture moves: the next report sends RESOLVED as a reply to the PROBLEM, closes its record, and closes "Stale work"');
 const patches = tracking()[0].patches;
-r = await report('o/r', NOW + 2 * DAY);
-ok(tracking()[0].patches === patches && r.alert === 'none' && tg.length === 2, 'an empty list with everything closed touches nothing and sends nothing');
-add(13, 'card', 10);
+const before = tg.length;
+r = await report('o/r', at0(NOW + 5 * DAYMS), fresh());
+ok(tracking()[0].patches === patches && r.alert === 'none' && tg.length === before, 'an empty list with everything closed touches nothing and sends nothing');
+// 0.31's one aggregate problem is resolved once; an undelivered alert fails the run (other items still tried) and the next run delivers
+issues.push({ number: 300, state: 'open', html_url: 'https://gh.test/o/r/issues/300', title: 'Alert: old', labels: [], updated_at: ago(0), user: { login: 'github-actions[bot]', type: 'Bot' }, comments: [],
+  body: `<!-- harness-alert: ${JSON.stringify({ key: 'stale:o/r', topic: 'website', text: 'Stale work in o/r: 2 item(s)', opened: NOW, msg: 999, count: 1, open: true })} -->\n**PROBLEM:** x` });
+add(13, 'card', 10); add(14, 'risk:data', 10);
 tgFail = true;
 let failed = '';
-try { await report('o/r', NOW + 3 * DAY); } catch (e) { failed = e.message; }
-ok(/Telegram sendMessage: 500/.test(failed) && !failed.includes('TOKEN') && !readMarkers(tracking()[0].body).announced.includes(13) && tracking()[0].state === 'open' && tracking()[0].number === first.number,
-  'a new item reopens the same issue; an undelivered alert fails the run without the token in the error and stays unannounced');
+try { await report('o/r', at0(NOW + 6 * DAYMS), fresh()); } catch (e) { failed = e.message; }
+ok(/Telegram sendMessage: 500/.test(failed) && !failed.includes('TOKEN') && tracking()[0].state === 'open' && tracking()[0].number === first.number && alertOf(13) && alertOf(14),
+  'new stale items reopen the same issue; an undelivered alert fails the run without the token in the error, after every item was tried and recorded');
 tgFail = false;
-r = await report('o/r', NOW + 3 * DAY);
-ok(r.alert === 'repeat' && tg.length === 3 && tg[2].text.includes('#13 card') && readMarkers(tracking()[0].body).announced.includes(13) && tracking().length === 1, 'the next run delivers it, never a second tracking issue');
+r = await report('o/r', at0(NOW + 6 * DAYMS + 60000), fresh());
+ok(r.alerts['stale:o/r#13'] === 'repeat' && r.alerts['stale:o/r'] === 'resolved' && tg.some((m) => m.text.includes('#13 issue 13')) && tg.some((m) => m.text.includes('#14 issue 14')) && tg.some((m) => m.reply_parameters?.message_id === 999 && /^✅ Fixed/.test(m.text)) && tracking().length === 1,
+  'the next run delivers them, never a second tracking issue; the old one-per-repository problem gets its RESOLVED');
+// a board: initiatives and wait records with their own --config (S-033 item 1), in the same tracking issue and alert path
+issues.splice(0, issues.length, ...issues.filter((i) => String(i.body).includes(MARKER) || String(i.body).includes('harness-alert')));
+issues.push({ number: 12, state: 'open', html_url: 'https://gh.test/o/r/issues/12', title: 'Launch readiness', labels: [{ name: 'Now' }, { name: 'initiative' }], body: '', updated_at: ago(23) },
+  { number: 54, state: 'open', html_url: 'https://gh.test/o/r/issues/54', title: 'Coordinator state', labels: [{ name: 'coordinator-state' }], body: '<!-- coordinator-state -->', updated_at: new Date(NOW + 7 * DAYMS - 3600000).toISOString() });
+pulls.push(pr(70, 9, { mergeable: true }, [run('failure')]));
+r = await report('o/r', at0(NOW + 7 * DAYMS), B);
+ok(signature(r.items) === '12' && r.alerts['stale:o/r#12'] === 'sent' && r.alerts['stale:o/r#13'] === 'resolved' && tg.at(-1).text.includes('Stale initiative in o/r: #12 Launch readiness') && tracking()[0].body.includes('initiatives (`Now`) 48'),
+  'a board watching initiatives and wait records alerts for a Now item idle 23 days; the STATE issue moved within 48 h, and the cards it no longer watches are resolved');
+
 // --- missed scheduled runs: cron, overdue by more than 36 h, PROBLEM then RESOLVED in the topic ------
 const at = (iso) => Date.parse(iso);
 ok(nextRun('17 5 * * *', at('2026-10-05T05:37:00Z')) === at('2026-10-06T05:17:00Z') && nextRun('41 6 * * 1', at('2026-10-05T05:37:00Z')) === at('2026-10-05T06:41:00Z')

@@ -1,4 +1,5 @@
 # Harness Kit control repository (K007, K010): copied into the owner's control repository, never into a project.
+# Action group: auto (it checks, reports, alerts or wakes by itself; .harness/tools/actions.mjs)
 # The alert standard's own workflow (O10, `.harness/alerts.md`), run with the bot token in the `hands`
 # environment:
 # - dispatch `find` to see the bot's name and the groups it was added to (the group's id goes in the

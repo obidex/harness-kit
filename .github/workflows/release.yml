@@ -1,4 +1,5 @@
 # Releases are tags: when main carries a .harness/VERSION that has no tag yet, tag that commit
+# Action group: approval (its changes land only behind a gate; .harness/tools/actions.mjs)
 # v<VERSION>. A tag is never moved or deleted (K003); projects' locks record the commit it named.
 name: release
 

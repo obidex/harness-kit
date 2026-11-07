@@ -1,4 +1,5 @@
 # Harness Kit control repository (K007): the required check on this repository's pull requests.
+# Action group: auto (it checks, reports, alerts or wakes by itself; .harness/tools/actions.mjs)
 # It needs no secret: it validates the settings file and the workflow files with the pinned kit.
 name: hands-check
 

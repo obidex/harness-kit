@@ -1,4 +1,5 @@
 # Harness Kit control repository (K028): copied into the owner's control repository, never into a project.
+# Action group: auto (it checks, reports, alerts or wakes by itself; .harness/tools/actions.mjs)
 # "Explain this failure" from the control panel (K027): the panel host records the press and dispatches
 # this with the repository whose wake channel gets the request, the problem's key, title and link, who
 # pressed (<channel>:<account>) and when. This job posts the request on that wake channel with the hands

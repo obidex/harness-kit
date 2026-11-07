@@ -1,4 +1,5 @@
 # Kit-managed (Harness Kit): installed and updated by .harness/tools/harness.mjs; never edit here.
+# Action group: auto (it checks, reports, alerts or wakes by itself; .harness/tools/actions.mjs)
 # Disposable, event-fired coordinators (K033, .harness/wake.md): the label `wake` on an issue or pull
 # request starts one fresh coordinator run through the project's scheduled task (/fire), at most one at
 # a time (the claim label `coordinator-running` on the STATE issue), and the job posts the run's

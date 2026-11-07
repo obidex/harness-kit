@@ -1,4 +1,5 @@
 # Harness Kit control repository (K026): copied into the owner's control repository, never into a project.
+# Action group: auto (it checks, reports, alerts or wakes by itself; .harness/tools/actions.mjs)
 # The owner's answer from the control panel: the panel host records the press and dispatches this with
 # the card, the question's id, the option, who pressed (<channel>:<account>) and when. This job writes
 # the answer on the card with the hands App, never as the owner's account, so a session watching that

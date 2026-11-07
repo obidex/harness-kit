@@ -818,3 +818,35 @@ From the Nov 2026 radar (roadmap #48, P7; owner's approval of #48, 6 Nov 2026).
    numbers come from the health page; their trend is read by the coordinator, not alerted on.
 
 **Status:** STANDING.
+
+## K035 · 2026-11-07 · STANDING — "ran OK" is not "worked": stale data, capped alerts, action groups
+
+From the strategist's S-033 (roadmap #38, 7 Nov 2026; owner: "start this now"), built as roadmap #48
+P10 (owner's approval of #48, 6 Nov 2026). The coordinators went quiet for three weeks with every job
+green: nothing checked whether work moved.
+
+1. **Stale progress is watched where the work is.** `stale.mjs` lists open PRs, cards, inbox
+   requests and, where the profile names their labels, a board's initiatives and its C22 wait records
+   (the STATE issue, a queued wake), each idle past its threshold. A wait record counts only while an
+   initiative is open. Thresholds are hours and are data (the profile's `stale` object, or a
+   `--config` file for a repository without a profile), default 48 h (24 h for conflicts and inbox
+   requests); the 0.13 Actions variables in days still override.
+2. **Every alert is capped.** One problem per stale item, opened with `notify.mjs --max-sends 3`:
+   the PROBLEM, then at most one STILL OPEN reply a day while it stays stale, 3 messages in all, never
+   escalated to "Needs you"; then one line in the daily digest until RESOLVED. A problem is still one
+   key, still silent in its topic, still closed by a RESOLVED reply (O10). The one aggregate
+   `stale:<repo>` problem of 0.31 and earlier is resolved once and not used again.
+3. **Stale is never OK.** A check reading an outside source flags data older than its threshold as
+   STALE and opens a capped problem; a source it could not read is never reported as "nothing found"
+   (`alerts.md` rule 8). The kit states the rule; each host applies it to its own checks.
+4. **Action groups.** Every automated action is `auto` (checks, reports, alerts, wakes),
+   `approval` (changes behind a gate: merges on green checks, settings from merged files, kit-update
+   PRs, customer-facing or master-data changes, a machine step dispatched by hand) or `human`
+   (payments, spending, supplier commitments, design picks, destructive accounting). `human` is never
+   automated. Each workflow names its group in a comment line; `actions.mjs check` fails a workflow
+   with none, an unknown one, or `human`. Jobs that are not workflows carry their group in the
+   project's automation registry.
+5. **No new timer, no AI.** The checks run inside runs that already exist: `harness-stale`'s daily
+   job, a board's daily backstop, a host's own tick.
+
+**Status:** STANDING.

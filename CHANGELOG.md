@@ -3,6 +3,28 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.32.0 · 2026-11-07 · "ran OK" is not "worked": stale data, capped alerts, action groups (K035)
+
+From the strategist's S-033 (roadmap #48, P10).
+
+- `notify.mjs problem --max-sends N` (1-10): a capped problem sends the PROBLEM, then at most one
+  STILL OPEN reply a day (a new day in the owner's time zone and 20 h since the last message) from
+  the sender's own repeat, N messages in all, none once acknowledged or muted; never
+  escalated or reminded by `tick`; past N only a digest line ("alerted N of N") until RESOLVED.
+  Refused for an outage or "Needs you". Problems without it behave as before.
+- `stale.mjs`: thresholds in hours, as data: the profile's new optional `stale` object (or
+  `--config <file>`): `hours`, `initiative_labels`, `wait_labels`, `watch`, `alerts_max`. Defaults
+  48 h (24 h for conflicted PRs and inbox requests); **`card`/`risk:*` issues now 48 h, was 3 days**.
+  New kinds: initiatives and C22 wait records. The Actions variables in days still override.
+- `stale.mjs report`: one capped problem per stale item, `stale:<repo>#<n>`, at most 3 alerts, once
+  a day; RESOLVED when the item moves or closes. The old aggregate `stale:<repo>` problem is resolved
+  once. Every item is tried before a failed alert fails the run. The tracking issue shows idle time
+  and the threshold per item.
+- New `tools/actions.mjs`: every workflow names its action group (`# Action group: auto` or
+  `approval`); `human` is never automated and fails `actions.mjs check`. Every kit template and the
+  kit's own workflows carry their line.
+- `alerts.md`: rules 7 (capped problems) and 8 (stale is never OK).
+
 ## 0.31.0 · 2026-11-07 · measuring the agents (K034)
 
 From the Nov 2026 radar (roadmap #48, P7). Definitions in `.harness/metrics.md`.
