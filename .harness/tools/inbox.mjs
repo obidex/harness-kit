@@ -21,7 +21,7 @@
 //                                         is the wake channel open; --open opens it (the receiving
 //                                         coordinator, once, in its own repository)
 //
-// The wake by label (K035): a repository whose coordinator runs are event-fired (kit K033, wake.md:
+// The wake by label (K036): a repository whose coordinator runs are event-fired (kit K033, wake.md:
 // its STATE issue exists, opened by github-actions[bot]) is woken by the label `wake` on the request
 // itself, never by a comment. Only the control repository's hands-inbox job sets it, with the hands
 // App: a label set with a workflow's own GITHUB_TOKEN starts no workflow, so `send` always dispatches
@@ -129,7 +129,7 @@ export const WOKE_MARK = '<!-- inbox-woke -->';
 export const UNDELIVERED_MARK = '<!-- inbox-wake-undelivered -->';
 export const REWAKE_MARK = '<!-- inbox-rewake -->';   // `send --again`: the request may be woken once more
 export const RECEIVER_WAKES = '0.22.0';               // the first kit whose harness-inbox job posts the wake
-export const WAKE_LABEL = 'wake';                      // K033/K035: the wake for an event-fired coordinator
+export const WAKE_LABEL = 'wake';                      // K033/K036: the wake for an event-fired coordinator
 export const STATE_LABEL = 'coordinator-state';        // wake.md: the STATE issue the wake job opened
 export const STATE_MARK = '<!-- coordinator-state -->';
 export const PAUSED_LABEL = 'wake-paused';
@@ -200,7 +200,7 @@ export async function deliver(call, repo, r) {
   return { delivered: false, why };
 }
 
-/** K035: wake an event-fired coordinator by setting `wake` on the request itself. Set again (removed
+/** K036: wake an event-fired coordinator by setting `wake` on the request itself. Set again (removed
  *  first) when it is already there, so GitHub sends a new labeled event. Same token rule as the
  *  channel: a person's label would start a run too, but only the job wakes (K024, one rule). */
 async function deliverByLabel(call, repo, r, lw) {
@@ -290,7 +290,7 @@ export async function receiverWakes(call, repo) {
  *  again is a new event), or the control repository's hands-inbox job (always, for a receiver that
  *  wakes by label). Returns where it started. */
 export async function startWake(call, repo, n, { fresh } = {}) {
-  // K035: a label set with the receiver's own GITHUB_TOKEN starts no workflow, so an event-fired
+  // K036: a label set with the receiver's own GITHUB_TOKEN starts no workflow, so an event-fired
   // receiver is always woken through the hands App, whatever its kit
   const byLabel = await labelWakes(call, repo).catch(() => null);
   if (!byLabel && await receiverWakes(call, repo)) {
@@ -402,7 +402,7 @@ async function main() {
     const first = mine && canonical(await requests(repo)).find((x) => x.fields.id === f.id);
     // only a queued request wakes anyone: a request already picked up or done never re-runs the AI
     if (!mine || !queued(mine) || (first && first.number < n)) { console.log(`inbox: #${n} is not a queued request; nobody woken`); return; }
-    // K035: an event-fired receiver is woken by the `wake` label, which only the hands App's label
+    // K036: an event-fired receiver is woken by the `wake` label, which only the hands App's label
     // starts at once; the receiver's own job (its GITHUB_TOKEN) stands aside, since `send` starts hands-inbox.
     let lw = null;
     try { lw = await labelWakes(api, repo); } catch { report(await deliver(api, repo, mine)); return; }   // deliver fails closed and says why

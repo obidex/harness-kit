@@ -163,7 +163,7 @@ ok(again.code === 0 && wakes.length === 2 && issues[0].comments.some((c) => c.st
 }
 
 {
-  // K035: a receiver whose coordinator runs are event-fired (its STATE issue exists) is woken by the
+  // K036: a receiver whose coordinator runs are event-fired (its STATE issue exists) is woken by the
   // label `wake` on the request, set by the hands App, never by a comment on its channel
   stateIssue = { number: 77, user: { login: 'github-actions[bot]', type: 'Bot' }, body: '<!-- coordinator-state -->\nState.', labels: [{ name: 'coordinator-state' }] };
   const hadChannel = channel; channel = true;   // an old channel still open is no longer used
@@ -181,7 +181,7 @@ ok(again.code === 0 && wakes.length === 2 && issues[0].comments.some((c) => c.st
   await settle();
   ok(l3.code === 0 && wakeLabels.filter((x) => x === r1.number).length === 2 && r1.labels.filter((l) => l.name === 'wake').length === 1, 'send --again removes and sets the label once more, so GitHub sends a new labeled event (the wake job\'s caps still decide)');
 
-  receiver = '0.32.0';   // a receiver with its own harness-inbox job
+  receiver = '0.33.0';   // a receiver with its own harness-inbox job
   const d1 = dispatches.length;
   const l4 = await run(lab('kit/label-own'));
   await settle();

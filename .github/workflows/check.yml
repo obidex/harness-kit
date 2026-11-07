@@ -1,3 +1,4 @@
+# Action group: auto (it checks, reports, alerts or wakes by itself; .harness/tools/actions.mjs)
 name: check
 
 on:
@@ -50,6 +51,8 @@ jobs:
         run: node tools/test-guard.mjs
       - name: Stale-work check and the kit workflows' runner lane
         run: node tools/test-stale.mjs
+      - name: Action groups (auto, approval; never human)
+        run: node tools/test-actions.mjs
       - name: Always-loaded token budget (load)
         run: node tools/test-load.mjs
       - name: Agent metrics (the health page's numbers)
