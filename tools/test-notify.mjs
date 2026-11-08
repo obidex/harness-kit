@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { createServer } from 'node:http';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { telegram, store, problem, resolveKey, tick, hush, digestText, setup, isQuiet, loud, TOPICS, raise, summary, summaryText, opsBoard, plainProblems, TEMPLATES } from '../.harness/tools/notify.mjs';
+import { telegram, store, problem, resolveKey, tick, hush, digestText, setup, isQuiet, loud, TOPICS, raise, summary, summaryText, opsBoard, plainProblems, TEMPLATES, formatProblems } from '../.harness/tools/notify.mjs';
 
 let n = 0;
 const ok = (cond, what) => { n++; if (!cond) { console.log(`test-notify: FAIL ${n}. ${what}`); process.exit(1); } console.log(`test-notify: ok ${n}. ${what}`); };
@@ -363,44 +363,79 @@ ok(c.code === 0 && /bot @example_alerts_bot/.test(c.out) && /group "Owner alerts
   const edits = () => tgState.calls.filter((c) => c.method === 'editMessageText');
 
   // 🛑 Needs you: the stuck product wake of infra I045 (pickup/<repo>#<n>), held 10 minutes on a host, three plain lines
-  const pick = { kind: 'needs_you', key: 'pickup/obidex/jahjah-internal#1025', what: "The ERP didn't pick up #1025 (woken 13:00, no session answered).", means: 'Its work waits until a session reads it.',
-    step: 'Open the ERP project chat and paste: Pick up jahjah-internal #1025 now: read it and its newest comments, do what it asks, and reply on it.', minutes: 1, link: 'https://github.com/obidex/jahjah-internal/issues/1025' };
+  const pick = { kind: 'needs_you', key: 'pickup/obidex/jahjah-internal#1025', what: "The ERP didn't pick up its work (woken 13:00, no session answered).",
+    step: 'paste "Pick up jahjah-internal #1025 now: read it and its newest comments, do what it asks, and reply on it."', minutes: 1, where: 'ERP chat', when: 'now', link: 'https://github.com/obidex/jahjah-internal/issues/1025' };
   const m0 = mark();
   at('2026-11-08T10:00:00Z'); let r = await raise(ks, tg, pick, ob);
   ok(r.status === 'held' && since(m0).length === 0, 'needs_you: on a host it is held like any problem, nothing in its first 10 minutes');
   at('2026-11-08T10:11:00Z'); r = await raise(ks, tg, pick, ob);
   const nm = since(m0)[0];
   ok(since(m0).length === 1 && nm.message_thread_id === T('needs') && nm.disable_notification === false
-    && nm.text === "🛑 The ERP didn't pick up #1025 (woken 13:00, no session answered).\nIts work waits until a session reads it.\n👉 Open the ERP project chat and paste: Pick up jahjah-internal #1025 now: read it and its newest comments, do what it asks, and reply on it. (about 1 min)\nhttps://github.com/obidex/jahjah-internal/issues/1025",
-  'needs_you: then one loud message in "Needs you", three plain lines (what happened, what it means, his step with minutes) and the link to the page');
+    && nm.text === "🛑 The ERP didn't pick up its work (woken 13:00, no session answered).\nWho: you\nDo: paste \"Pick up jahjah-internal #1025 now: read it and its newest comments, do what it asks, and reply on it.\" (about 1 min)\nWhere: ERP chat https://github.com/obidex/jahjah-internal/issues/1025\nWhen: now",
+  'needs_you: then one loud message in "Needs you", the owner\'s five lines (what, Who: you, Do with minutes, Where with the link, When)');
   ok(!nm.reply_markup && !/You:/.test(nm.text), 'needs_you: no button and no "You:" line');
   at('2026-11-08T10:20:00Z'); await raise(ks, tg, pick, ob);
   at('2026-11-09T12:00:00Z'); const tk = await tick(ks, tg, ob);
   ok(since(m0).length === 1 && !tk.length, 'needs_you: a repeat sends nothing, and tick neither escalates nor reminds it (the evening summary lists it)');
   ok(board.comments.length === 0, 'needs_you: nothing goes to the Ops board');
   at('2026-11-09T12:05:00Z'); r = await resolveKey(ks, tg, { key: pick.key }, ob);
-  ok(r.status === 'resolved' && since(m0).length === 1 && edits().at(-1)?.message_id === nm.message_id && edits().at(-1).text === "✅ Sorted: The ERP didn't pick up #1025 (woken 13:00, no session answered).",
+  ok(r.status === 'resolved' && since(m0).length === 1 && edits().at(-1)?.message_id === nm.message_id && edits().at(-1).text === "✅ Sorted: The ERP didn't pick up its work (woken 13:00, no session answered).\nDo: nothing",
     'needs_you: resolve edits the same message to ✅ (silent, never a second message)');
   at('2026-11-08T21:00:00Z'); r = await raise(ks, tg, { ...pick, key: 'pickup/night#1' }, ob); at('2026-11-08T21:11:00Z'); await tick(ks, tg, ob);
   ok(last().text.startsWith('🛑') && last().disable_notification === true, 'needs_you: in quiet hours it is silent');
   await resolveKey(ks, tg, { key: 'pickup/night#1' }, ob);
   let bad = [];
-  for (const o of [{ ...pick, key: 'x/1', step: 'run /opt/jahjah/bin/fix.sh' }, { ...pick, key: 'x/2', means: 'disk at 93 GB' }, { ...pick, key: 'x/3', what: 'run 42452212888 failed' }, { ...pick, key: 'x/4', means: 'You: nothing' }, { ...pick, key: 'x/5', means: undefined }])
+  for (const o of [{ ...pick, key: 'x/1', step: 'run /opt/jahjah/bin/fix.sh' }, { ...pick, key: 'x/2', where: 'disk at 93 GB' }, { ...pick, key: 'x/3', what: 'run 42452212888 failed' }, { ...pick, key: 'x/4', where: 'You: nothing' }, { ...pick, key: 'x/5', where: undefined },
+    { ...pick, key: 'x/6', what: 'STILL OPEN infra #70 (alert 2 of 3)' }, { ...pick, key: 'x/7', step: 'Resume it or record why it waits' }, { ...pick, key: 'x/8', what: 'idle past its threshold' }, { ...pick, key: 'x/9', when: 'soon' }, { ...pick, key: 'x/10', what: 'roadmap#12 waits' }])
     await raise(ks, tg, o, ob).then(() => bad.push('sent'), (e) => bad.push(e.message));
-  ok(bad.length === 5 && bad.every((e) => e !== 'sent') && /a filesystem path/.test(bad[0]) && /a size/.test(bad[1]) && /a run or message id/.test(bad[2]) && /You: nothing/.test(bad[3]) && /--what, --means and --step/.test(bad[4]) && !(await ks.get('x/1')),
-    'needs_you: a path, a size, a run id, "You: nothing" or a missing line is refused and nothing is recorded');
+  ok(bad.length === 10 && bad.every((e) => e !== 'sent') && /a filesystem path/.test(bad[0]) && /a size/.test(bad[1]) && /a run or message id/.test(bad[2]) && /You: nothing/.test(bad[3]) && /--what, --step, --where and --when/.test(bad[4])
+    && /a repository or issue number/.test(bad[5]) && /an alert count/.test(bad[5]) && /meant for an agent/.test(bad[6]) && /a threshold/.test(bad[7]) && /now, today or "this week"/.test(bad[8]) && /a repository or issue number/.test(bad[9]) && !(await ks.get('x/1')),
+    'needs_you: a path, a size, a run id, "You: nothing", a missing line, an issue number outside a quoted paste, "alert 2 of 3", an agent\'s instruction, a threshold or a vague When is refused and nothing is recorded');
+
+  // several due together go as ONE message (owner, roadmap #59, 8 Nov 2026); it turns ✅ when the last is sorted
+  {
+    const bs = store(`file:${join(dir, 'batch.json')}`), mb = mark();
+    at('2026-11-08T12:00:00Z');
+    for (const [k, what, where, when] of [['b/1', 'The ERP is waiting for your design pick.', 'ERP chat', 'today'], ['b/2', "The website didn't pick up its work.", 'website chat', 'now'], ['b/3', 'A payment needs your OK.', 'ERP chat', 'this week']])
+      await raise(bs, tg, { kind: 'needs_you', key: k, what, step: `do ${k.slice(2)}`, where, when }, ob);
+    ok(since(mb).length === 0, 'needs_you batch: three raised together are all held');
+    at('2026-11-08T12:11:00Z'); const tb = await tick(bs, tg, ob);
+    const bm = since(mb);
+    ok(bm.length === 1 && bm[0].text === "🛑 3 things need you: The ERP is waiting for your design pick; The website didn't pick up its work; A payment needs your OK.\nWho: you\nDo: 1) do 1 2) do 2 3) do 3\nWhere: ERP chat; website chat\nWhen: now"
+      && tb.filter((x) => /one message for 3/.test(x)).length === 3, 'needs_you batch: three due at once are ONE message in the five lines, the soonest When, each place once');
+    ok((await bs.list()).filter((i) => i.sentAt).length === 1, 'needs_you batch: one message counts once against the hourly cap');
+    await resolveKey(bs, tg, { key: 'b/1' }, ob); await resolveKey(bs, tg, { key: 'b/2' }, ob);
+    const e0 = edits().length;
+    ok(since(mb).length === 1 && edits().filter((x) => x.message_id === bm[0].message_id).length === 0, 'needs_you batch: sorting some of them sends and edits nothing');
+    await resolveKey(bs, tg, { key: 'b/3' }, ob);
+    ok(since(mb).length === 1 && edits().length === e0 + 1 && edits().at(-1).message_id === bm[0].message_id && edits().at(-1).text === '✅ Sorted: 3 things that needed you\nDo: nothing', 'needs_you batch: the last one sorted edits the one message to ✅');
+    at('2026-11-08T13:00:00Z'); await raise(bs, tg, { kind: 'needs_you', key: 'b/4', what: 'One more thing.', step: 'do 4', where: 'ERP chat', when: 'today' }, ob);
+    at('2026-11-08T13:11:00Z'); await raise(bs, tg, { kind: 'needs_you', key: 'b/5', what: 'And another.', step: 'do 5', where: 'ERP chat', when: 'today' }, ob);
+    at('2026-11-08T13:21:00Z'); await raise(bs, tg, { kind: 'needs_you', key: 'b/5', what: 'And another.', step: 'do 5', where: 'ERP chat', when: 'today' }, ob);
+    ok(since(mb).length === 2 && /^🛑 2 things need you: One more thing; And another\.\nWho: you\nDo: 1\) do 4 2\) do 5\n/.test(since(mb)[1].text), 'needs_you batch: one due on a raise takes the other one already due with it, oldest first');
+    // two pastes that pass alone but whose quotes pair across items when joined: each goes alone, and the tick goes on
+    {
+      const qs = store(`file:${join(dir, 'batch-q.json')}`), mq = mark();
+      at('2026-11-08T14:30:00Z');
+      await raise(qs, tg, { kind: 'needs_you', key: 'q/1', what: 'The shelf needs a measure.', step: 'measure the 5" gap', where: 'shop', when: 'today' }, ob);
+      await raise(qs, tg, { kind: 'needs_you', key: 'q/2', what: 'The ERP waits.', step: 'paste "Pick up #12 now"', where: 'ERP chat', when: 'today' }, ob);
+      at('2026-11-08T14:41:00Z'); let threw = '';
+      await tick(qs, tg, ob).catch((e) => { threw = e.message; });
+      ok(!threw && since(mq).length === 2 && since(mq).every((m) => /^🛑 The (shelf|ERP)/.test(m.text)), 'needs_you batch: a joined text that would break rule C goes as one message each, and the tick never throws');
+    }
+  }
 
   // ⚠️→✅ outage: one loud message even at night, edited in place when fixed; its row on the Ops board
   const mo = mark();
   at('2026-11-08T22:05:00Z'); r = await raise(ks, tg, { kind: 'outage', key: 'web/down', system: 'Website' }, ob);
   const om = since(mo)[0];
-  ok(r.status === 'sent' && since(mo).length === 1 && om.text === '⚠️ Website is down since 01:05. Platform is fixing it. Nothing for you.' && om.disable_notification === false && om.message_thread_id === T('needs'),
-    'outage: one message at once, loud even in quiet hours: "⚠️ Website is down since 01:05. Platform is fixing it. Nothing for you."');
+  ok(r.status === 'sent' && since(mo).length === 1 && om.text === '⚠️ Website is down since 01:05\nWho: Platform\nDo: nothing\nWhen: now' && om.disable_notification === false && om.message_thread_id === T('needs'),
+    'outage: one message at once, loud even in quiet hours, in the five-line format: "⚠️ Website is down since 01:05 / Who: Platform / Do: nothing / When: now"');
   const bi = board.issues.find((i) => i.title === 'Ops board');
   ok(bi && /\| 🛑 \| Website \|/.test(bi.body) && board.comments.length === 1 && /^🛑 outage · `web\/down`/.test(board.comments[0].body), 'outage: the Ops board opens (one issue) with its row 🛑 and one comment');
   at('2026-11-08T22:10:00Z'); await raise(ks, tg, { kind: 'outage', key: 'web/down', system: 'Website' }, ob);
   at('2026-11-08T22:17:00Z'); r = await resolveKey(ks, tg, { key: 'web/down' }, ob);
-  ok(r.status === 'resolved' && since(mo).length === 1 && edits().at(-1).message_id === om.message_id && edits().at(-1).text === '✅ Website was down 12 min. Fixed.',
+  ok(r.status === 'resolved' && since(mo).length === 1 && edits().at(-1).message_id === om.message_id && edits().at(-1).text === '✅ Website was down 12 min. Fixed.\nDo: nothing',
     'outage: fixed, the same message is edited to "✅ Website was down 12 min. Fixed.": exactly one Telegram message');
   ok(/\| ✅ \| Website \|/.test(bi.body) && board.comments.length === 2 && /^✅ resolved after 12 min · `web\/down`/.test(board.comments[1].body), 'outage: its board row turns ✅ with one resolve comment');
 
@@ -432,29 +467,34 @@ ok(c.code === 0 && /bot @example_alerts_bot/.test(c.out) && /group "Owner alerts
   r = await summary([ns], tg, { board: ob });
   ok(r.status === 'nothing to say: no summary today' && since(mg).length === 0, 'summary: and sends nothing');
   r = await raise(ns, tg, { kind: 'good_news', key: 'erp/po-screen', text: 'ERP: the purchase orders screen is live. Staff can use it now.' }, ob);
-  ok(r.status === 'sent' && last().text === '🎉 ERP: the purchase orders screen is live. Staff can use it now.' && last().message_thread_id === T('good') && last().disable_notification === true, 'good_news: one 🎉 line in "Good news"');
+  ok(r.status === 'sent' && last().text === '🎉 ERP: the purchase orders screen is live. Staff can use it now.\nDo: nothing' && last().message_thread_id === T('good') && last().disable_notification === true, 'good_news: one 🎉 line in "Good news"');
   r = await raise(ns, tg, { kind: 'good_news', key: 'erp/po-screen', text: 'ERP: the purchase orders screen is live. Staff can use it now.' }, ob);
   ok(r.status === 'repeat' && since(mg).length === 1, 'good_news: the same key goes out once');
   r = await raise(ns, tg, { kind: 'good_news', text: 'Website: 12 new product pages are up.', summaryOnly: true }, ob);
   ok(since(mg).length === 1 && r.status === 'kept for the summary', 'good_news --summary-only: kept for the summary, not sent on its own');
   await raise(ns, tg, { kind: 'good_news', text: 'Website: /var/www is fast' }, ob).then(() => ok(false, 'refused'), (e) => ok(/a filesystem path/.test(e.message), 'good_news: rule C holds for it too'));
   const held = { ...pick, key: 'pickup/held#1', what: 'A flap that never reached him.' };
-  at('2026-11-10T09:00:00Z'); await raise(ns, tg, { ...pick, key: 'pickup/web#437', what: "The website didn't pick up #437." }, ob); await raise(ns, tg, held, ob);
-  at('2026-11-10T09:11:00Z'); await raise(ns, tg, { ...pick, key: 'pickup/web#437', what: "The website didn't pick up #437." }, ob);
+  at('2026-11-10T09:00:00Z'); await raise(ns, tg, { ...pick, key: 'pickup/web#437', what: "The website didn't pick up its work.", step: 'paste "Pick up jahjah-website #437 now."', where: 'website chat' }, ob);
+  at('2026-11-10T09:11:00Z'); await raise(ns, tg, { ...pick, key: 'pickup/web#437', what: "The website didn't pick up its work.", step: 'paste "Pick up jahjah-website #437 now."', where: 'website chat' }, ob);
+  at('2026-11-10T09:12:00Z'); await raise(ns, tg, held, ob);
   at('2026-11-10T17:00:00Z'); r = await summary([ns], tg, { board: ob, progress: ['Telegram redesign: step 2 of 4'] });
   ok(r.status === 'sent' && last().message_thread_id === T('summary') && last().text === [
-    '☀️ Today, 10 Nov', '🎉 Went live:', '• ERP: the purchase orders screen is live. Staff can use it now.', '• Website: 12 new product pages are up.',
-    '🔧 In progress:', '• Telegram redesign: step 2 of 4', '🛑 Needs you:', "• The website didn't pick up #437. (since 12:00)", `Background: ${bi.html_url}`].join('\n'),
-  'summary: went live · in progress · needs you, then the Ops board as "Background"');
+    '☀️ 10 Nov: went live: ERP: the purchase orders screen is live. Staff can use it now; Website: 12 new product pages are up. in progress: Telegram redesign: step 2 of 4.',
+    'Who: you', 'Do: paste "Pick up jahjah-website #437 now."', 'Where: the Needs you topic', 'When: today'].join('\n'),
+  'summary: five lines: what went live and what is in progress, then his one step (a Needs you still open) and where');
   r = await summary([ns], tg, { board: ob });
   ok(r.status === 'already sent today' && since(mg).length === 3, 'summary: once a day; a Needs you still held (never sent) is not in it');
   ok(!/🎉|☀️/.test(await digestText([ns])), 'the old daily digest leaves good news and summaries out');
 
   // rule C and rule D across every template: no path, size, address, id or code; no button anywhere
-  const sample = { what: 'The ERP is waiting for your design pick.', means: 'The new screen waits until you choose.', step: 'Open the link and tap A or B.', minutes: 2, link: 'https://github.com/o/r/issues/1', system: 'Website', who: 'Platform', text: 'ERP: a new screen is live.', opened: Date.now() };
-  const rendered = [TEMPLATES.needs_you(sample), TEMPLATES.needs_you_done(sample), TEMPLATES.outage(sample), TEMPLATES.outage_fixed(sample, Date.now() + 60e3), TEMPLATES.good_news(sample),
-    TEMPLATES.summary({ date: '1 Jan', live: ['a'], progress: ['b'], needs: ['c'], board: 'https://github.com/o/infra/issues/1' })];
-  ok(rendered.every((x) => plainProblems(x).length === 0), 'templates: every owner-facing template renders plain (no path, size, address, id, error code or "You: nothing")');
+  const sample = { what: 'The ERP is waiting for your design pick.', step: 'Open the link and tap A or B.', minutes: 2, where: 'ERP chat', when: 'today', link: 'https://github.com/o/r/issues/1', system: 'Website', who: 'Platform', text: 'ERP: a new screen is live.', opened: Date.now() };
+  const rendered = [TEMPLATES.needs_you(sample), TEMPLATES.needs_you_done(sample), TEMPLATES.needs_you_batch([sample, { ...sample, when: 'now' }]), TEMPLATES.needs_you_batch_done([sample, sample]),
+    TEMPLATES.outage(sample), TEMPLATES.outage_fixed(sample, Date.now() + 60e3), TEMPLATES.good_news(sample),
+    TEMPLATES.summary({ date: '1 Jan', live: ['a'], progress: ['b'], needs: ['c'], board: 'https://github.com/o/infra/issues/1' }), TEMPLATES.summary({ date: '1 Jan', live: [], progress: ['b'], needs: [], board: 'https://github.com/o/infra/issues/1' })];
+  ok(rendered.every((x) => plainProblems(x).length === 0), 'templates: every owner-facing template renders plain (no path, size, address, id, error code, issue number, alert count or "You: nothing")');
+  ok(rendered.every((x) => formatProblems(x).length === 0), "templates: every owner-facing template passes the owner's format (emoji + what, then Who/Do/Where/When in order, Do always, five lines at most)");
+  ok(formatProblems('🔴 PROBLEM · Stale card in infra: #70\nhttps://x\nYou: nothing').length && formatProblems('🛑 a\nDo: x\nWho: you').length && formatProblems('🛑 a\nWho: you').length && formatProblems('a\nDo: x').length && formatProblems('🛑 a\nWho: you\nDo: x\nWhere: y\nWhen: today\nmore').length && formatProblems('🛑 a\nDo: x\nWhen: later').length,
+    "format: the old PROBLEM text, labels out of order, no Do:, no emoji, six lines or a vague When all fail the owner's format");
   const src = (await import('node:fs')).readFileSync(new URL('../.harness/tools/notify.mjs', import.meta.url), 'utf8');
   ok(!/reply_markup|inline_keyboard/.test(src) && !tgState.calls.some((c) => c.reply_markup), 'templates: notify.mjs never sends a button (rule D)');
   ok(plainProblems('see https://github.com/o/r/blob/main/vps/a.sh').length === 0 && plainProblems('C:/x and ~/a/b').length > 0, 'rule C: a link may carry a path; the text may not');
@@ -462,7 +502,7 @@ ok(c.code === 0 && /bot @example_alerts_bot/.test(c.out) && /group "Owner alerts
   // a kit topic the group has not created yet (before setup runs again) reaches General, named
   process.env.ALERTS_TOPICS = JSON.stringify({ needs: T('needs') });
   at('2026-11-11T09:00:00Z'); await raise(store(`file:${join(dir, 'pre.json')}`), telegram(), { kind: 'good_news', text: 'ERP: invoices print again.' }, ob);
-  ok(last().message_thread_id === undefined && last().text === '[Good news] 🎉 ERP: invoices print again.', 'a kind whose topic is not set up yet goes to General with the topic named');
+  ok(last().message_thread_id === undefined && last().text === '[Good news] 🎉 ERP: invoices print again.\nDo: nothing', 'a kind whose topic is not set up yet goes to General with the topic named');
   await telegram().send('nonsense', 'x').then(() => ok(false, 'unknown topic'), (e) => ok(/unknown topic "nonsense"/.test(e.message), 'a topic the kit does not know is still an error'));
   await telegram().send('erp', 'x').then(() => ok(false, 'missing older topic'), (e) => ok(/unknown topic "erp"/.test(e.message), 'an older topic missing from the config is still an error, as before (only the K037 topics fall back)'));
   delete process.env.ALERTS_TOPICS;
@@ -485,7 +525,7 @@ ok(c.code === 0 && /bot @example_alerts_bot/.test(c.out) && /group "Owner alerts
     process.env.ALERTS_HOLD_MINUTES = '0';
     const cs3 = store(`file:${join(dir, 'outcap.json')}`), mc = mark();
     at('2026-11-12T10:00:00Z');
-    for (let i = 0; i < 12; i++) await raise(cs3, tg, { kind: 'needs_you', key: `flood/${i}`, what: `Item ${i} waits for you.`, means: 'It waits.', step: 'Open the link.' }, ob);
+    for (let i = 0; i < 12; i++) await raise(cs3, tg, { kind: 'needs_you', key: `flood/${i}`, what: `Item ${i} waits for you.`, step: 'Open the link.', where: 'the link', when: 'today' }, ob);
     const sentNeeds = since(mc).length;
     r = await raise(cs3, tg, { kind: 'outage', key: 'erp/down', system: 'ERP' }, ob);
     ok(sentNeeds === 10 && r.status === 'sent' && since(mc).length === 11, 'an outage goes out at once even past the hourly cap of "Needs you" (10 sent, then the outage)');
@@ -497,10 +537,10 @@ ok(c.code === 0 && /bot @example_alerts_bot/.test(c.out) && /group "Owner alerts
 
   // the command line
   const cs2 = { ALERTS_STORE: `file:${join(dir, 'cli-kinds.json')}`, ALERTS_HOLD_MINUTES: '0', ALERTS_OPS_BOARD: 'github:o/infra' };
-  let c = await cli(['needs_you', '--key', 'pickup/obidex/jahjah-website#437', '--what', "The website didn't pick up #437.", '--means', 'Its work waits.', '--step', 'Paste the line in the website chat.', '--minutes', '1'], cs2);
-  ok(c.code === 0 && /needs_you sent pickup\/obidex\/jahjah-website#437/.test(c.out) && last().text.startsWith("🛑 The website didn't pick up #437."), 'notify.mjs needs_you works from the command line');
+  let c = await cli(['needs_you', '--key', 'pickup/obidex/jahjah-website#437', '--what', "The website didn't pick up its work.", '--step', 'Paste the line.', '--where', 'website chat', '--when', 'this week', '--minutes', '1'], cs2);
+  ok(c.code === 0 && /needs_you sent pickup\/obidex\/jahjah-website#437/.test(c.out) && last().text === "🛑 The website didn't pick up its work.\nWho: you\nDo: Paste the line. (about 1 min)\nWhere: website chat\nWhen: this week", 'notify.mjs needs_you works from the command line');
   c = await cli(['resolve', '--key', 'pickup/obidex/jahjah-website#437'], cs2);
-  ok(c.code === 0 && /resolved/.test(c.out) && edits().at(-1).text === "✅ Sorted: The website didn't pick up #437.", 'and resolve edits it to ✅');
+  ok(c.code === 0 && /resolved/.test(c.out) && edits().at(-1).text === "✅ Sorted: The website didn't pick up its work.\nDo: nothing", 'and resolve edits it to ✅');
   c = await cli(['summary', '--stores', cs2.ALERTS_STORE, '--dry-run'], cs2);
   ok(c.code === 0 && /nothing to say/.test(c.out), 'notify.mjs summary --dry-run says when there is nothing to say');
   c = await cli(['board'], cs2);

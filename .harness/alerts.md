@@ -12,12 +12,36 @@ older form, kept until every sender has moved to a kind.
 
 | Kind | Command | Where | What the owner sees |
 |---|---|---|---|
-| `needs_you` | `needs_you --key --what --means --step [--minutes] [--link]` | "Needs you", loud by day | 🛑 three plain lines: what happened, what it means, his exact step with minutes; a link only to the page where the step happens. Resolve edits it to `✅ Sorted: …` |
-| `outage` | `outage --key --system <Website, ERP> [--who]` | "Needs you", always loud | `⚠️ Website is down since 11:05. Platform is fixing it. Nothing for you.` Resolve edits the same message to `✅ Website was down 12 min. Fixed.` (an edit is silent; never a second message). Also a 🛑 row on the Ops board |
-| `good_news` | `good_news --text [--key] [--summary-only]` (the last two only on a host's file store) | "Good news", silent | `🎉 ERP: the purchase orders screen is live. Staff can use it now.` One key goes out once; `--summary-only` keeps it for the summary |
-| `summary` | `summary [--stores] [--progress <line>]…` | "Summary", 20:00 Damascus | ☀️ went live today · in progress · needs you (or "nothing"), last line `Background: <the Ops board>`. No message on a day with nothing to say; once a day; needs a file store among `--stores` |
+| `needs_you` | `needs_you --key --what --step --where --when [--minutes] [--link]` | "Needs you", loud by day | the owner's five lines (below). Several due together go as **one** message, each step numbered; it turns `✅ Sorted: …` when the last of them is sorted |
+| `outage` | `outage --key --system <Website, ERP> [--who]` | "Needs you", always loud | `⚠️ Website is down since 11:05` / `Who: Platform` / `Do: nothing` / `When: now`. Resolve edits the same message to `✅ Website was down 12 min. Fixed.` / `Do: nothing` (an edit is silent; never a second message). Also a 🛑 row on the Ops board |
+| `good_news` | `good_news --text [--key] [--summary-only]` (the last two only on a host's file store) | "Good news", silent | `🎉 ERP: the purchase orders screen is live. Staff can use it now.` / `Do: nothing`. One key goes out once; `--summary-only` keeps it for the summary |
+| `summary` | `summary [--stores] [--progress <line>]…` | "Summary", 20:00 Damascus | ☀️ the five lines: what went live and what is in progress; `Who: you` with his first open step (and how many more) when something waits on him, else `Who: Platform`, `Do: nothing` and `Where: <the Ops board>`. No message on a day with nothing to say; once a day; needs a file store among `--stores` |
 | `ops` | `ops --key --text [--link] [--system] [--who]` | the Ops board only | nothing: one comment per problem and per resolve, the board's row ⚠️ then ✅ |
 
+- **The owner's format (owner, roadmap #59, 8 Nov 2026; K038).** Every owner-facing message is at most
+  five lines, plain words:
+  ```
+  🛑 <what's wrong, in business words>
+  Who: you | Platform | ERP | website
+  Do: <the exact action, or "nothing">
+  Where: <the exact place, e.g. "ERP chat">
+  When: <now | today | this week>
+  ```
+  The first line is an emoji and what happened; then only `Who:`, `Do:`, `Where:`, `When:`, in that
+  order, `Do:` always. A message whose Who is not him is not his: it goes to the Ops board or one summary
+  line, never to his group. No repository or issue numbers outside a quoted paste, no run ids, no
+  "alert 2 of 3", no thresholds, no instruction meant for an agent ("Resume it or record why it
+  waits"). `formatProblems` and `plainProblems` enforce it on every kind before it is sent, and the
+  template test runs every template through both, so no template ships outside the format. Several
+  alerts at once are one message, never several.
+- **Replies to the owner in chat and threads** keep the same five parts (what happened, who, what he
+  must do, where, when), one short line each, **without** the labels: start with the topic and end with
+  the status word (DONE, WAITING FOR YOU, WAITING ON, STOPPED). Only the bot's messages carry the labels
+  (owner, 8 Nov 2026).
+- **Stale work is the agents' backlog, never his** (K038). `stale.mjs` keeps its list in the "Stale
+  work" issue and, with `ALERTS_OPS_BOARD`, a row per item on the Ops board; it sends nothing to
+  Telegram, and closes a problem an earlier kit sent with `resolve --quiet` (no message). Missed
+  scheduled runs likewise.
 - **The Ops board** is one issue in the repository `ALERTS_OPS_BOARD` names (`github:<owner/name>`,
   with `GH_TOKEN`), titled "Ops board" and found by its hidden marker. Its body is the live board
   (state, since when, who is on it), edited at every change; resolved rows go after 7 days. No text on
@@ -123,11 +147,9 @@ A new project gets its own topic: add it to `TOPICS` in `notify.mjs` (a kit rele
 Without the two secrets the problem is still recorded (an issue) and the next tick sends it, so a
 project can adopt the standard before its secrets exist, at the cost of the tick's delay.
 
-**A kit-installed workflow** (`harness-stale`) cannot hard-code the project's topic, so it reads it
-from the profile's `alerts.topic` (`erp`, `website`, or another project topic in `TOPICS`; never
-`needs` or `daily`; the Actions variable `ALERTS_TOPIC` overrides it), with the same store and
-secrets as above. Without a topic it
-alerts nobody; its own tracking issue still updates.
+**A kit-installed workflow** (`harness-stale`) sends nothing to Telegram (K038): its list is the
+"Stale work" issue, and with the Actions variable `ALERTS_OPS_BOARD` each item is also an Ops board row.
+The profile's `alerts.topic` is still read by senders that use the older `problem` form.
 
 **A host** (the VPS, the home server, the laptop): Node 18 or newer, the tool from a release tag, and a state file.
 

@@ -892,3 +892,22 @@ K010 (one tool, quiet hours, the group holds its own config, the tick) stands.
    metered); the summary runs from an existing host tick. No AI on any machine.
 
 **Status:** STANDING.
+
+**K038** · The owner's five-line format, one message for several, and stale work off his Telegram
+(8 Nov 2026; owner correction on roadmap #59, comment 6720635142; refines K037).
+
+1. **Why.** Four stale-work alerts reached the owner at once ("STILL OPEN … alert 2 of 3" for old infra
+   and roadmap items). In his words: long, not to the point, not actionable, not rare. Stale work is the
+   agents' backlog, not his.
+2. **Format.** Every owner-facing message is at most five lines: an emoji and what is wrong in business
+   words, then `Who:`, `Do:`, `Where:`, `When:` (now, today, this week), `Do:` always. If Who is not him,
+   it does not go to him. No numbers, run ids, alert counts, thresholds or agent instructions. Enforced in
+   `notify.mjs` before sending and by a fixture over every template.
+3. **One message for several.** Needs you items due together are one message; it turns ✅ when the last
+   is sorted. Outages stay one message each (never held, never capped).
+4. **Stale work.** `stale.mjs` sends nothing to Telegram; its list is the tracking issue, and the Ops
+   board when `ALERTS_OPS_BOARD` is set. Old problems close with `resolve --quiet`.
+5. **Replies in chat and threads** use the same five parts without labels, ending with the status word
+   (owner, 8 Nov 2026). Recorded in `alerts.md`; the always-loaded rules (O10, C03) are unchanged.
+
+**Status:** STANDING.

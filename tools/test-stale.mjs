@@ -103,7 +103,7 @@ ok(signature(select(board.filter((c) => c.kind !== 'initiative'), NOW, settings(
 
 // --- body, the alert text --------------------------------------------------------------------------
 const b = render(picked);
-ok(b.startsWith(MARKER) && b.includes('| [#9](u9) Bump x from 1 to 2 | red | 9 days | 48 h |') && b.includes('Thresholds in hours: PRs 48') && b.includes('3 times'), 'the body: marker first, each item with its kind, idle time and threshold, then the thresholds');
+ok(b.startsWith(MARKER) && b.includes('| [#9](u9) Bump x from 1 to 2 | red | 9 days | 48 h |') && b.includes('Thresholds in hours: PRs 48') && b.includes('Nothing here goes to the owner') && !/alerts at most/.test(b), 'the body: marker first, each item with its kind, idle time and threshold, then the thresholds; it says nothing goes to the owner');
 ok(render([{ number: 1, url: 'u', title: 'a | b @someone [x]', kind: 'card', hours: 50, limit: 48 }]).includes('a \\| b @​someone \\[x\\]'), 'titles cannot break the table or mention anyone');
 ok(idleText(5) === '5 h' && idleText(47) === '47 h' && idleText(48) === '2 days' && idleText(77) === '3 days 5 h', 'idle time reads in hours, then days');
 const txt = itemText('o/r', { number: 12, title: 'Launch\nreadiness', kind: 'initiative', hours: 552, limit: 48 });
@@ -170,68 +170,47 @@ const at0 = (ms) => { process.env.ALERTS_NOW = new Date(ms).toISOString(); retur
 const fresh = () => settings({});
 const alertOf = (n) => alertIssues().find((i) => i.body.includes(`"key":"stale:o/r#${n}"`));
 let r = await report('o/r', at0(NOW), fresh());
-ok(signature(r.items) === '1,3,10' && tracking().length === 1 && tracking()[0].title === 'Stale work' && r.alert === 'no topic' && alertIssues().length === 0, 'report files one "Stale work" issue; with no ALERTS_TOPIC it alerts nobody');
+ok(signature(r.items) === '1,3,10' && tracking().length === 1 && tracking()[0].title === 'Stale work' && r.alert === 'none' && alertIssues().length === 0 && tg.length === 0, 'report files one "Stale work" issue; without the Ops board that list is all there is');
 const first = tracking()[0];
 ok(first.body.includes('| green-unmerged | 3 days |') && first.body.includes('| conflicted | 24 h | 24 h |'), 'the issue lists each item with its kind, idle time and threshold');
-process.env.ALERTS_TOPIC = 'website';
-r = await report('o/r', at0(NOW), fresh());
-ok(Object.values(r.alerts).every((x) => x === 'queued') && alertIssues().length === 3 && /"maxSends":3/.test(alertOf(10).body) && /"topic":"website"/.test(alertOf(10).body) && alertOf(10).body.includes('https://gh.test/o/r/issues/10') && tg.length === 0 && tracking().length === 1,
-  'with the topic but no bot token, notify.mjs records one capped problem per stale item (stale:o/r#<n>, at most 3 alerts) as an issue, linking the item');
-Object.assign(process.env, { ALERTS_BOT_TOKEN: 'TOKEN', ALERTS_CHAT_ID: '42' });
+// stale work never reaches the owner (owner, roadmap #59, 8 Nov 2026; K038): not with a topic, not with a bot token
+Object.assign(process.env, { ALERTS_TOPIC: 'website', ALERTS_BOT_TOKEN: 'TOKEN', ALERTS_CHAT_ID: '42' });
 r = await report('o/r', at0(NOW + 3600000), fresh());
-const p10 = tg.find((m) => m.text.includes('#10 a card'));
-ok(tg.length === 3 && r.alerts['stale:o/r#10'] === 'repeat' && p10 && p10.message_thread_id === 5 && p10.disable_notification === true && /^🔴 PROBLEM · Stale card in o\/r: #10 a card has had no commit, comment or change for 4 days/.test(p10.text) && p10.text.includes('https://gh.test/o/r/issues/10'),
-  'the next run sends each queued problem once, to the project topic, silent, linking the item');
-r = await report('o/r', at0(NOW + 5 * 3600000), fresh());
-ok(tg.length === 3 && r.alerts['stale:o/r#10'] === 'repeat', 'a second run the same day sends nothing more: at most one alert a day per item');
-// the stale-fixture proof (S-033 item 6): card #10 stays stale; it alerts once a day, 3 times in all, then stops; RESOLVED when it moves
-pulls.length = 0; issues.splice(0, issues.length, ...issues.filter((i) => i.number === 10 || String(i.body).includes(MARKER) || String(i.body).includes('harness-alert')));
-const DAYMS = 86400000;
-const sent10 = () => tg.filter((m) => m.text.includes('#10 a card') || (m.reply_parameters && m.reply_parameters.message_id === p10.message_id));
-r = await report('o/r', at0(NOW + DAYMS), fresh());
-ok(r.alerts['stale:o/r#10'] === 'reminded' && sent10().length === 2 && sent10()[1].reply_parameters.message_id === p10.message_id && /^🟠 STILL OPEN after 24 h 0 min \(alert 2 of 3\) · Stale card in o\/r: #10 a card has had no commit, comment or change for 5 days/.test(sent10()[1].text) && sent10()[1].disable_notification === true,
-  'still stale the next day: one STILL OPEN reply under the PROBLEM, silent, alert 2 of 3, with how long it has been idle now');
-const { tick: nTick, store: nStore, telegram: nTg, digestText } = await import('../.harness/tools/notify.mjs');
-at0(NOW + DAYMS + 4 * 3600000);
-const ticked = await nTick(nStore('github:o/r'), nTg());
-ok(!ticked.some((l) => /stale:o\/r#/.test(l)) && sent10().length === 2 && !tg.some((m) => m.message_thread_id === 1), 'tick never escalates or reminds a capped stale problem: nothing reaches "Needs you"');
-r = await report('o/r', at0(NOW + 2 * DAYMS), fresh());
-ok(r.alerts['stale:o/r#10'] === 'reminded' && sent10().length === 3 && /\(alert 3 of 3, the last: from now on only a line in the daily digest until it clears\)/.test(sent10()[2].text), 'the third day: alert 3 of 3, which says it is the last');
-r = await report('o/r', at0(NOW + 3 * DAYMS), fresh());
-const r4 = await report('o/r', at0(NOW + 4 * DAYMS), fresh());
-ok(r.alerts['stale:o/r#10'] === 'capped-out' && r4.alerts['stale:o/r#10'] === 'capped-out' && sent10().length === 3, 'after the cap it sends nothing more, day after day');
-const dg = await digestText([nStore('github:o/r')], NOW + 4 * DAYMS);
-ok(/🟠 open 4 days · Stale card in o\/r: #10 a card .*\(alerted 3 of 3\)/.test(dg), 'it stays one line in the daily digest, marked as alerted 3 of 3');
-issues.find((i) => i.number === 10).updated_at = new Date(NOW + 4 * DAYMS + 3600000).toISOString();
-r = await report('o/r', at0(NOW + 4 * DAYMS + 2 * 3600000), fresh());
-const fixedMsg = tg.at(-1);
-ok(r.alerts['stale:o/r#10'] === 'resolved' && sent10().length === 4 && fixedMsg.reply_parameters.message_id === p10.message_id && /^✅ Fixed after /.test(fixedMsg.text) && alertOf(10).state === 'closed' && tracking()[0].state === 'closed' && /Nothing is stale/.test(tracking()[0].body),
-  'the fixture moves: the next report sends RESOLVED as a reply to the PROBLEM, closes its record, and closes "Stale work"');
-const patches = tracking()[0].patches;
-const before = tg.length;
-r = await report('o/r', at0(NOW + 5 * DAYMS), fresh());
-ok(tracking()[0].patches === patches && r.alert === 'none' && tg.length === before, 'an empty list with everything closed touches nothing and sends nothing');
-// 0.31's one aggregate problem is resolved once; an undelivered alert fails the run (other items still tried) and the next run delivers
-issues.push({ number: 300, state: 'open', html_url: 'https://gh.test/o/r/issues/300', title: 'Alert: old', labels: [], updated_at: ago(0), user: { login: 'github-actions[bot]', type: 'Bot' }, comments: [],
-  body: `<!-- harness-alert: ${JSON.stringify({ key: 'stale:o/r', topic: 'website', text: 'Stale work in o/r: 2 item(s)', opened: NOW, msg: 999, count: 1, open: true })} -->\n**PROBLEM:** x` });
-add(13, 'card', 10); add(14, 'risk:data', 10);
-tgFail = true;
-let failed = '';
-try { await report('o/r', at0(NOW + 6 * DAYMS), fresh()); } catch (e) { failed = e.message; }
-ok(/Telegram sendMessage: 500/.test(failed) && !failed.includes('TOKEN') && tracking()[0].state === 'open' && tracking()[0].number === first.number && alertOf(13) && alertOf(14),
-  'new stale items reopen the same issue; an undelivered alert fails the run without the token in the error, after every item was tried and recorded');
-tgFail = false;
-r = await report('o/r', at0(NOW + 6 * DAYMS + 60000), fresh());
-ok(r.alerts['stale:o/r#13'] === 'repeat' && r.alerts['stale:o/r'] === 'resolved' && tg.some((m) => m.text.includes('#13 issue 13')) && tg.some((m) => m.text.includes('#14 issue 14')) && tg.some((m) => m.reply_parameters?.message_id === 999 && /^✅ Fixed/.test(m.text)) && tracking().length === 1,
-  'the next run delivers them, never a second tracking issue; the old one-per-repository problem gets its RESOLVED');
-// a board: initiatives and wait records with their own --config (S-033 item 1), in the same tracking issue and alert path
-issues.splice(0, issues.length, ...issues.filter((i) => String(i.body).includes(MARKER) || String(i.body).includes('harness-alert')));
+ok(tg.length === 0 && alertIssues().length === 0 && r.alert === 'none', 'with a topic and a bot token, a stale item still sends nothing to Telegram and records no problem');
+// a capped problem an earlier kit sent for an item (and 0.31's one aggregate problem) is closed without a message
+const legacy = (n, key, msg) => issues.push({ number: n, state: 'open', html_url: `https://gh.test/o/r/issues/${n}`, title: 'Alert: old', labels: [], updated_at: ago(0), user: { login: 'github-actions[bot]', type: 'Bot' }, comments: [],
+  body: `<!-- harness-alert: ${JSON.stringify({ key, topic: 'website', text: 'Stale card in o/r: #10 a card (alert 2 of 3)', opened: NOW, msg, count: 2, open: true, maxSends: 3, sends: 2 })} -->\n**PROBLEM:** x` });
+legacy(300, 'stale:o/r', 998); legacy(301, 'stale:o/r#10', 999); legacy(302, 'stale:o/r#77', 997);
+r = await report('o/r', at0(NOW + 2 * 3600000), fresh());
+ok(tg.length === 0 && ['stale:o/r', 'stale:o/r#10', 'stale:o/r#77'].every((k) => r.alerts[k] === 'closed-quietly') && [300, 301, 302].every((n) => issues.find((i) => i.number === n).state === 'closed'),
+  'the problems an earlier kit sent (per item, for an item that moved, and the old aggregate) close without a RESOLVED, a STILL OPEN or any message');
+// with the Ops board: one ops row per stale item, ✅ when it moves; still nothing in Telegram
+process.env.ALERTS_OPS_BOARD = 'github:o/r';
+const boardIssue = () => issues.find((i) => i.title === 'Ops board');
+r = await report('o/r', at0(NOW + 3 * 3600000), fresh());
+ok(tg.length === 0 && ['1', '3', '10'].every((n) => r.alerts[`stale:o/r#${n}`] === 'sent') && boardIssue() && boardIssue().comments.length === 3 && /⚠️ problem · `stale:o\/r#10` · Stale card in o\/r: #10 a card/.test(boardIssue().comments.join('\n')) && /\| ⚠️ \| o\/r \|/.test(boardIssue().body),
+  'with ALERTS_OPS_BOARD each stale item is one ⚠️ row on the Ops board with its comment, and nothing goes to Telegram');
+ok(signature(r.items) === '1,3,10' && tracking().length === 1, 'the next run does not file a second tracking issue');
+r = await report('o/r', at0(NOW + 4 * 3600000), fresh());
+ok(tg.length === 0 && boardIssue().comments.length === 3 && r.alerts['stale:o/r#10'] === 'repeat', 'the next run while it stays stale adds nothing to the board');
+pulls.length = 0; issues.find((i) => i.number === 10).updated_at = new Date(NOW + 5 * 3600000).toISOString();
+r = await report('o/r', at0(NOW + 6 * 3600000), fresh());
+ok(tg.length === 0 && r.alerts['stale:o/r#10'] === 'resolved' && boardIssue().comments.filter((c) => /^✅ resolved after .* · `stale:o\/r#10`/.test(c)).length === 1 && tracking()[0].state === 'closed' && /Nothing is stale/.test(tracking()[0].body),
+  'the items move: each board row turns ✅ with one resolve comment, "Stale work" closes, and Telegram hears nothing');
+const patches = tracking()[0].patches, boardComments = boardIssue().comments.length;
+r = await report('o/r', at0(NOW + 6 * 3600000 + 60000), fresh());
+ok(tracking()[0].patches === patches && r.alert === 'none' && boardIssue().comments.length === boardComments && tg.length === 0, 'an empty list with everything closed touches nothing and sends nothing');
+add(13, 'card', 10);
+r = await report('o/r', at0(NOW + 6 * 3600000 + 120000), fresh());
+ok(tracking().length === 1 && tracking()[0].number === first.number && tracking()[0].state === 'open' && signature(r.items) === '13' && tg.length === 0, 'a new stale item reopens the same "Stale work" issue, never a second one');
+issues.splice(issues.findIndex((i) => i.number === 13), 1);
+// a board: initiatives and wait records with their own --config (S-033 item 1), in the same tracking issue and board
 issues.push({ number: 12, state: 'open', html_url: 'https://gh.test/o/r/issues/12', title: 'Launch readiness', labels: [{ name: 'Now' }, { name: 'initiative' }], body: '', updated_at: ago(23) },
-  { number: 54, state: 'open', html_url: 'https://gh.test/o/r/issues/54', title: 'Coordinator state', labels: [{ name: 'coordinator-state' }], body: '<!-- coordinator-state -->', updated_at: new Date(NOW + 7 * DAYMS - 3600000).toISOString() });
+  { number: 54, state: 'open', html_url: 'https://gh.test/o/r/issues/54', title: 'Coordinator state', labels: [{ name: 'coordinator-state' }], body: '<!-- coordinator-state -->', updated_at: new Date(NOW + 7 * 86400000 - 3600000).toISOString() });
 pulls.push(pr(70, 9, { mergeable: true }, [run('failure')]));
-r = await report('o/r', at0(NOW + 7 * DAYMS), B);
-ok(signature(r.items) === '12' && r.alerts['stale:o/r#12'] === 'sent' && r.alerts['stale:o/r#13'] === 'resolved' && tg.at(-1).text.includes('Stale initiative in o/r: #12 Launch readiness') && tracking()[0].body.includes('initiatives (`Now`) 48'),
-  'a board watching initiatives and wait records alerts for a Now item idle 23 days; the STATE issue moved within 48 h, and the cards it no longer watches are resolved');
+r = await report('o/r', at0(NOW + 7 * 86400000), B);
+ok(signature(r.items) === '12' && r.alerts['stale:o/r#12'] === 'sent' && tg.length === 0 && /`stale:o\/r#12` · Stale initiative in o\/r: #12 Launch readiness/.test(boardIssue().comments.join('\n')) && tracking()[0].body.includes('initiatives (`Now`) 48'),
+  'a board watching initiatives and wait records puts a Now item idle 23 days on the Ops board, never in Telegram; the STATE issue moved within 48 h');
 
 // --- missed scheduled runs: cron, overdue by more than 36 h, PROBLEM then RESOLVED in the topic ------
 const at = (iso) => Date.parse(iso);
@@ -263,38 +242,38 @@ const T0 = at('2026-10-05T15:00:00Z');
 let sch = await schedules('o/r', T0);
 ok(sch.map((x) => x.file).join(',') === 'hands-settings.yml,hands-update.yml,quiet.yml' && sch.every((x) => !x.overdue) && sch[1].due === '2026-10-05T06:41:00.000Z',
   'schedules lists every scheduled workflow (never one without a schedule or one turned off by hand); a Monday run due this morning is not yet a fault');
-let failedTopic = '';
-try { await alertSchedules('o/r', T0, null); } catch (e) { failedTopic = e.message; }
-ok(/no topic/.test(failedTopic), 'alerting with no topic is an error, never a silent pass');
+delete process.env.ALERTS_OPS_BOARD;
 Object.assign(process.env, { ALERTS_BOT_TOKEN: 'TOKEN', ALERTS_CHAT_ID: '42' });
 const tgBefore = tg.length;
 const T1 = at('2026-10-06T18:42:00Z'); // hands-update due 06:41 on the 5th, 36 h 1 min ago; quiet.yml due 03:00 on the 6th
-sch = await alertSchedules('o/r', T1, 'kit');
-const missed = tg.slice(tgBefore);
-ok(sch.find((x) => x.file === 'hands-update.yml').alert === 'sent' && missed.length === 1 && missed[0].message_thread_id === 6 && missed[0].disable_notification === true
-  && /^🔴 PROBLEM · Scheduled run missed: hands-update in o\/r was due 2026-10-05 09:41 and is 36 h overdue/.test(missed[0].text) && missed[0].text.includes('actions/workflows/hands-update.yml')
-  && alertIssues().some((i) => /"key":"schedule:o\/r\/hands-update.yml"/.test(i.body) && i.state === 'open'),
-  'a schedule more than 36 h overdue (push runs neither count nor hide its last run) posts one PROBLEM in "Kit & Hands", silent, linking the workflow; its record is kept until it runs');
-ok(sch.find((x) => x.file === 'hands-settings.yml').overdue === false && sch.find((x) => x.file === 'hands-settings.yml').alert === 'none', 'a schedule on time sends nothing');
+legacy(310, 'schedule:o/r/hands-settings.yml', 996);
+sch = await alertSchedules('o/r', T1, null);
+ok(sch.find((x) => x.file === 'hands-update.yml').overdue && /listed only/.test(sch.find((x) => x.file === 'hands-update.yml').alert) && tg.length === tgBefore && issues.find((i) => i.number === 310).state === 'closed',
+  'without the Ops board a missed schedule is only listed; an older kit\'s missed-schedule problem closes without a message; Telegram hears nothing');
+const ob = (await import('../.harness/tools/notify.mjs')).opsBoard('github:o/r');
+const bc = () => boardIssue().comments.length;
+const c0 = bc();
+sch = await alertSchedules('o/r', T1, ob);
+ok(sch.find((x) => x.file === 'hands-update.yml').alert === 'sent' && tg.length === tgBefore && bc() === c0 + 1 && /⚠️ problem · `schedule:o\/r\/hands-update.yml` · Scheduled run missed: hands-update in o\/r was due 2026-10-05 09:41 and is 36 h overdue/.test(boardIssue().comments.join('\n')),
+  'with the Ops board a schedule more than 36 h overdue (push runs neither count nor hide its last run) is a ⚠️ row there, never a Telegram message');
+ok(sch.find((x) => x.file === 'hands-settings.yml').overdue === false && sch.find((x) => x.file === 'hands-settings.yml').alert === 'none', 'a schedule on time adds nothing');
 ok(missedText('o/r', { workflow: 'quiet', state: 'disabled_inactivity', due: '2026-10-06T03:00:00.000Z', lateHours: 40, lastRun: null }).includes('turned its schedule off for inactivity'), 'a schedule GitHub turned off for inactivity says so');
-sch = await alertSchedules('o/r', T1 + 3600000, 'kit');
-ok(tg.length === tgBefore + 1 && sch.find((x) => x.file === 'hands-update.yml').alert === 'repeat', 'the next check while it is still missing sends nothing more (one open problem per key)');
+sch = await alertSchedules('o/r', T1 + 3600000, ob);
+ok(bc() === c0 + 1 && sch.find((x) => x.file === 'hands-update.yml').alert === 'repeat', 'the next check while it is still missing adds nothing (one open row per key)');
 wfs[1].runs = [{ event: 'workflow_dispatch', created_at: '2026-10-06T19:05:00Z', ...done }, ...wfs[1].runs];
-sch = await alertSchedules('o/r', at('2026-10-07T05:30:00Z'), 'kit');
-const ranAgain = tg.slice(tgBefore + 1);
-ok(sch.find((x) => x.file === 'hands-update.yml').alert === 'resolved' && ranAgain.length === 1 && ranAgain[0].reply_parameters.message_id === missed[0].message_id && /^✅ Fixed after /.test(ranAgain[0].text)
-  && !alertIssues().some((i) => /schedule:o\/r\/hands-update.yml/.test(i.body) && i.state === 'open'),
-  'once it has run again (on schedule, or by hand from Actions), the next check replies RESOLVED to the PROBLEM and closes it');
+sch = await alertSchedules('o/r', at('2026-10-07T05:30:00Z'), ob);
+ok(sch.find((x) => x.file === 'hands-update.yml').alert === 'resolved' && tg.length === tgBefore && /^✅ resolved after .* · `schedule:o\/r\/hands-update.yml`/.test(boardIssue().comments.at(-1)),
+  'once it has run again (on schedule, or by hand from Actions), its board row turns ✅, still with nothing in Telegram');
 // a new or moved scheduled workflow (owner, 2026-10-06): its clock starts when it appeared in the repository, never at "never"
 {
   const moved = wf(6, 'box-watch.yml', ['20 6 * * *']); moved.meta.created_at = '2026-10-07T18:18:00Z'; wfs.push(moved);
-  const bw = async (iso, alert) => (await (alert ? alertSchedules('o/r', at(iso), 'kit') : schedules('o/r', at(iso)))).find((x) => x.file === 'box-watch.yml');
-  const sentBw = () => tg.filter((m) => /box-watch/.test(m.text)).length;
+  const bw = async (iso, alert) => (await (alert ? alertSchedules('o/r', at(iso), ob) : schedules('o/r', at(iso)))).find((x) => x.file === 'box-watch.yml');
+  const sentBw = () => boardIssue().comments.filter((c) => /box-watch/.test(c)).length;
   const night = await bw('2026-10-08T05:45:00Z', true), firstDue = await bw('2026-10-08T06:21:00Z'), edge = await bw('2026-10-09T18:19:00Z', true);
   ok(!night.overdue && night.alert === 'none' && night.due === '2026-10-08T06:20:00.000Z' && !firstDue.overdue && !edge.overdue && edge.alert === 'none' && sentBw() === 0,
     'a workflow moved in at 18:18 and never run raises nothing overnight, at its first due time, or until 36 h after it');
   const late = await bw('2026-10-09T18:22:00Z', true);
-  ok(late.overdue && late.alert === 'sent' && sentBw() === 1 && /last run never/.test(tg.filter((m) => /box-watch/.test(m.text)).at(-1).text), 'only once its first due time is more than 36 h past does it count as missed');
+  ok(late.overdue && late.alert === 'sent' && sentBw() === 1 && /last run never/.test(boardIssue().comments.filter((c) => /box-watch/.test(c)).at(-1)), 'only once its first due time is more than 36 h past does it count as missed');
   wfs.pop();
 }
 // a stuck run (hands-keep, 6-8 Oct 2026): one run "waiting" forever, every later scheduled run created
@@ -351,9 +330,9 @@ ok(st.jobs.stale.permissions.issues === 'write' && Object.entries(st.jobs.stale.
 // --- the hands daily drift check runs the missed-run check with read-only Actions access -------------
 const hs = parseYaml(readFileSync(join(kit, '.harness/templates/hands/hands-settings.yml'), 'utf8'));
 const miss = hs.jobs.discover.steps.find((x) => x.name === 'Missed scheduled runs');
-ok(hs.on.schedule.length === 1 && miss && /stale\.mjs schedules --repo "\$GITHUB_REPOSITORY" --alert/.test(miss.run) && miss.env.ALERTS_TOPIC === 'kit' && miss.env.GH_TOKEN === '${{ github.token }}'
+ok(hs.on.schedule.length === 1 && miss && /stale\.mjs schedules --repo "\$GITHUB_REPOSITORY" --alert/.test(miss.run) && miss.env.ALERTS_OPS_BOARD === '${{ vars.ALERTS_OPS_BOARD }}' && !('ALERTS_TOPIC' in miss.env) && miss.env.GH_TOKEN === '${{ github.token }}'
   && /^set -euo pipefail\n/.test(miss.run) && hs.jobs.discover.permissions.actions === 'read' && miss.if === "always() && inputs.repo == ''" && !('continue-on-error' in miss),
-  'hands-settings: its one daily job also checks missed scheduled runs into "Kit & Hands", with actions: read, and a failure of that check fails the step (pipefail, so tee cannot hide it)');
+  'hands-settings: its one daily job also checks missed scheduled runs onto the Ops board (never a Telegram topic, K038), with actions: read, and a failure of that check fails the step (pipefail, so tee cannot hide it)');
 
 // --- the audit counts the installed workflow for C15 ---------------------------------------------------
 const proj = mkdtempSync(join(tmpdir(), 'harness-stale-'));

@@ -3,6 +3,28 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.35.0 · 2026-11-08 · the owner's five-line format; stale work never reaches him (K038)
+
+From the owner's correction on roadmap #59 (8 Nov), after four "STILL OPEN … alert 2 of 3" stale-work
+messages reached him at once.
+
+- **Every owner-facing message is his five lines**: `🛑 what` / `Who:` / `Do:` / `Where:` / `When:`
+  (at most five; `Do:` always; When is now, today or this week). `notify.mjs` checks every kind against
+  it (`formatProblems`) and against rule C, which now also refuses an issue or repository number outside
+  a quoted paste, "alert N of M", a threshold and "Resume it or record why it waits". The template test
+  runs every template through both.
+- `needs_you` takes `--what --step --where --when [--minutes] [--link]`; `--means` is gone. `outage`,
+  `good_news`, the ✅ edits and the evening `summary` are rewritten in the same format.
+- **Several at once are one message**: Needs you items due together (a tick, or a raise that finds
+  others already due) go as one message with each step numbered; sorting some of them is silent, and
+  the last one sorted edits it to ✅.
+- **Stale work never reaches Telegram**: `stale.mjs report` keeps its list in "Stale work" and, with
+  `ALERTS_OPS_BOARD`, one `ops` row per item; `schedules --alert` likewise. Problems an earlier kit sent
+  close with `resolve --quiet` (new: closes with no message). `harness-stale` and `hands-settings` pass
+  `ALERTS_OPS_BOARD` instead of a topic. `alerts_max` is read and unused.
+- `alerts.md` records the format, the unlabelled form for replies in chat and threads, and the backlog
+  rule. O10's text is unchanged, so no replay.
+
 ## 0.34.0 · 2026-11-08 · the owner's group carries only what matters to him (K037)
 
 From the owner's S-034 (roadmap #38), built as roadmap #59 step 1.
