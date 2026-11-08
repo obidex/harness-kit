@@ -3,6 +3,14 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.36.1 · 2026-11-08 · an ops row keeps the hold
+
+From roadmap #59 step 3 (infra's fixtures found it).
+
+- A held `ops` row in a host's store waited for its hold only on `raise`; the next `tick` put it on the
+  Ops board at once, so a flap shorter than the hold still reached the board. The tick now syncs a row
+  only once it is due (or closed).
+
 ## 0.36.0 · 2026-11-08 · the older alert paths go quiet; three topics (K039)
 
 From roadmap #59 steps 2-3.
