@@ -582,6 +582,22 @@ ok(c.code === 0 && /bot @example_alerts_bot/.test(c.out) && /group "Owner alerts
       tgState.closed = null;
       if (savedHold === undefined) delete process.env.ALERTS_HOLD_MINUTES; else process.env.ALERTS_HOLD_MINUTES = savedHold;
     }
+    // an ops row in a host's store keeps notify's hold: a flap shorter than the hold never reaches the board
+    {
+      const savedHold = process.env.ALERTS_HOLD_MINUTES; process.env.ALERTS_HOLD_MINUTES = '10';
+      const hs = store(`file:${join(dir, 'hold-ops.json')}`), hb0 = board.comments.length;
+      at('2026-11-04T10:00:00Z');
+      r = await raise(hs, tg, { kind: 'ops', key: 'vps/flap', text: 'timer off' }, ob);
+      at('2026-11-04T10:02:00Z'); await tick(hs, tg, ob);
+      ok(r.status === 'held' && board.comments.length === hb0, 'ops: a new row is held, and a tick inside the hold does not put it up');
+      r = await resolveKey(hs, tg, { key: 'vps/flap' }, ob);
+      ok(r.status === 'closed-unsent' && board.comments.length === hb0, 'ops: cleared inside the hold: nothing on the board, ever');
+      at('2026-11-04T11:00:00Z');
+      await raise(hs, tg, { kind: 'ops', key: 'vps/flap2', text: 'timer off' }, ob);
+      at('2026-11-04T11:10:00Z'); await tick(hs, tg, ob);
+      ok(board.comments.length === hb0 + 1 && /`vps\/flap2`/.test(board.comments.at(-1).body), 'ops: still open when the hold ends: the tick puts the row up');
+      if (savedHold === undefined) delete process.env.ALERTS_HOLD_MINUTES; else process.env.ALERTS_HOLD_MINUTES = savedHold;
+    }
     await retire(telegram(), ['needs']).then(() => ok(false, 'needs kept'), (e) => ok(/one of the three topics the owner keeps/.test(e.message), 'retire never closes Needs you, Good news or Summary'));
     process.env.GITHUB_API_URL = `http://127.0.0.1:${ghServer.address().port}`;
     const gs2 = store('github:o/hands'), mo = mark(), n0 = issues.length;

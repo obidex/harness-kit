@@ -699,7 +699,8 @@ export async function tick(st, tg, board = boardOrNull()) {
     for (const inc of list.filter((i) => i.kind && ['needs_you', 'outage', 'ops'].includes(i.kind))) {
       let changed = false;
       if (inc.open && !delivered(inc) && due(st, inc, t)) { if (await deliver(st, tg, board, inc, list, t, r)) { changed = true; did.push(`sent ${inc.key}`); } }
-      else if (await boardSync(board, inc, t)) { changed = true; did.push(`board ${inc.key}`); }
+      // a held row waits for its hold like a message would (a flap never reaches the board); a closed one syncs its ✅
+      else if ((!inc.open || due(st, inc, t)) && await boardSync(board, inc, t)) { changed = true; did.push(`board ${inc.key}`); }
       if (changed) await st.save(inc);
     }
     for (const inc of list.filter((i) => i.open && !i.kind)) {
