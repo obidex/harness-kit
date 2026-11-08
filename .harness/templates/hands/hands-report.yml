@@ -79,7 +79,8 @@ jobs:
           set -euo pipefail
           url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           if [ "$RESULT" = failure ]; then
-            node kit/.harness/tools/notify.mjs problem --key "hands/$JOB" --topic kit --title "$JOB failing" --text "$JOB failed in ${{ github.repository }}" --link "$url"
+            # technical: recorded as this repository's alert issue, never the owner's Telegram (K039); a host's reader mirrors it to the Ops board
+            node kit/.harness/tools/notify.mjs ops --key "hands/$JOB" --text "$JOB failed in ${{ github.repository }}" --link "$url"
           else
             node kit/.harness/tools/notify.mjs resolve --key "hands/$JOB" --text "$JOB green again: $url"
           fi

@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { createServer } from 'node:http';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { telegram, store, problem, resolveKey, tick, hush, digestText, setup, isQuiet, loud, TOPICS, raise, summary, summaryText, opsBoard, plainProblems, TEMPLATES, formatProblems } from '../.harness/tools/notify.mjs';
+import { telegram, store, problem, resolveKey, tick, hush, digestText, setup, isQuiet, loud, TOPICS, raise, summary, summaryText, opsBoard, plainProblems, TEMPLATES, formatProblems, note, retire } from '../.harness/tools/notify.mjs';
 
 let n = 0;
 const ok = (cond, what) => { n++; if (!cond) { console.log(`test-notify: FAIL ${n}. ${what}`); process.exit(1); } console.log(`test-notify: ok ${n}. ${what}`); };
@@ -28,7 +28,9 @@ const tgServer = await listen((req, res, p) => {
   if (method === 'getChat') return r({ id: -1001234, title: 'Owner alerts', type: 'supergroup', is_forum: tgState.forum, pinned_message: tgState.pinned });
   if (method === 'getChatMember') return r(tgState.admin ? { status: 'administrator', can_manage_topics: true, can_pin_messages: true } : { status: 'member' });
   if (method === 'createForumTopic') { const id = ++tgState.msg; tgState.topics[p.name] = id; return r({ message_thread_id: id, name: p.name }); }
+  if (method === 'sendMessage' && tgState.closed?.has(p.message_thread_id)) return json(res, 400, { ok: false, description: 'Bad Request: TOPIC_CLOSED' });
   if (method === 'sendMessage') { tgState.calls.at(-1).message_id = ++tgState.msg; return r({ message_id: tgState.msg, text: p.text }); }
+  if (method === 'closeForumTopic') { if (tgState.closed?.has(p.message_thread_id)) return json(res, 400, { ok: false, description: 'Bad Request: TOPIC_CLOSED' }); return r(true); }
   if (method === 'editMessageText') return r({ message_id: p.message_id, text: p.text });
   if (method === 'getUpdates') return r([{ update_id: 1, my_chat_member: { chat: { id: -1009, title: 'Owner alerts', type: 'supergroup', is_forum: true } } }, { update_id: 2, message: { chat: { id: 55, type: 'private' } } }]);
   if (method === 'pinChatMessage') { const sent = tgState.calls.findLast((c) => c.method === 'sendMessage' && c.message_id === p.message_id) || tgState.calls.findLast((c) => c.method === 'sendMessage'); tgState.pins.push({ message_id: p.message_id, text: sent.text, thread: sent.message_thread_id }); tgState.pinned = tgState.pins.at(-1); return r(true); }
@@ -149,7 +151,7 @@ at('2026-10-05T12:59:00Z'); i0 = mark();
 ok((await tick(st, tg)).length === 0 && since(i0).length === 0, 'before 3 hours a tick does nothing');
 at('2026-10-05T13:00:00Z'); i0 = mark();
 let did = await tick(st, tg);
-const [esc, still] = since(i0);
+const sent153 = since(i0), esc = sent153.find((m) => m.text.startsWith('⏰')), still = sent153.find((m) => m.text.startsWith('🟠')); // its own topic's reply goes first (K039: a closed topic stops the escalation)
 ok(esc.text.endsWith("\nYou: Needs you: it has not cleared in 3 hours; pass this message to its project's coordinator"), 'the escalation ends with a "Needs you" line');
 ok(did.includes('escalated erp/ci') && esc.message_thread_id === T('needs') && esc.disable_notification === false && esc.text.includes(`/${T('erp')}/${erpMsg}`), 'at 3 hours it is escalated, loud, to "Needs you", linking the original');
 ok(still.reply_parameters.message_id === erpMsg && /STILL OPEN after 3 h/.test(still.text) && still.disable_notification === true, 'and a STILL OPEN reply goes silently under the original');
@@ -251,7 +253,7 @@ ok(c.code === 0 && /resolved cli\/x/.test(c.out), 'notify.mjs resolve works from
 c = await cli(['problem', '--key', 'cli/y', '--topic', 'ops', '--text', 'no token'], { ALERTS_STORE: `file:${join(dir, 'cli.json')}`, ALERTS_BOT_TOKEN: '', ALERTS_REQUIRE_SEND: '1' });
 ok(c.code === 2 && /recorded but not sent/.test(c.out), 'ALERTS_REQUIRE_SEND=1 makes an unsent problem an error');
 c = await cli(['test']);
-ok(c.code === 0 && /PROBLEM \d+ sent and RESOLVED as a reply/.test(c.out), 'notify.mjs test sends a problem and its RESOLVED reply');
+ok(c.code === 0 && /test message \d+ sent and edited to ✅/.test(c.out) && last().message_thread_id === T('summary') && last().disable_notification === true && tgState.calls.at(-1).method === 'editMessageText', 'notify.mjs test sends one silent message in "Summary" and edits it to ✅ (no technical test text)');
 
 // before setup (or in a private chat) every message still arrives, its topic's name leading it
 {
@@ -262,8 +264,11 @@ ok(c.code === 0 && /PROBLEM \d+ sent and RESOLVED as a reply/.test(c.out), 'noti
   ok(p.status === 'sent' && last().message_thread_id === undefined && last().text.startsWith('[Kit & Hands] 🔴 PROBLEM'), 'a chat without the pinned config gets the message unthreaded, its topic named');
   const before = mark();
   const d = await cli(['digest', '--stores', `file:${join(dir, 'flat.json')}`]);
-  ok(d.code === 0 && /digest not posted/.test(d.out) && since(before).length === 0, 'no digest goes to a chat that is not the set-up group');
+  ok(d.code === 0 && /daily digest is retired/.test(d.out) && since(before).length === 0, 'no digest goes to a chat that is not the set-up group');
   tgState.pinned = saved;
+  const before2 = mark();
+  const d2 = await cli(['digest', '--stores', `file:${join(dir, 'flat.json')}`]);
+  ok(d2.code === 0 && /daily digest is retired \(K039\)/.test(d2.out) && since(before2).length === 0, 'the daily digest is retired (K039): nothing is posted even to the set-up group');
 }
 // the group id can come from a file (the control repository keeps it there)
 {
@@ -323,20 +328,22 @@ ok(c.code === 0 && /bot @example_alerts_bot/.test(c.out) && /group "Owner alerts
   const { parseYaml } = await import('../.harness/tools/lib.mjs');
   const { symlinkSync, writeFileSync } = await import('node:fs');
   const wf = parseYaml((await import('node:fs')).readFileSync(new URL('../.harness/templates/hands/hands-report.yml', import.meta.url), 'utf8'));
-  const step = wf.jobs.report.steps.find((x) => /notify\.mjs problem/.test(x.run || ''));
+  const step = wf.jobs.report.steps.find((x) => /notify\.mjs ops/.test(x.run || ''));
   const run = step.run.replace(/\$\{\{ github\.server_url \}\}/g, 'https://github.invalid').replace(/\$\{\{ github\.repository \}\}/g, 'o/hands').replace(/\$\{\{ github\.run_id \}\}/g, '99');
   const w = mkdtempSync(join(tmpdir(), 'notify-step-'));
   symlinkSync(fileURLToPath(new URL('..', import.meta.url)), join(w, 'kit'));
   writeFileSync(join(w, 'step.sh'), run);
-  const sh = (RESULT) => new Promise((done) => execFile('bash', ['-e', join(w, 'step.sh')], { cwd: w, env: { ...process.env, JOB: 'hands-update', RESULT, ALERTS_STORE: 'github:o/hands', ALERTS_REQUIRE_SEND: '1' } }, (err, out, errOut) => done({ code: err ? err.code : 0, out: out + errOut })));
+  const sh = (RESULT) => new Promise((done) => execFile('bash', ['-e', join(w, 'step.sh')], { cwd: w, env: { ...process.env, JOB: 'hands-update', RESULT, ALERTS_STORE: 'github:o/hands', ALERTS_REQUIRE_SEND: '1', ALERTS_OPS_BOARD: '' } }, (err, out, errOut) => done({ code: err ? err.code : 0, out: out + errOut })));
   at('2026-10-09T10:00:00Z');
+  const m0 = mark();
   let x = await sh('failure');
-  const opened = issues.find((i) => i.title === 'hands-update failing');
-  ok(x.code === 0 && opened?.state === 'open' && /"key":"hands\/hands-update"/.test(opened.body) && /PROBLEM · hands-update failed in o\/hands/.test(last().text) && last().message_thread_id === T('kit'), 'hands-report: a failed run opens one problem in "Kit & Hands"');
+  const opened = issues.find((i) => /"key":"hands\/hands-update"/.test(i.body || '') && i.state === 'open');
+  ok(x.code === 0 && /ops recorded hands\/hands-update/.test(x.out) && opened && /hands-update failed in o\/hands/.test(opened.body) && since(m0).length === 0, 'hands-report: a failed run is one alert issue in its repository and no Telegram message (K039: technical)');
+  const n0 = issues.length, c0 = comments.length;
   x = await sh('failure');
-  ok(x.code === 0 && issues.filter((i) => i.title === 'hands-update failing').length === 1 && /Still failing: https:\/\/github\.invalid\/o\/hands\/actions\/runs\/99/.test(comments.at(-1).body), 'hands-report: a second failure only comments');
+  ok(x.code === 0 && issues.length === n0 && comments.length === c0 && since(m0).length === 0, 'hands-report: a second failure adds nothing');
   x = await sh('success');
-  ok(x.code === 0 && opened.state === 'closed' && last().text === '✅ Fixed after 0 min' && last().reply_parameters?.message_id, 'hands-report: the next green run replies RESOLVED and closes the issue');
+  ok(x.code === 0 && opened.state === 'closed' && /RESOLVED after/.test(comments.at(-1).body) && since(m0).length === 0, 'hands-report: the next green run closes the issue, still without a Telegram message');
   rmSync(w, { recursive: true, force: true });
 }
 
@@ -350,8 +357,9 @@ ok(c.code === 0 && /bot @example_alerts_bot/.test(c.out) && /group "Owner alerts
     if (board.fail) return json(res, 502, { message: 'Bad Gateway' });
     let m;
     if (req.method === 'GET' && u.pathname === '/repos/o/infra/issues') return json(res, 200, u.searchParams.get('page') === '1' ? board.issues.filter((i) => i.state === 'open') : []);
-    if (req.method === 'POST' && u.pathname === '/repos/o/infra/issues') { const i = { number: board.issues.length + 1, state: 'open', html_url: `https://github.invalid/o/infra/issues/${board.issues.length + 1}`, ...p }; board.issues.push(i); return json(res, 201, i); }
+    if (req.method === 'POST' && u.pathname === '/repos/o/infra/issues') { const i = { number: board.issues.length + 1, state: 'open', html_url: `https://github.invalid/o/infra/issues/${board.issues.length + 1}`, node_id: `I_${board.issues.length + 1}`, ...p }; board.issues.push(i); return json(res, 201, i); }
     if ((m = u.pathname.match(/^\/repos\/o\/infra\/issues\/(\d+)$/))) { if (req.method === 'PATCH') Object.assign(board.issues[m[1] - 1], p); return json(res, 200, board.issues[m[1] - 1]); }
+    if (req.method === 'POST' && u.pathname === '/graphql') { const i = board.issues.find((x) => x.node_id === p.variables?.id); if (!i) return json(res, 200, { errors: [{ message: 'Could not resolve to a node' }] }); if (i.pinned) return json(res, 200, { errors: [{ message: 'Issue is already pinned' }] }); i.pinned = true; return json(res, 200, { data: { pinIssue: { issue: { isPinned: true } } } }); }
     if ((m = u.pathname.match(/^\/repos\/o\/infra\/issues\/(\d+)\/comments$/))) { board.comments.push({ issue: Number(m[1]), ...p }); return json(res, 201, {}); }
     return json(res, 404, { message: 'Not Found' });
   });
@@ -535,6 +543,59 @@ ok(c.code === 0 && /bot @example_alerts_bot/.test(c.out) && /group "Owner alerts
     delete process.env.ALERTS_HOLD_MINUTES;
   }
 
+  // K039: the Ops board's log line, closing the topics the owner no longer keeps, an ops alert in a GitHub store with no board
+  {
+    const c0 = board.comments.length;
+    await note(ob, 'The VPS restarted for its weekly updates; back after 2 min. @obidex', 'https://run/9');
+    ok(board.comments.length === c0 + 1 && /^📝 The VPS restarted for its weekly updates; back after 2 min\. @\u200bobidex\nhttps:\/\/run\/9$/.test(board.comments.at(-1).body), 'note: one comment on the board, no row, no mention');
+    await note(null, 'x').then(() => ok(false, 'note without a board'), (e) => ok(/ALERTS_OPS_BOARD is not set/.test(e.message), 'note without ALERTS_OPS_BOARD is an error'));
+    const mr = mark();
+    const lines = await retire(telegram(), ['kit', 'ops', 'daily']);
+    const closes = tgState.calls.slice(mr).filter((c) => c.method === 'closeForumTopic').map((c) => c.message_thread_id);
+    ok(JSON.stringify(closes) === JSON.stringify([T('kit'), T('ops'), T('daily')]) && lines.every((l) => /^closed "/.test(l)) && since(mr).length === 0, 'retire closes the named topics, sends nothing');
+    tgState.closed = new Set(closes);
+    const again = await retire(telegram(), ['kit']);
+    ok(/already closed/.test(again[0]), 'retiring a closed topic again is no error');
+    // a problem still open in a closed topic, or a sender not yet moved: it goes to the Ops board, never to Needs you
+    {
+      const savedHold = process.env.ALERTS_HOLD_MINUTES; process.env.ALERTS_HOLD_MINUTES = '0';
+      const cs = store(`file:${join(dir, 'closed.json')}`), cb0 = board.comments.length;
+      tgState.closed = null;
+      at('2026-11-03T05:00:00Z');
+      r = await problem(cs, tg, { key: 'kit/old', topic: 'kit', text: 'kit job red on main' });
+      ok(r.status === 'sent' && r.inc.msg, 'an old-style problem sent before its topic closed');
+      tgState.closed = new Set(closes);
+      const mc = mark();
+      for (const h of ['10:00', '10:30', '11:00']) { at(`2026-11-03T${h}:00Z`); await tick(cs, tg, ob); }
+      const moved = await cs.get('kit/old');
+      ok(since(mc).filter((m) => m.message_thread_id === T('needs')).length === 0 && moved.kind === 'ops' && moved.retiredTopic === 'kit' && !moved.msg && moved.boarded,
+        'a tick never escalates a problem whose topic is closed: it moves to the Ops board, nothing reaches Needs you');
+      ok(board.comments.length === cb0 + 1 && /`kit\/old`/.test(board.comments.at(-1).body), 'and the board gets its row once, however many ticks');
+      r = await problem(cs, tg, { key: 'kit/old', topic: 'kit', text: 'kit job red on main' });
+      ok(r.status === 'repeat' && since(mc).filter((m) => m.method === 'sendMessage' && !tgState.closed.has(m.message_thread_id)).length === 0, 'a repeat of a moved problem sends nothing');
+      r = await problem(cs, tg, { key: 'ops/new', topic: 'ops', text: 'an old sender still on problem' });
+      ok(r.status === 'moved to the Ops board' && (await cs.get('ops/new')).kind === 'ops', 'a new problem in a closed topic moves to the board instead of failing');
+      await tick(cs, tg, ob);
+      ok(board.comments.length === cb0 + 2 && /`ops\/new`/.test(board.comments.at(-1).body), 'the next tick puts its row up');
+      r = await resolveKey(cs, tg, { key: 'kit/old' }, ob);
+      ok(r.status === 'resolved' && board.comments.length === cb0 + 3 && since(mc).filter((m) => m.method === 'editMessageText').length === 0, 'its resolve turns the row ✅ and touches no Telegram message');
+      tgState.closed = null;
+      if (savedHold === undefined) delete process.env.ALERTS_HOLD_MINUTES; else process.env.ALERTS_HOLD_MINUTES = savedHold;
+    }
+    await retire(telegram(), ['needs']).then(() => ok(false, 'needs kept'), (e) => ok(/one of the three topics the owner keeps/.test(e.message), 'retire never closes Needs you, Good news or Summary'));
+    process.env.GITHUB_API_URL = `http://127.0.0.1:${ghServer.address().port}`;
+    const gs2 = store('github:o/hands'), mo = mark(), n0 = issues.length;
+    r = await raise(gs2, tg, { kind: 'ops', key: 'hands/x', text: 'hands-x failed' }, null);
+    ok(r.status === 'recorded' && issues.length === n0 + 1 && /"kind":"ops"/.test(issues.at(-1).body) && since(mo).length === 0, 'ops on a GitHub store with no board is recorded as its alert issue, never sent');
+    r = await resolveKey(gs2, tg, { key: 'hands/x' }, null);
+    ok(r.status === 'closed-unsent' && issues.at(-1).state === 'closed' && since(mo).length === 0, 'and its resolve closes the issue without a message');
+    process.env.GITHUB_API_URL = `http://127.0.0.1:${boardServer.address().port}`;
+    process.env.ALERTS_OPS_BOARD = 'not a board';
+    const tbad = await tick(store(`file:${join(dir, 'pre.json')}`), tg).then(() => 'ran', (e) => e.message);
+    ok(tbad === 'ran', 'a malformed ALERTS_OPS_BOARD does not stop a tick');
+    delete process.env.ALERTS_OPS_BOARD;
+  }
+
   // the command line
   const cs2 = { ALERTS_STORE: `file:${join(dir, 'cli-kinds.json')}`, ALERTS_HOLD_MINUTES: '0', ALERTS_OPS_BOARD: 'github:o/infra' };
   let c = await cli(['needs_you', '--key', 'pickup/obidex/jahjah-website#437', '--what', "The website didn't pick up its work.", '--step', 'Paste the line.', '--where', 'website chat', '--when', 'this week', '--minutes', '1'], cs2);
@@ -545,6 +606,10 @@ ok(c.code === 0 && /bot @example_alerts_bot/.test(c.out) && /group "Owner alerts
   ok(c.code === 0 && /nothing to say/.test(c.out), 'notify.mjs summary --dry-run says when there is nothing to say');
   c = await cli(['board'], cs2);
   ok(c.code === 0 && c.out.includes(`Ops board: ${bi.html_url}`), 'notify.mjs board prints the one board');
+  c = await cli(['board', '--open'], cs2);
+  ok(c.code === 0 && c.out.includes(`Ops board: ${bi.html_url} (open and pinned)`) && bi.pinned === true && board.issues.filter((i) => i.title === 'Ops board').length === 1, 'board --open pins the one board');
+  c = await cli(['board', '--open'], cs2);
+  ok(c.code === 0 && /open and pinned/.test(c.out), 'board --open again: already pinned is no error');
   process.env.GITHUB_API_URL = savedApi;
   process.env.ALERTS_HOLD_MINUTES = '0';
 }

@@ -101,19 +101,6 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           ALERTS_CHAT_ID_FILE: ALERTS_CHAT_ID
         run: node kit/.harness/tools/notify.mjs tick --stores "github:${{ github.repository }}"
-      - name: The daily digest, across every enrolled repository
-        if: always() && github.event_name == 'schedule'
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ steps.token.outputs.token }}
-          SELF: ${{ github.repository }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          ALERTS_CHAT_ID_FILE: ALERTS_CHAT_ID
-        run: |
-          set -euo pipefail
-          stores="$(node kit/.harness/tools/hands.mjs discover | node -e 'const a=JSON.parse(require("fs").readFileSync(0,"utf8")).map(r=>r.repo);console.log([...new Set([process.env.SELF,...a])].map(r=>"github:"+r).join(","))')"
-          node kit/.harness/tools/notify.mjs digest --stores "$stores"
       # a full check: each scheduled workflow here more than 36 h overdue is a row on the Ops board
       # (ALERTS_OPS_BOARD), ✅ once it ran; never a Telegram message (K038)
       - name: Missed scheduled runs

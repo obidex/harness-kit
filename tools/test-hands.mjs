@@ -124,7 +124,7 @@ ok(hs.jobs.discover.steps.find((x) => x.id === 'find').env.HANDS_READ_ONLY, 'the
 
 // the alert standard (O10, K010): every hands alert goes through notify.mjs, and the hourly tick costs nothing until turned on
 ok(!Object.values(files).some((t) => /api\.telegram\.org/.test(t)), 'no control workflow calls the Telegram API itself');
-ok(/notify\.mjs problem --key "hands\/\$JOB"/.test(files['hands-report.yml']) && /notify\.mjs resolve --key "hands\/\$JOB"/.test(files['hands-report.yml']), 'hands-report opens a problem on failure and resolves it on success');
+ok(/notify\.mjs ops --key "hands\/\$JOB"/.test(files['hands-report.yml']) && !/notify\.mjs problem/.test(files['hands-report.yml']) && /notify\.mjs resolve --key "hands\/\$JOB"/.test(files['hands-report.yml']), 'hands-report records an ops row on failure (never the owner\'s Telegram, K039) and resolves it on success');
 {
   const ha = parseYaml(files['hands-alerts.yml']);
   ok(/vars\.ALERTS_TICK == 'on'/.test(ha.jobs.alerts.if) && /github\.event_name == 'workflow_dispatch'/.test(ha.jobs.alerts.if), 'the scheduled tick runs only with ALERTS_TICK=on (a skipped job starts no runner)');
