@@ -464,7 +464,36 @@ ok(c.code === 0 && /bot @example_alerts_bot/.test(c.out) && /group "Owner alerts
   at('2026-11-11T09:00:00Z'); await raise(store(`file:${join(dir, 'pre.json')}`), telegram(), { kind: 'good_news', text: 'ERP: invoices print again.' }, ob);
   ok(last().message_thread_id === undefined && last().text === '[Good news] 🎉 ERP: invoices print again.', 'a kind whose topic is not set up yet goes to General with the topic named');
   await telegram().send('nonsense', 'x').then(() => ok(false, 'unknown topic'), (e) => ok(/unknown topic "nonsense"/.test(e.message), 'a topic the kit does not know is still an error'));
+  await telegram().send('erp', 'x').then(() => ok(false, 'missing older topic'), (e) => ok(/unknown topic "erp"/.test(e.message), 'an older topic missing from the config is still an error, as before (only the K037 topics fall back)'));
   delete process.env.ALERTS_TOPICS;
+
+  // a store that keeps no news (GitHub, in a product's Actions run): good news goes out plain; a key, --summary-only and the summary need a host's file store
+  {
+    const gsn = store('github:o/infra'), mgs = mark();
+    at('2026-11-12T09:00:00Z');
+    r = await raise(gsn, tg, { kind: 'good_news', text: 'Website: the new catalogue is live.' }, ob);
+    ok(r.status === 'sent' && since(mgs).length === 1 && !board.issues.some((i) => /good_news/.test(i.body || '')), 'good_news from a GitHub store is sent and opens no issue');
+    const refused = [];
+    for (const o of [{ key: 'web/catalogue' }, { summaryOnly: true }]) await raise(gsn, tg, { kind: 'good_news', text: 'Website: X is live.', ...o }, ob).then(() => refused.push('sent'), (e) => refused.push(e.message));
+    ok(refused.every((e) => /keeps no news/.test(e)) && since(mgs).length === 1, 'good_news --key or --summary-only on a store that keeps no news is refused, never sent twice or lost');
+    await summary([gsn], tg, { board: ob, progress: ['x'] }).then(() => ok(false, 'summary refused'), (e) => ok(/none of the stores keeps news/.test(e.message) && since(mgs).length === 1, 'a summary with no store that keeps news is refused, so it cannot go out twice'));
+    ok(plainProblems('🎉 Website: rebuilt on Next.js, faster pages.').length === 0, 'rule C: a product name like Next.js is plain words');
+  }
+
+  // an outage is never capped, and its board row does not wait for Telegram
+  {
+    process.env.ALERTS_HOLD_MINUTES = '0';
+    const cs3 = store(`file:${join(dir, 'outcap.json')}`), mc = mark();
+    at('2026-11-12T10:00:00Z');
+    for (let i = 0; i < 12; i++) await raise(cs3, tg, { kind: 'needs_you', key: `flood/${i}`, what: `Item ${i} waits for you.`, means: 'It waits.', step: 'Open the link.' }, ob);
+    const sentNeeds = since(mc).length;
+    r = await raise(cs3, tg, { kind: 'outage', key: 'erp/down', system: 'ERP' }, ob);
+    ok(sentNeeds === 10 && r.status === 'sent' && since(mc).length === 11, 'an outage goes out at once even past the hourly cap of "Needs you" (10 sent, then the outage)');
+    const c1 = board.comments.length;
+    await raise(cs3, telegram({ token: '' }), { kind: 'outage', key: 'web/down2', system: 'Website' }, ob);
+    ok(board.comments.length === c1 + 1 && /`web\/down2`/.test(board.comments.at(-1).body), 'an outage raised where no bot token is still reaches the Ops board at once');
+    delete process.env.ALERTS_HOLD_MINUTES;
+  }
 
   // the command line
   const cs2 = { ALERTS_STORE: `file:${join(dir, 'cli-kinds.json')}`, ALERTS_HOLD_MINUTES: '0', ALERTS_OPS_BOARD: 'github:o/infra' };

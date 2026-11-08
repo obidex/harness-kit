@@ -77,6 +77,7 @@ export const TOPICS = {
   daily: { name: 'Daily', color: 0xFB6F5F },
 };
 export const CONFIG_MARK = 'harness-alerts config';
+const NEW_TOPICS = ['good', 'summary']; // K037: until setup runs again they reach General, named
 const HOUR = 3600e3;
 const REPEAT_GAP = 20 * 3600e3; // a capped problem's repeats: a new day and at least this long since its last message
 const env = (k, d) => process.env[k] ?? d;
@@ -132,12 +133,12 @@ export function telegram({ token = env('ALERTS_BOT_TOKEN') || env('TELEGRAM_BOT_
     throw new Error(`Telegram ${method}: ${r.status} ${j.description || ''}`.trim());
   };
   let topics;
-  // the topic's thread, or General with the topic's name leading the text: before setup (no config) and for a
-  // kit topic the group has not created yet (setup adds it); a topic the kit does not know is an error
+  // the topic's thread, or General with the topic's name leading the text: before setup (no config), and for a
+  // topic K037 added that the group has not created yet (setup adds it); any other missing topic is an error, as before
   const where = async (topic, text) => {
     const ids = await tg.topics();
     if (ids[topic]) return { message_thread_id: ids[topic], text };
-    if (Object.keys(ids).length && !(topic in TOPICS)) throw new Error(`unknown topic "${topic}" (known: ${Object.keys(ids).join(', ')})`);
+    if (Object.keys(ids).length && !NEW_TOPICS.includes(topic)) throw new Error(`unknown topic "${topic}" (known: ${Object.keys(ids).join(', ')})`);
     return { text: `[${TOPICS[topic]?.name || topic}] ${text}` };
   };
   const tg = {
@@ -384,7 +385,7 @@ export const TEMPLATES = {
 /** Rule C: what an owner-facing message never carries. Links are allowed (a link opens the page where his step is). */
 export const NOT_PLAIN = [
   [/(^|[\s(:'"])~?\/[\w.-]+\/[\w./-]*/, 'a filesystem path'],
-  [/\b[\w-]+\.(sh|mjs|cjs|js|ts|py|json|ya?ml|log|conf|env|service|timer)\b/i, 'a file name'],
+  [/\b[\w-]+\.(sh|mjs|cjs|py|json|ya?ml|log|conf|env|service|timer)\b/i, 'a file name'], // not .js: "Next.js" is a product name
   [/\b\d+(\.\d+)?\s?(B|KB|MB|GB|TB|KiB|MiB|GiB|TiB)\b/, 'a size'],
   [/\b\d{1,3}(\.\d{1,3}){3}\b/, 'an address'],
   [/\b[\w-]+\.(internal|local|lan|home\.arpa)\b/i, 'a host name'],
@@ -457,9 +458,9 @@ async function boardSync(board, inc, t) {
 /** Deliver a due kind: a Telegram message for the owner's kinds, a board entry for ops; true when it went out. */
 async function deliver(st, tg, board, inc, list, t, r) {
   if (inc.kind === 'ops') return boardSync(board, inc, t);
+  await boardSync(board, inc, t); // an outage's board row does not wait for Telegram
   if (!tg.ready || capped(list, inc, t, r)) return false;
   inc.msg = await tg.send(inc.topic, inc.message, { outage: inc.outage, t }); inc.sentAt = t;
-  await boardSync(board, inc, t);
   return true;
 }
 const delivered = (inc) => (inc.kind === 'ops' ? !!inc.boarded : !!inc.msg);
@@ -508,6 +509,8 @@ export async function raise(st, tg, o, board = opsBoard()) {
 /** 🎉 one line; recorded (where the store keeps news) for the evening summary. One key goes out once. */
 async function goodNews(st, tg, o, t) {
   if (!o.text) throw new Error('good_news needs --text: one line, what people can use now');
+  // only a store that keeps news (a host's file) can remember a key or hold a line for the summary
+  if (!st.news && (o.key || o.summaryOnly)) throw new Error(`good_news: ${st.name} keeps no news, so --key and --summary-only need a file store (send it from the host, or drop them)`);
   const inc = { key: o.key || `good/${t}`, kind: 'good_news', topic: 'good', text: one(o.text), opened: t, closed: t, open: false, msg: null };
   inc.message = TEMPLATES.good_news(inc); mustBePlain('good_news', inc.message);
   return st.locked(async () => {
@@ -539,12 +542,13 @@ export async function summaryText(stores, { progress = [], board = opsBoard() } 
 export async function summary(stores, tg, o = {}) {
   const t = now(), key = `summary/${dayOf(t)}`;
   const keep = stores.find((s) => s.news);
-  if (keep && (await keep.list()).some((i) => i.key === key)) return { status: 'already sent today' };
+  if (!keep) throw new Error('summary: none of the stores keeps news (a file store), so it could neither list good news nor send only once a day');
+  if ((await keep.list()).some((i) => i.key === key)) return { status: 'already sent today' };
   const text = await summaryText(stores, o, t);
   if (!text) return { status: 'nothing to say: no summary today' };
   if (o.dryRun) return { status: 'dry run', text };
   await tg.send('summary', text, { t });
-  if (keep) await keep.locked(() => keep.save({ key, kind: 'summary', opened: t, closed: t, open: false }));
+  await keep.locked(() => keep.save({ key, kind: 'summary', opened: t, closed: t, open: false }));
   return { status: 'sent', text };
 }
 

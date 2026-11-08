@@ -14,8 +14,8 @@ older form, kept until every sender has moved to a kind.
 |---|---|---|---|
 | `needs_you` | `needs_you --key --what --means --step [--minutes] [--link]` | "Needs you", loud by day | 🛑 three plain lines: what happened, what it means, his exact step with minutes; a link only to the page where the step happens. Resolve edits it to `✅ Sorted: …` |
 | `outage` | `outage --key --system <Website, ERP> [--who]` | "Needs you", always loud | `⚠️ Website is down since 11:05. Platform is fixing it. Nothing for you.` Resolve edits the same message to `✅ Website was down 12 min. Fixed.` (an edit is silent; never a second message). Also a 🛑 row on the Ops board |
-| `good_news` | `good_news --text [--key] [--summary-only]` | "Good news", silent | `🎉 ERP: the purchase orders screen is live. Staff can use it now.` One key goes out once; `--summary-only` keeps it for the summary |
-| `summary` | `summary [--stores] [--progress <line>]…` | "Summary", 20:00 Damascus | ☀️ went live today · in progress · needs you (or "nothing"), last line `Background: <the Ops board>`. No message on a day with nothing to say; once a day |
+| `good_news` | `good_news --text [--key] [--summary-only]` (the last two only on a host's file store) | "Good news", silent | `🎉 ERP: the purchase orders screen is live. Staff can use it now.` One key goes out once; `--summary-only` keeps it for the summary |
+| `summary` | `summary [--stores] [--progress <line>]…` | "Summary", 20:00 Damascus | ☀️ went live today · in progress · needs you (or "nothing"), last line `Background: <the Ops board>`. No message on a day with nothing to say; once a day; needs a file store among `--stores` |
 | `ops` | `ops --key --text [--link] [--system] [--who]` | the Ops board only | nothing: one comment per problem and per resolve, the board's row ⚠️ then ✅ |
 
 - **The Ops board** is one issue in the repository `ALERTS_OPS_BOARD` names (`github:<owner/name>`,
