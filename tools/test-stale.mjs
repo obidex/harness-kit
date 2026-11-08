@@ -323,9 +323,9 @@ ok(st.jobs.stale.permissions.issues === 'write' && Object.entries(st.jobs.stale.
 // --- the hands daily drift check runs the missed-run check with read-only Actions access -------------
 const hs = parseYaml(readFileSync(join(kit, '.harness/templates/hands/hands-settings.yml'), 'utf8'));
 const miss = hs.jobs.discover.steps.find((x) => x.name === 'Missed scheduled runs');
-ok(hs.on.schedule.length === 1 && miss && /stale\.mjs schedules --repo "\$GITHUB_REPOSITORY" --alert/.test(miss.run) && miss.env.ALERTS_TOPIC === 'kit' && miss.env.GH_TOKEN === '${{ github.token }}'
+ok(hs.on.schedule.length === 1 && miss && /stale\.mjs schedules --repo "\$GITHUB_REPOSITORY" --alert/.test(miss.run) && miss.env.ALERTS_OPS_BOARD === '${{ vars.ALERTS_OPS_BOARD }}' && !('ALERTS_TOPIC' in miss.env) && miss.env.GH_TOKEN === '${{ github.token }}'
   && /^set -euo pipefail\n/.test(miss.run) && hs.jobs.discover.permissions.actions === 'read' && miss.if === "always() && inputs.repo == ''" && !('continue-on-error' in miss),
-  'hands-settings: its one daily job also checks missed scheduled runs into "Kit & Hands", with actions: read, and a failure of that check fails the step (pipefail, so tee cannot hide it)');
+  'hands-settings: its one daily job also checks missed scheduled runs onto the Ops board (never a Telegram topic, K038), with actions: read, and a failure of that check fails the step (pipefail, so tee cannot hide it)');
 
 // --- the audit counts the installed workflow for C15 ---------------------------------------------------
 const proj = mkdtempSync(join(tmpdir(), 'harness-stale-'));
