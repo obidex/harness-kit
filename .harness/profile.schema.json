@@ -195,7 +195,7 @@
         "initiative_labels": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
         "wait_labels": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
         "watch": { "type": "array", "items": { "enum": ["pr", "card", "inbox", "initiative", "wait"] }, "uniqueItems": true, "minItems": 1 },
-        "alerts_max": { "type": "integer", "minimum": 1, "maximum": 10 }
+        "alerts_max": { "type": "integer", "minimum": 1, "maximum": 10, "description": "Read for old profiles; unused since 0.35.0 (K038): stale work never reaches Telegram." }
       }
     },
     "kit_updates": {

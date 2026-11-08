@@ -7,16 +7,16 @@
 //                                         in Actions (harness-stale.yml, or a coordinator's daily
 //                                         backstop run): scan, then bring the one "Stale work" tracking
 //                                         issue up to date (create, edit in place, reopen, or close when
-//                                         the list is empty) and alert through notify.mjs (O10), one
-//                                         capped problem per stale item (below)
+//                                         the list is empty); with ALERTS_OPS_BOARD, one Ops board row
+//                                         per stale item (below). Never a message to the owner (K038)
 //   node .harness/tools/stale.mjs schedules --repo owner/name [--alert]
 //                                         missed scheduled runs: every scheduled workflow whose next
 //                                         run (by its cron, after its last scheduled or by-hand run) is more than
 //                                         HARNESS_SCHEDULE_OVERDUE_HOURS (36) overdue. GitHub's schedules
-//                                         are best-effort, so none is trusted silently. With --alert, a
-//                                         problem `schedule:<owner/name>/<file>` in the project's topic
-//                                         for each overdue one, and `resolve` once it has run again
-//                                         (on schedule or by hand).
+//                                         are best-effort, so none is trusted silently. With --alert, an
+//                                         Ops board row `schedule:<owner/name>/<file>` (ALERTS_OPS_BOARD)
+//                                         for each overdue one, resolved once it has run again (on
+//                                         schedule or by hand); never a message to the owner (K038).
 //                                         GH_TOKEN needs actions: read and contents: read. Any sender can
 //                                         run it (the hands daily check, a host's tick).
 //
@@ -38,21 +38,20 @@
 //
 // The tracking issue is found by the hidden marker `<!-- harness-stale -->`: one issue per
 // repository, never one per run (RJ02), and only one filed by github-actions[bot] counts, so `report`
-// runs in Actions. Alerts follow the one standard (O10, .harness/alerts.md) through notify.mjs, never
-// Telegram directly: each stale item is one problem `stale:<owner/name>#<number>` in the project's topic
-// (the Actions variable ALERTS_TOPIC, else the profile's alerts.topic), capped (notify --max-sends,
-// `alerts_max`, default 3): the PROBLEM, then at most one STILL OPEN a day while it stays stale, 3
-// messages in all, never escalated; after that only a line in the daily digest. When the item moves (or
-// closes) the next report resolves it: a RESOLVED reply. notify.mjs's store is github:<owner/name>
-// (ALERTS_STORE); without ALERTS_BOT_TOKEN and ALERTS_CHAT_ID a problem is recorded as an issue and the
-// next report sends it. GH_TOKEN reads the repository and writes the issues.
+// runs in Actions. Stale work is the agents' own backlog, never the owner's (owner, roadmap #59, 8 Nov
+// 2026; K038): nothing here reaches Telegram. The tracking issue is the list the coordinator works through
+// (resume each item, or close or park it with a reason). Where ALERTS_OPS_BOARD names the Ops board, each
+// stale item is also an `ops` row there, `stale:<owner/name>#<number>`, turned ✅ when the item moves or
+// closes. A capped Telegram problem an earlier kit opened for an item is closed without a message
+// (notify resolve --quiet). `alerts_max` is still read, for old profiles, and no longer used.
+// notify.mjs's store is github:<owner/name> (ALERTS_STORE). GH_TOKEN reads the repository and writes the issues.
 
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse as parseInbox } from './inbox.mjs';
 import { parseYaml } from './lib.mjs';
-import { TOPICS, problem, resolveKey, store, telegram, localTime } from './notify.mjs';
+import { TOPICS, raise, resolveKey, store, telegram, opsBoard, localTime } from './notify.mjs';
 
 export const MARKER = '<!-- harness-stale -->';
 export const TITLE = 'Stale work';
@@ -268,8 +267,16 @@ async function findTracking(repo) {
   return null;
 }
 
-/** scan, then update the one tracking issue and alert through notify.mjs: one capped problem per stale
- *  item, a RESOLVED for each item that moved. Every item is tried; a failed alert fails the run after. */
+/** Close, without any message, the Telegram problems an earlier kit opened under these keys (K038). */
+async function quietClose(st, tg, keep, alerts, errors) {
+  for (const inc of (await st.list()).filter((i) => i.open && !i.kind && keep(i.key))) {
+    try { alerts[inc.key] = (await resolveKey(st, tg, { key: inc.key, text: 'stale work is the agents\' backlog, not the owner\'s (K038)', quiet: true })).status; }
+    catch (e) { errors.push(e); alerts[inc.key] = 'failed'; }
+  }
+}
+
+/** scan, then update the one tracking issue; with the Ops board, one `ops` row per stale item and ✅ for
+ *  each that moved. Never a message to the owner (K038). A failed board call fails the run after. */
 export async function report(repo, now = Date.now(), s = settings(loadData())) {
   const items = await scan(repo, now, s);
   const issue = await findTracking(repo);
@@ -283,22 +290,20 @@ export async function report(repo, now = Date.now(), s = settings(loadData())) {
     else if (issue.state !== 'open' || issue.body !== body) target = await api('PATCH', `/repos/${repo}/issues/${issue.number}`, { body, ...(issue.state !== 'open' ? { state: 'open' } : {}) });
     console.log(`stale: ${items.length} item(s) listed in ${target.html_url}`);
   }
-  const topic = topicOf();
-  if (!topic) { if (items.length) console.log('stale: no alert: set alerts.topic in .harness/profile.json (or the Actions variable ALERTS_TOPIC) to this project\'s topic (.harness/alerts.md)'); return { items, issue: target?.number ?? null, alerts: {}, alert: 'no topic' }; }
-  const st = store(process.env.ALERTS_STORE || `github:${repo}`), tg = telegram();
+  const st = store(process.env.ALERTS_STORE || `github:${repo}`), tg = telegram(), board = opsBoard();
   const alerts = {}, errors = [];
+  await quietClose(st, tg, (k) => k === `stale:${repo}` || k.startsWith(`stale:${repo}#`), alerts, errors);
   const stale = new Set(items.map((i) => itemKey(repo, i.number)));
-  // items that moved or closed: RESOLVED; the one aggregate problem of 0.31 and earlier closes too
-  const open = (await st.list()).filter((i) => i.open && (i.key === `stale:${repo}` || (i.key.startsWith(`stale:${repo}#`) && !stale.has(i.key))));
-  for (const inc of open) {
-    try { alerts[inc.key] = (await resolveKey(st, tg, { key: inc.key, text: inc.key === `stale:${repo}` ? 'replaced by one alert per stale item' : `#${inc.key.split('#').pop()} moved again or closed` })).status; }
+  for (const inc of (await st.list()).filter((i) => i.open && i.kind === 'ops' && i.key.startsWith(`stale:${repo}#`) && !stale.has(i.key))) {
+    try { alerts[inc.key] = (await resolveKey(st, tg, { key: inc.key, text: `#${inc.key.split('#').pop()} moved again or closed` }, board)).status; }
     catch (e) { errors.push(e); alerts[inc.key] = 'failed'; }
   }
-  for (const i of items) {
+  if (board) for (const i of items) {
     const key = itemKey(repo, i.number);
-    try { alerts[key] = (await problem(st, tg, { key, topic, title: `Stale: #${i.number} in ${repo}`, text: itemText(repo, i), link: i.url, maxSends: s.alertsMax })).status; }
+    try { alerts[key] = (await raise(st, tg, { kind: 'ops', key, system: repo, who: 'Platform', text: itemText(repo, i), link: i.url }, board)).status; }
     catch (e) { errors.push(e); alerts[key] = 'failed'; }
   }
+  else if (items.length) console.log('stale: the list is the tracking issue (no ALERTS_OPS_BOARD, so no board rows); nothing goes to the owner');
   for (const [k, v] of Object.entries(alerts)) console.log(`stale: alert ${k} ${v}`);
   if (errors.length) throw errors[0];
   return { items, issue: target?.number ?? null, alerts, alert: Object.values(alerts).join(',') || 'none' };
@@ -410,18 +415,21 @@ export function missedText(repo, s, limit = 36) {
   return `Scheduled run missed: ${s.workflow} in ${repo} was due ${localTime(s.due)} and is ${s.lateHours} h overdue (more than ${limit} h); last run ${s.lastRun ? localTime(s.lastRun) : 'never'}. ${why}.`;
 }
 
-/** schedules, then a problem per overdue workflow and a resolve for each that ran again. */
-export async function alertSchedules(repo, now = Date.now(), topic = topicOf()) {
-  if (!topic) throw new Error('no topic: set ALERTS_TOPIC (or alerts.topic in .harness/profile.json) to the topic for missed runs');
+/** schedules, then an Ops board row per overdue workflow and ✅ for each that ran again; never a message
+ *  to the owner (K038). Without ALERTS_OPS_BOARD it only lists them. */
+export async function alertSchedules(repo, now = Date.now(), board = opsBoard()) {
   const limit = overdueHours();
   const list = await schedules(repo, now, limit);
   const st = store(process.env.ALERTS_STORE || `github:${repo}`), tg = telegram();
+  const old = {}, errors = [];
+  await quietClose(st, tg, (k) => k.startsWith(`schedule:${repo}/`), old, errors);
+  if (errors.length) throw errors[0];
   const done = [];
   for (const s of list) {
     const key = `schedule:${repo}/${s.file}`;
-    const r = s.overdue
-      ? await problem(st, tg, { key, topic, title: `Scheduled run missed: ${s.workflow}`, text: missedText(repo, s, limit), link: s.url })
-      : await resolveKey(st, tg, { key, text: `${s.workflow} in ${repo} ran again (${s.lastRun ? localTime(s.lastRun) : 'its next run is not due yet'})` });
+    const r = !board ? { status: s.overdue ? 'listed only (no ALERTS_OPS_BOARD)' : 'ok' } : s.overdue
+      ? await raise(st, tg, { kind: 'ops', key, system: repo, who: 'Platform', text: missedText(repo, s, limit), link: s.url }, board)
+      : await resolveKey(st, tg, { key, text: `${s.workflow} in ${repo} ran again (${s.lastRun ? localTime(s.lastRun) : 'its next run is not due yet'})` }, board);
     done.push({ ...s, alert: r.status });
   }
   return done;

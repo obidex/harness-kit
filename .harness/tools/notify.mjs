@@ -8,8 +8,10 @@
 //        [--action] [--outage] [--you <line>] [--max-sends <n>]
 //                                               open a problem (a repeat of an open key sends nothing,
 //                                               except a capped problem's daily repeat, below)
-//   node .harness/tools/notify.mjs resolve --key <k> [--text <t>]
-//                                               reply RESOLVED to the problem's message and close it
+//   node .harness/tools/notify.mjs resolve --key <k> [--text <t>] [--quiet]
+//                                               reply RESOLVED to the problem's message and close it;
+//                                               --quiet closes it without any message (K038: a problem that
+//                                               should never have reached the owner)
 //   node .harness/tools/notify.mjs tick [--stores <spec,…>]
 //                                               escalate, remind STILL OPEN once a day, send queued problems
 //   node .harness/tools/notify.mjs digest [--stores <spec,…>]
@@ -17,8 +19,9 @@
 //   node .harness/tools/notify.mjs send --topic <t> --text <t>     one plain message (silent unless "needs")
 //
 // Kinds (K037, S-034): what a sender reports, so the channel can change without touching senders.
-//   node .harness/tools/notify.mjs needs_you --key <k> --what <t> --means <t> --step <t> [--minutes <n>] [--link <url>]
-//                                               🛑 three plain lines in "Needs you"; resolve edits it to ✅
+//   node .harness/tools/notify.mjs needs_you --key <k> --what <t> --step <t> --where <t> --when now|today|"this week"
+//        [--minutes <n>] [--link <url>]         🛑 the owner's five lines in "Needs you" (K038); several due
+//                                               together go as ONE message; resolve edits it to ✅
 //   node .harness/tools/notify.mjs outage --key <k> --system <name> [--who <name>]
 //                                               ⚠️ one loud message; resolve edits the same message to ✅
 //   node .harness/tools/notify.mjs good_news --text <t> [--key <k>] [--summary-only]
@@ -28,8 +31,10 @@
 //   node .harness/tools/notify.mjs summary [--stores <spec,…>] [--progress <line>]… [--dry-run]
 //                                               ☀️ the evening summary in "Summary"; nothing on a day with nothing to say
 //   node .harness/tools/notify.mjs board        find or open the Ops board issue and print its link
-//   The owner-facing kinds refuse a text with a path, a size, an address, a run id, an error code or
-//   "You: nothing" (rule C), and no message carries a button.
+//   The owner-facing kinds refuse a text with a path, a size, an address, a run id, an error code,
+//   "You: nothing", an issue number outside a quoted paste, an alert count or a threshold (rule C), any
+//   message not in the owner's format (K038: `🛑 what` / `Who:` / `Do:` / `Where:` / `When:`, five lines
+//   at most), and no message carries a button.
 //   node .harness/tools/notify.mjs test         a PROBLEM in "Kit & Hands" and its RESOLVED reply (a proof)
 //   node .harness/tools/notify.mjs find         the bot's name and the groups it was added to, with their ids
 //
@@ -321,7 +326,7 @@ export async function resolveKey(st, tg, o, board) {
     if (!inc) return { status: 'none' };
     if (inc.kind) return resolveKind(st, tg, inc, o, t, board === undefined && ['ops', 'outage'].includes(inc.kind) ? opsBoard() : board);
     const text = fixed(inc, t);
-    if (inc.msg) {
+    if (inc.msg && !o.quiet) {
       await tg.send(inc.topic, text, { reply: inc.msg, t });
       if (inc.escMsg) await tg.send('needs', text, { reply: inc.escMsg, t });
     }
@@ -329,15 +334,17 @@ export async function resolveKey(st, tg, o, board) {
     for (const id of [inc.msg, inc.escMsg].filter(Boolean)) await tg.call('unpinChatMessage', { chat_id: tg.chat, message_id: id }).catch(() => {});
     inc.open = false; inc.closed = t; inc.resolution = one(o.text || '');
     await st.close(inc, `RESOLVED after ${age(t - inc.opened)}${o.text ? `: ${one(o.text)}` : '.'}`);
-    return { status: inc.msg ? 'resolved' : 'closed-unsent', inc };
+    return { status: inc.msg ? (o.quiet ? 'closed-quietly' : 'resolved') : 'closed-unsent', inc };
   });
 }
 
 /** A kind ends with ✅ where it began: the owner's message is edited in place (silent, never a second
  * message); an ops or outage row on the board turns ✅ with one resolve comment. */
 async function resolveKind(st, tg, inc, o, t, board) {
-  if (inc.msg) {
-    const done = inc.kind === 'outage' ? TEMPLATES.outage_fixed(inc, t) : TEMPLATES.needs_you_done(inc);
+  const mates = inc.batch ? (await st.list()).filter((i) => i.key !== inc.key && inc.batch.includes(i.key) && i.msg === inc.msg) : [];
+  if (inc.msg && mates.some((i) => i.open)) { /* one message for several: it turns ✅ when the last of them is sorted */ }
+  else if (inc.msg) {
+    const done = inc.kind === 'outage' ? TEMPLATES.outage_fixed(inc, t) : mates.length ? TEMPLATES.needs_you_batch_done([inc, ...mates]) : TEMPLATES.needs_you_done(inc);
     await tg.edit(inc.topic, inc.msg, done);
     await tg.call('unpinChatMessage', { chat_id: tg.chat, message_id: inc.msg }).catch(() => {});
   }
@@ -369,19 +376,44 @@ const KIND_TOPIC = { needs_you: 'needs', outage: 'needs', good_news: 'good', sum
 const hhmm = (t) => localTime(t).slice(11);
 /** Every owner-facing message the kinds send, in one place (the template test reads these). */
 export const TEMPLATES = {
-  needs_you: (i) => [`🛑 ${i.what}`, i.means, `👉 ${i.step}${i.minutes ? ` (about ${i.minutes} min)` : ''}`, ...(i.link ? [i.link] : [])].join('\n'),
-  needs_you_done: (i) => `✅ Sorted: ${i.what}`,
-  outage: (i) => `⚠️ ${i.system} is down since ${hhmm(i.opened)}. ${i.who} is fixing it. Nothing for you.`,
-  outage_fixed: (i, t) => `✅ ${i.system} was down ${age(t - i.opened)}. Fixed.`,
-  good_news: (i) => `🎉 ${i.text}`,
+  needs_you: (i) => [`🛑 ${i.what}`, 'Who: you', `Do: ${i.step}${i.minutes ? ` (about ${i.minutes} min)` : ''}`,
+    `Where: ${i.where}${i.link ? ` ${i.link}` : ''}`, `When: ${i.when}`].join('\n'),
+  // several due together: ONE message (owner, roadmap #59, 8 Nov 2026), each step numbered in its Do line
+  needs_you_batch: (list) => [`🛑 ${list.length} things need you: ${list.map((i) => i.what.replace(/[.!]$/, '')).join('; ')}.`, 'Who: you',
+    `Do: ${list.map((i, n) => `${n + 1}) ${i.step}${i.minutes ? ` (about ${i.minutes} min)` : ''}`).join(' ')}`,
+    `Where: ${[...new Set(list.map((i) => i.where))].join('; ')}`, `When: ${WHEN.find((w) => list.some((i) => i.when === w))}`].join('\n'),
+  needs_you_done: (i) => [`✅ Sorted: ${i.what}`, 'Do: nothing'].join('\n'),
+  needs_you_batch_done: (list) => [`✅ Sorted: ${list.length} things that needed you`, 'Do: nothing'].join('\n'),
+  outage: (i) => [`⚠️ ${i.system} is down since ${hhmm(i.opened)}`, `Who: ${i.who}`, 'Do: nothing', 'When: now'].join('\n'),
+  outage_fixed: (i, t) => [`✅ ${i.system} was down ${age(t - i.opened)}. Fixed.`, 'Do: nothing'].join('\n'),
+  good_news: (i) => [`🎉 ${i.text}`, 'Do: nothing'].join('\n'),
+  // the evening summary in the same five lines: what happened today, who, his one action (or nothing)
   summary: ({ date, live, progress, needs, board }) => [
-    `☀️ Today, ${date}`,
-    `🎉 Went live: ${live.length ? '' : 'nothing new'}`, ...live.map((x) => `• ${x}`),
-    `🔧 In progress: ${progress.length ? '' : 'nothing'}`, ...progress.map((x) => `• ${x}`),
-    `🛑 Needs you: ${needs.length ? '' : 'nothing'}`, ...needs.map((x) => `• ${x}`),
-    ...(board ? [`Background: ${board}`] : []),
-  ].map((l) => l.trimEnd()).join('\n'),
+    `☀️ ${date}: ${[live.length ? `went live: ${live.map((x) => x.replace(/[.!]$/, '')).join('; ')}` : '', progress.length ? `in progress: ${progress.join('; ')}` : ''].filter(Boolean).join('. ') || 'nothing new'}.`,
+    `Who: ${needs.length ? 'you' : 'Platform'}`,
+    `Do: ${needs.length ? `${needs[0]}${needs.length > 1 ? ` (and ${needs.length - 1} more in Needs you)` : ''}` : 'nothing'}`,
+    ...(needs.length ? ['Where: the Needs you topic'] : board ? [`Where: ${board}`] : []),
+    ...(needs.length ? ['When: today'] : []),
+  ].join('\n'),
 };
+/** When an owner step is due, soonest first. */
+export const WHEN = ['now', 'today', 'this week'];
+/** The owner's format (roadmap #59, 8 Nov 2026; K038): at most five lines, the first an emoji and what
+ * happened in plain words, then only the labelled lines Who:, Do:, Where:, When:, in that order, with Do:
+ * always there. A "Who:" that is not him means it was never his: senders send those to the Ops board. */
+export function formatProblems(text) {
+  const lines = String(text ?? '').split('\n'), p = [];
+  if (lines.length > 5) p.push(`${lines.length} lines (five at most)`);
+  if (!/^\p{Extended_Pictographic}\uFE0F? \S/u.test(lines[0] || '')) p.push('a first line that is not an emoji and what happened');
+  const labels = lines.slice(1).map((l) => (l.match(/^(Who|Do|Where|When): \S/) || [])[1] || null);
+  if (labels.some((l) => !l)) p.push('a line after the first that is not Who:, Do:, Where: or When:');
+  const order = ['Who', 'Do', 'Where', 'When'], got = labels.filter(Boolean);
+  if (got.some((l, i) => i && order.indexOf(l) <= order.indexOf(got[i - 1]))) p.push('the labelled lines out of order (Who, Do, Where, When) or twice');
+  if (!got.includes('Do')) p.push('no Do: line');
+  const when = lines.find((l) => l.startsWith('When: '));
+  if (when && !WHEN.includes(when.slice(6))) p.push('a When: that is not now, today or this week');
+  return p;
+}
 /** Rule C: what an owner-facing message never carries. Links are allowed (a link opens the page where his step is). */
 export const NOT_PLAIN = [
   [/(^|[\s(:'"])~?\/[\w.-]+\/[\w./-]*/, 'a filesystem path'],
@@ -392,10 +424,25 @@ export const NOT_PLAIN = [
   [/\b\d{8,}\b/, 'a run or message id'],
   [/\b(exit (code |status )?\d+|HTTP \d{3}|E(CONN\w+|NOENT|ACCES|PERM|TIMEDOUT|ADDRINUSE|NOTFOUND))\b/i, 'an error code'],
   [/\bYou: nothing\b/i, '"You: nothing"'],
+  [/\balert \d+ of \d+\b/i, 'an alert count'],
+  [/\bthreshold\b/i, 'a threshold'],
+  [/\bResume it or record why it waits\b/i, 'an instruction meant for an agent'],
 ];
+/** A repository or issue number (#12, name#12, owner/name#12) is refused outside a quoted paste ("…" or “…”). */
+const NUMBER = /(^|[^\w&])#\d+\b|\b[\w.-]+(\/[\w.-]+)?#\d+\b/;
 /** The rule-C problems in a text meant for the owner (links stripped first); [] when it is plain. */
-export const plainProblems = (text) => { const s = String(text ?? '').replace(/https?:\/\/\S+/g, ''); return NOT_PLAIN.filter(([re]) => re.test(s)).map(([, what]) => what); };
-const mustBePlain = (kind, text) => { const p = plainProblems(text); if (p.length) throw new Error(`${kind}: the owner's message carries ${p.join(', ')}: say it in business words (the technical part goes to the Ops board)`); };
+export const plainProblems = (text) => {
+  const s = String(text ?? '').replace(/https?:\/\/\S+/g, '');
+  const p = NOT_PLAIN.filter(([re]) => re.test(s)).map(([, what]) => what);
+  if (NUMBER.test(s.replace(/"[^"\n]*"|“[^”\n]*”/g, '""'))) p.push('a repository or issue number');
+  return p;
+};
+const mustBePlain = (kind, text) => {
+  const p = plainProblems(text);
+  if (p.length) throw new Error(`${kind}: the owner's message carries ${p.join(', ')}: say it in business words (the technical part goes to the Ops board)`);
+  const f = formatProblems(text);
+  if (f.length) throw new Error(`${kind}: the owner's message is not in his format (${f.join('; ')}): 🛑 what / Who: / Do: / Where: / When:`);
+};
 /** A board or comment text never notifies anyone on GitHub: no @mention survives. */
 const noMention = (s) => String(s ?? '').replace(/@(?=[A-Za-z0-9])/g, '@​');
 const cell = (s) => noMention(one(s)).replaceAll('|', '\\|');
@@ -465,6 +512,21 @@ async function deliver(st, tg, board, inc, list, t, r) {
 }
 const delivered = (inc) => (inc.kind === 'ops' ? !!inc.boarded : !!inc.msg);
 
+/** Open Needs you items already due and not yet sent. */
+const waitingNeeds = (st, list, t) => list.filter((i) => i.kind === 'needs_you' && i.open && !i.msg && due(st, i, t));
+/** Several Needs you due together go as ONE message (owner, roadmap #59): each remembers it and the
+ * batch, so resolving one stays silent until the last of them, which edits the message to ✅. */
+async function deliverNeeds(st, tg, items, list, t, r) {
+  if (items.length === 1) return deliver(st, tg, null, items[0], list, t, r);
+  items.sort((a, b) => a.opened - b.opened);
+  if (!tg.ready || capped(list, items[0], t, r)) return false;
+  const text = TEMPLATES.needs_you_batch(items);
+  mustBePlain('needs_you', text);
+  const msg = await tg.send('needs', text, { t });
+  for (const i of items) { i.msg = msg; i.sentAt = t; i.batch = items.map((x) => x.key); }
+  return true;
+}
+
 /** Raise one kind (needs_you, outage, good_news, ops). A repeat of an open key sends nothing. */
 export async function raise(st, tg, o, board = opsBoard()) {
   const r = rules(), t = now(), kind = o.kind;
@@ -473,9 +535,10 @@ export async function raise(st, tg, o, board = opsBoard()) {
   if (!o.key) throw new Error('--key is required');
   const inc = { key: o.key, kind, topic: KIND_TOPIC[kind] || null, opened: t, msg: null, count: 1, open: true, ...(o.link ? { link: o.link } : {}) };
   if (kind === 'needs_you') {
-    for (const f of ['what', 'means', 'step']) if (!o[f]) throw new Error('needs_you needs --what, --means and --step: what happened, what it means, his exact step');
+    for (const f of ['what', 'step', 'where', 'when']) if (!o[f]) throw new Error('needs_you needs --what, --step, --where and --when: what is wrong, his exact action, the exact place, now/today/this week');
+    if (!WHEN.includes(one(o.when))) throw new Error('--when is now, today or "this week"');
     if (o.minutes !== undefined && !(Number.isInteger(Number(o.minutes)) && Number(o.minutes) > 0)) throw new Error('--minutes is a whole number of minutes');
-    Object.assign(inc, { what: one(o.what), means: one(o.means), step: one(o.step), ...(o.minutes ? { minutes: Number(o.minutes) } : {}) });
+    Object.assign(inc, { what: one(o.what), step: one(o.step), where: one(o.where), when: one(o.when), ...(o.minutes ? { minutes: Number(o.minutes) } : {}) });
     inc.text = inc.what;
   } else if (kind === 'outage') {
     if (!o.system) throw new Error('outage needs --system: what users notice is down, in their words ("Website", "ERP")');
@@ -492,14 +555,23 @@ export async function raise(st, tg, o, board = opsBoard()) {
     if (open) {
       open.count = (open.count || 1) + 1; open.lastSeen = t;
       let sent = false;
-      if (!delivered(open) && due(st, open, t)) sent = await deliver(st, tg, board, open, await st.list(), t, r);
+      let mates = [];
+      if (!delivered(open) && due(st, open, t)) {
+        const list = await st.list();
+        mates = kind === 'needs_you' ? waitingNeeds(st, list, t).filter((i) => i.key !== open.key) : [];
+        sent = mates.length ? await deliverNeeds(st, tg, [open, ...mates], list, t, r) : await deliver(st, tg, board, open, list, t, r);
+      }
+      for (const m of mates) if (m.msg) await st.save(m);
       await st.save(open);
       return { status: sent || delivered(open) || due(st, open, t) ? 'repeat' : 'held', inc: open };
     }
     const list = await st.list();
     let sent = false, err;
     const now0 = due(st, inc, t);
-    if (now0) try { sent = await deliver(st, tg, board, inc, list, t, r); } catch (e) { err = e; }
+    // a Needs you due now takes every other one already due and unsent with it: one message
+    const others = kind === 'needs_you' && now0 ? waitingNeeds(st, list, t).filter((i) => i.key !== inc.key) : [];
+    if (now0) try { sent = others.length ? await deliverNeeds(st, tg, [inc, ...others], list, t, r) : await deliver(st, tg, board, inc, list, t, r); } catch (e) { err = e; }
+    for (const o2 of others) if (o2.msg) await st.save(o2);
     await st.save(inc);
     if (err) throw err;
     return { status: sent ? 'sent' : !now0 ? 'held' : kind === 'ops' || tg.ready ? 'capped' : 'queued', inc };
@@ -526,7 +598,7 @@ export async function summaryText(stores, { progress = [], board = opsBoard() } 
   const day = dayOf(t), live = [], needs = [];
   for (const st of stores) for (const i of await st.list()) {
     if (i.kind === 'good_news' && dayOf(i.opened) === day) live.push(i.text);
-    if (i.kind === 'needs_you' && i.open && i.msg) needs.push(`${i.what} (since ${dayOf(i.opened) === day ? hhmm(i.opened) : localTime(i.opened)})`);
+    if (i.kind === 'needs_you' && i.open && i.msg) needs.push(i.step);
   }
   const lines = progress.map(one).filter(Boolean);
   if (!live.length && !lines.length && !needs.length) return null;
@@ -559,6 +631,8 @@ export async function tick(st, tg, board = opsBoard()) {
     const list = await st.list();
     // a kind is never escalated or reminded ("Needs you" is already his; the summary lists what waits on him):
     // the tick sends what was held or capped and retries the Ops board
+    const batch = waitingNeeds(st, list, t);
+    if (batch.length > 1 && await deliverNeeds(st, tg, batch, list, t, r)) for (const inc of batch) { await st.save(inc); did.push(`sent ${inc.key} (one message for ${batch.length})`); }
     for (const inc of list.filter((i) => i.kind && ['needs_you', 'outage', 'ops'].includes(i.kind))) {
       let changed = false;
       if (inc.open && !delivered(inc) && due(st, inc, t)) { if (await deliver(st, tg, board, inc, list, t, r)) { changed = true; did.push(`sent ${inc.key}`); } }
@@ -657,7 +731,7 @@ async function main(argv) {
       break;
     }
     case 'needs_you': case 'outage': case 'good_news': case 'ops': {
-      const r = await raise(store(), tg, { kind: cmd, key: opt('--key'), what: opt('--what'), means: opt('--means'), step: opt('--step'), minutes: opt('--minutes'), link: opt('--link'), system: opt('--system'), who: opt('--who'), text: opt('--text'), summaryOnly: flag('--summary-only') });
+      const r = await raise(store(), tg, { kind: cmd, key: opt('--key'), what: opt('--what'), step: opt('--step'), where: opt('--where'), when: opt('--when'), minutes: opt('--minutes'), link: opt('--link'), system: opt('--system'), who: opt('--who'), text: opt('--text'), summaryOnly: flag('--summary-only') });
       say(`${cmd} ${r.status} ${r.inc.key}`);
       if (r.status === 'queued' && env('ALERTS_REQUIRE_SEND') === '1') { console.error('notify: no bot token or chat id here, so it was recorded but not sent'); process.exit(2); }
       break;
@@ -672,7 +746,7 @@ async function main(argv) {
       say(`Ops board: ${await b.url(true)}`);
       break;
     }
-    case 'resolve': { const r = await resolveKey(store(), tg, { key: opt('--key'), text: opt('--text') }); say(`${r.status} ${opt('--key')}`); break; }
+    case 'resolve': { const r = await resolveKey(store(), tg, { key: opt('--key'), text: opt('--text'), quiet: flag('--quiet') }); say(`${r.status} ${opt('--key')}`); break; }
     case 'tick': { for (const st of storesOf()) for (const l of await tick(st, tg)) say(`${st.name}: ${l}`); break; }
     case 'digest': {
       const text = await digestText(storesOf());
