@@ -4,7 +4,7 @@
 //   node tools/test-replay.mjs        exit 0 = every case held
 
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, cpSync, writeFileSync, readFileSync, rmSync, appendFileSync } from 'node:fs';
+import { mkdtempSync, cpSync, writeFileSync, readFileSync, readdirSync, rmSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { tasks, choiceOf, grade, prompt, setProblems, resultProblems, tasksHash, rulesHash } from './replay.mjs';
@@ -24,7 +24,9 @@ const right = Object.fromEntries(list.map((t) => [t.id, `CHOICE: ${t.expect}\nWH
 const wrong = (k) => Object.fromEntries(list.map((t, i) => [t.id, `CHOICE: ${i < k ? (t.expect === 'A' ? 'B' : 'A') : t.expect}`]));
 ok(grade(right).passed === list.length && grade(wrong(3)).passed === list.length - 3, 'grading counts expected letters');
 
-const stored = JSON.parse(readFileSync(join(kit, 'replay/results/0.31.0.json'), 'utf8'));
+// the newest stored result is the one made on this checkout's rule text
+const newest = readdirSync(join(kit, 'replay/results')).filter((f) => /^\d+\.\d+\.\d+\.json$/.test(f)).map((f) => f.slice(0, -5)).sort((a, b) => { const x = a.split('.').map(Number), y = b.split('.').map(Number); return x[0] - y[0] || x[1] - y[1] || x[2] - y[2]; }).at(-1);
+const stored = JSON.parse(readFileSync(join(kit, `replay/results/${newest}.json`), 'utf8'));
 ok(resultProblems(stored).length === 0, 'the stored baseline re-grades and holds the floor');
 ok(resultProblems({ ...stored, passed: stored.passed - 1 }).some((x) => /re-grading gives/.test(x)), 'a tampered score is caught by re-grading');
 const drop = { ...stored.answers }; delete drop[list[0].id];
@@ -93,7 +95,7 @@ ok(check().status === 0, 'and the release that says "replay set" passes');
 // a grown set does not reset the floor: losing earlier-passed tasks still fails
 const big = Object.fromEntries(t2.map((t, i) => [t.id, `CHOICE: ${i < 5 ? (t.expect === 'A' ? 'B' : 'A') : t.expect}`]));
 const lostRes = spawnSync(process.execPath, ['-e', `import('./tools/replay.mjs').then(m => { const r = ${JSON.stringify({ ...stored, kit: '9.1.0' })}; r.answers = ${JSON.stringify(big)}; r.expected = Object.fromEntries(m.tasks().map((t) => [t.id, t.expect])); r.tasks_sha256 = m.tasksHash(); r.rules_sha256 = m.rulesHash(); r.passed = m.grade(r.answers).passed; console.log(JSON.stringify(m.resultProblems(r))); })`], { cwd: r, encoding: 'utf8' });
-ok(/on the tasks it shares with 0\.31\.0, 23 pass where 28 did/.test(lostRes.stdout) && /5 tasks 0\.31\.0 passed now fail/.test(lostRes.stdout), 'adding a task does not switch the floor off: lost earlier lessons still fail the release');
+ok(/on the tasks it shares with 0\.31\.0, 23 pass where 28 did/.test(lostRes.stdout) && new RegExp(`5 tasks ${newest.replaceAll('.', '\\.')} passed now fail`).test(lostRes.stdout), 'adding a task does not switch the floor off: lost earlier lessons still fail the release');
 // a task removed, or an earlier result edited, is refused
 g('checkout', '-q', '-B', 'shrink', 'base');
 writeFileSync(join(r, 'replay/tasks.json'), JSON.stringify(JSON.parse(readFileSync(join(r, 'replay/tasks.json'), 'utf8')).slice(1)));
