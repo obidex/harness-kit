@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { createServer } from 'node:http';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { telegram, store, problem, resolveKey, tick, hush, digestText, setup, isQuiet, loud, TOPICS } from '../.harness/tools/notify.mjs';
+import { telegram, store, problem, resolveKey, tick, hush, digestText, setup, isQuiet, loud, TOPICS, raise, summary, summaryText, opsBoard, plainProblems, TEMPLATES } from '../.harness/tools/notify.mjs';
 
 let n = 0;
 const ok = (cond, what) => { n++; if (!cond) { console.log(`test-notify: FAIL ${n}. ${what}`); process.exit(1); } console.log(`test-notify: ok ${n}. ${what}`); };
@@ -29,6 +29,7 @@ const tgServer = await listen((req, res, p) => {
   if (method === 'getChatMember') return r(tgState.admin ? { status: 'administrator', can_manage_topics: true, can_pin_messages: true } : { status: 'member' });
   if (method === 'createForumTopic') { const id = ++tgState.msg; tgState.topics[p.name] = id; return r({ message_thread_id: id, name: p.name }); }
   if (method === 'sendMessage') { tgState.calls.at(-1).message_id = ++tgState.msg; return r({ message_id: tgState.msg, text: p.text }); }
+  if (method === 'editMessageText') return r({ message_id: p.message_id, text: p.text });
   if (method === 'getUpdates') return r([{ update_id: 1, my_chat_member: { chat: { id: -1009, title: 'Owner alerts', type: 'supergroup', is_forum: true } } }, { update_id: 2, message: { chat: { id: 55, type: 'private' } } }]);
   if (method === 'pinChatMessage') { const sent = tgState.calls.findLast((c) => c.method === 'sendMessage' && c.message_id === p.message_id) || tgState.calls.findLast((c) => c.method === 'sendMessage'); tgState.pins.push({ message_id: p.message_id, text: sent.text, thread: sent.message_thread_id }); tgState.pinned = tgState.pins.at(-1); return r(true); }
   if (method === 'unpinAllForumTopicMessages') { tgState.pins = tgState.pins.filter((x) => x.thread !== p.message_thread_id); tgState.pinned = tgState.pins.at(-1) || null; return r(true); }
@@ -54,7 +55,7 @@ tgState.forum = true; tgState.admin = false;
 await setup(telegram()).then(() => ok(false, 'setup refused'), (e) => ok(/must be an admin/.test(e.message), 'setup refuses when the bot is not an admin that can manage topics and pin'));
 tgState.admin = true;
 const first = await setup(telegram());
-ok(Object.keys(tgState.topics).length === 6 && Object.values(TOPICS).every((t) => tgState.topics[t.name]) && tgState.pinned?.text.startsWith('harness-alerts config'), `setup creates the six topics and pins the config (${first.filter((l) => l.startsWith('created')).length} created)`);
+ok(Object.keys(tgState.topics).length === Object.keys(TOPICS).length && Object.values(TOPICS).every((t) => tgState.topics[t.name]) && tgState.pinned?.text.startsWith('harness-alerts config'), `setup creates every topic and pins the config (${first.filter((l) => l.startsWith('created')).length} created)`);
 const again = mark(); await setup(telegram());
 ok(!tgState.calls.slice(again).some((c) => c.method === 'createForumTopic' || c.method === 'sendMessage'), 'a second setup changes nothing');
 const T = (name) => tgState.topics[TOPICS[name].name];
@@ -339,5 +340,174 @@ ok(c.code === 0 && /bot @example_alerts_bot/.test(c.out) && /group "Owner alerts
   rmSync(w, { recursive: true, force: true });
 }
 
-tgServer.close(); ghServer.close(); rmSync(dir, { recursive: true, force: true });
+
+// --- kinds (K037, S-034): Needs you, outage, good news, the evening summary, and the Ops board -----------------
+{
+  const board = { issues: [], comments: [], fail: false };
+  const boardServer = globalThis.boardServer = await listen((req, res, p) => {
+    const u = new URL(req.url, 'http://x');
+    if (req.headers.authorization !== 'Bearer GH-TEST') return json(res, 401, { message: 'Bad credentials' });
+    if (board.fail) return json(res, 502, { message: 'Bad Gateway' });
+    let m;
+    if (req.method === 'GET' && u.pathname === '/repos/o/infra/issues') return json(res, 200, u.searchParams.get('page') === '1' ? board.issues.filter((i) => i.state === 'open') : []);
+    if (req.method === 'POST' && u.pathname === '/repos/o/infra/issues') { const i = { number: board.issues.length + 1, state: 'open', html_url: `https://github.invalid/o/infra/issues/${board.issues.length + 1}`, ...p }; board.issues.push(i); return json(res, 201, i); }
+    if ((m = u.pathname.match(/^\/repos\/o\/infra\/issues\/(\d+)$/))) { if (req.method === 'PATCH') Object.assign(board.issues[m[1] - 1], p); return json(res, 200, board.issues[m[1] - 1]); }
+    if ((m = u.pathname.match(/^\/repos\/o\/infra\/issues\/(\d+)\/comments$/))) { board.comments.push({ issue: Number(m[1]), ...p }); return json(res, 201, {}); }
+    return json(res, 404, { message: 'Not Found' });
+  });
+  const savedApi = process.env.GITHUB_API_URL;
+  process.env.GITHUB_API_URL = `http://127.0.0.1:${boardServer.address().port}`;
+  board.issues.push({ number: 1, state: 'open', body: 'an ordinary issue that mentions harness-ops-board', html_url: 'x' });
+  delete process.env.ALERTS_HOLD_MINUTES;
+  const ks = store(`file:${join(dir, 'kinds.json')}`), tg = telegram(), ob = opsBoard('github:o/infra');
+  const edits = () => tgState.calls.filter((c) => c.method === 'editMessageText');
+
+  // 🛑 Needs you: the stuck product wake of infra I045 (pickup/<repo>#<n>), held 10 minutes on a host, three plain lines
+  const pick = { kind: 'needs_you', key: 'pickup/obidex/jahjah-internal#1025', what: "The ERP didn't pick up #1025 (woken 13:00, no session answered).", means: 'Its work waits until a session reads it.',
+    step: 'Open the ERP project chat and paste: Pick up jahjah-internal #1025 now: read it and its newest comments, do what it asks, and reply on it.', minutes: 1, link: 'https://github.com/obidex/jahjah-internal/issues/1025' };
+  const m0 = mark();
+  at('2026-11-08T10:00:00Z'); let r = await raise(ks, tg, pick, ob);
+  ok(r.status === 'held' && since(m0).length === 0, 'needs_you: on a host it is held like any problem, nothing in its first 10 minutes');
+  at('2026-11-08T10:11:00Z'); r = await raise(ks, tg, pick, ob);
+  const nm = since(m0)[0];
+  ok(since(m0).length === 1 && nm.message_thread_id === T('needs') && nm.disable_notification === false
+    && nm.text === "🛑 The ERP didn't pick up #1025 (woken 13:00, no session answered).\nIts work waits until a session reads it.\n👉 Open the ERP project chat and paste: Pick up jahjah-internal #1025 now: read it and its newest comments, do what it asks, and reply on it. (about 1 min)\nhttps://github.com/obidex/jahjah-internal/issues/1025",
+  'needs_you: then one loud message in "Needs you", three plain lines (what happened, what it means, his step with minutes) and the link to the page');
+  ok(!nm.reply_markup && !/You:/.test(nm.text), 'needs_you: no button and no "You:" line');
+  at('2026-11-08T10:20:00Z'); await raise(ks, tg, pick, ob);
+  at('2026-11-09T12:00:00Z'); const tk = await tick(ks, tg, ob);
+  ok(since(m0).length === 1 && !tk.length, 'needs_you: a repeat sends nothing, and tick neither escalates nor reminds it (the evening summary lists it)');
+  ok(board.comments.length === 0, 'needs_you: nothing goes to the Ops board');
+  at('2026-11-09T12:05:00Z'); r = await resolveKey(ks, tg, { key: pick.key }, ob);
+  ok(r.status === 'resolved' && since(m0).length === 1 && edits().at(-1)?.message_id === nm.message_id && edits().at(-1).text === "✅ Sorted: The ERP didn't pick up #1025 (woken 13:00, no session answered).",
+    'needs_you: resolve edits the same message to ✅ (silent, never a second message)');
+  at('2026-11-08T21:00:00Z'); r = await raise(ks, tg, { ...pick, key: 'pickup/night#1' }, ob); at('2026-11-08T21:11:00Z'); await tick(ks, tg, ob);
+  ok(last().text.startsWith('🛑') && last().disable_notification === true, 'needs_you: in quiet hours it is silent');
+  await resolveKey(ks, tg, { key: 'pickup/night#1' }, ob);
+  let bad = [];
+  for (const o of [{ ...pick, key: 'x/1', step: 'run /opt/jahjah/bin/fix.sh' }, { ...pick, key: 'x/2', means: 'disk at 93 GB' }, { ...pick, key: 'x/3', what: 'run 42452212888 failed' }, { ...pick, key: 'x/4', means: 'You: nothing' }, { ...pick, key: 'x/5', means: undefined }])
+    await raise(ks, tg, o, ob).then(() => bad.push('sent'), (e) => bad.push(e.message));
+  ok(bad.length === 5 && bad.every((e) => e !== 'sent') && /a filesystem path/.test(bad[0]) && /a size/.test(bad[1]) && /a run or message id/.test(bad[2]) && /You: nothing/.test(bad[3]) && /--what, --means and --step/.test(bad[4]) && !(await ks.get('x/1')),
+    'needs_you: a path, a size, a run id, "You: nothing" or a missing line is refused and nothing is recorded');
+
+  // ⚠️→✅ outage: one loud message even at night, edited in place when fixed; its row on the Ops board
+  const mo = mark();
+  at('2026-11-08T22:05:00Z'); r = await raise(ks, tg, { kind: 'outage', key: 'web/down', system: 'Website' }, ob);
+  const om = since(mo)[0];
+  ok(r.status === 'sent' && since(mo).length === 1 && om.text === '⚠️ Website is down since 01:05. Platform is fixing it. Nothing for you.' && om.disable_notification === false && om.message_thread_id === T('needs'),
+    'outage: one message at once, loud even in quiet hours: "⚠️ Website is down since 01:05. Platform is fixing it. Nothing for you."');
+  const bi = board.issues.find((i) => i.title === 'Ops board');
+  ok(bi && /\| 🛑 \| Website \|/.test(bi.body) && board.comments.length === 1 && /^🛑 outage · `web\/down`/.test(board.comments[0].body), 'outage: the Ops board opens (one issue) with its row 🛑 and one comment');
+  at('2026-11-08T22:10:00Z'); await raise(ks, tg, { kind: 'outage', key: 'web/down', system: 'Website' }, ob);
+  at('2026-11-08T22:17:00Z'); r = await resolveKey(ks, tg, { key: 'web/down' }, ob);
+  ok(r.status === 'resolved' && since(mo).length === 1 && edits().at(-1).message_id === om.message_id && edits().at(-1).text === '✅ Website was down 12 min. Fixed.',
+    'outage: fixed, the same message is edited to "✅ Website was down 12 min. Fixed.": exactly one Telegram message');
+  ok(/\| ✅ \| Website \|/.test(bi.body) && board.comments.length === 2 && /^✅ resolved after 12 min · `web\/down`/.test(board.comments[1].body), 'outage: its board row turns ✅ with one resolve comment');
+
+  // the Ops board: a technical alert never reaches Telegram, never mentions anyone
+  const mt = mark(), c0 = board.comments.length;
+  at('2026-11-08T11:00:00Z'); r = await raise(ks, tg, { kind: 'ops', key: 'vps/disk', text: 'VPS disk 93% full (/var/lib/docker 41 GB); @obidex FYI', link: 'https://run/7', system: 'VPS disk' }, ob);
+  ok(r.status === 'held' && board.comments.length === c0, 'ops: held 10 minutes on a host, like any problem');
+  at('2026-11-08T11:11:00Z'); await tick(ks, tg, ob);
+  ok(since(mt).length === 0 && board.comments.length === c0 + 1 && board.issues.filter((i) => i.title === 'Ops board').length === 1 && /\| ⚠️ \| VPS disk \| .* \| Platform \| VPS disk 93% full/.test(bi.body),
+    'ops: then one comment and one ⚠️ row on the same board, and no Telegram message at all');
+  ok(![bi.body, ...board.comments.map((x) => x.body)].some((b) => /@obidex/.test(b)) && /@\u200bobidex/.test(board.comments.at(-1).body), 'ops: no @mention survives on the board, so GitHub notifies nobody');
+  at('2026-11-08T11:30:00Z'); await raise(ks, tg, { kind: 'ops', key: 'vps/disk', text: 'VPS disk 94% full' }, ob);
+  ok(board.comments.length === c0 + 1, 'ops: a repeat adds nothing');
+  board.fail = true;
+  at('2026-11-08T12:00:00Z'); await resolveKey(ks, tg, { key: 'vps/disk', text: 'old runner folders removed' }, ob);
+  ok(board.comments.length === c0 + 1 && !(await ks.get('vps/disk')), 'ops: resolved while GitHub is down, it closes here and the board waits');
+  board.fail = false;
+  at('2026-11-08T12:10:00Z'); const td = await tick(ks, tg, ob);
+  ok(td.includes('board vps/disk') && board.comments.length === c0 + 2 && /^✅ resolved after 1 h 0 min · `vps\/disk` · old runner folders removed/.test(board.comments.at(-1).body) && /\| ✅ \| VPS disk \|/.test(bi.body),
+    'ops: the next tick catches the board up: one resolve comment, the row ✅');
+  ok(since(mt).length === 0, 'ops: from start to resolve, nothing in Telegram');
+  delete process.env.ALERTS_OPS_BOARD;
+  await raise(ks, tg, { kind: 'ops', key: 'vps/none', text: 'x' }).then(() => ok(false, 'ops without a board'), (e) => ok(/ALERTS_OPS_BOARD is not set/.test(e.message), 'ops without ALERTS_OPS_BOARD is an error, never a Telegram message'));
+
+  // 🎉 good news and the ☀️ evening summary
+  const ns = store(`file:${join(dir, 'news.json')}`), mg = mark();
+  at('2026-11-10T09:00:00Z');
+  ok(await summaryText([ns], { board: ob }) === null, 'summary: a day with nothing to say has no summary');
+  r = await summary([ns], tg, { board: ob });
+  ok(r.status === 'nothing to say: no summary today' && since(mg).length === 0, 'summary: and sends nothing');
+  r = await raise(ns, tg, { kind: 'good_news', key: 'erp/po-screen', text: 'ERP: the purchase orders screen is live. Staff can use it now.' }, ob);
+  ok(r.status === 'sent' && last().text === '🎉 ERP: the purchase orders screen is live. Staff can use it now.' && last().message_thread_id === T('good') && last().disable_notification === true, 'good_news: one 🎉 line in "Good news"');
+  r = await raise(ns, tg, { kind: 'good_news', key: 'erp/po-screen', text: 'ERP: the purchase orders screen is live. Staff can use it now.' }, ob);
+  ok(r.status === 'repeat' && since(mg).length === 1, 'good_news: the same key goes out once');
+  r = await raise(ns, tg, { kind: 'good_news', text: 'Website: 12 new product pages are up.', summaryOnly: true }, ob);
+  ok(since(mg).length === 1 && r.status === 'kept for the summary', 'good_news --summary-only: kept for the summary, not sent on its own');
+  await raise(ns, tg, { kind: 'good_news', text: 'Website: /var/www is fast' }, ob).then(() => ok(false, 'refused'), (e) => ok(/a filesystem path/.test(e.message), 'good_news: rule C holds for it too'));
+  const held = { ...pick, key: 'pickup/held#1', what: 'A flap that never reached him.' };
+  at('2026-11-10T09:00:00Z'); await raise(ns, tg, { ...pick, key: 'pickup/web#437', what: "The website didn't pick up #437." }, ob); await raise(ns, tg, held, ob);
+  at('2026-11-10T09:11:00Z'); await raise(ns, tg, { ...pick, key: 'pickup/web#437', what: "The website didn't pick up #437." }, ob);
+  at('2026-11-10T17:00:00Z'); r = await summary([ns], tg, { board: ob, progress: ['Telegram redesign: step 2 of 4'] });
+  ok(r.status === 'sent' && last().message_thread_id === T('summary') && last().text === [
+    '☀️ Today, 10 Nov', '🎉 Went live:', '• ERP: the purchase orders screen is live. Staff can use it now.', '• Website: 12 new product pages are up.',
+    '🔧 In progress:', '• Telegram redesign: step 2 of 4', '🛑 Needs you:', "• The website didn't pick up #437. (since 12:00)", `Background: ${bi.html_url}`].join('\n'),
+  'summary: went live · in progress · needs you, then the Ops board as "Background"');
+  r = await summary([ns], tg, { board: ob });
+  ok(r.status === 'already sent today' && since(mg).length === 3, 'summary: once a day; a Needs you still held (never sent) is not in it');
+  ok(!/🎉|☀️/.test(await digestText([ns])), 'the old daily digest leaves good news and summaries out');
+
+  // rule C and rule D across every template: no path, size, address, id or code; no button anywhere
+  const sample = { what: 'The ERP is waiting for your design pick.', means: 'The new screen waits until you choose.', step: 'Open the link and tap A or B.', minutes: 2, link: 'https://github.com/o/r/issues/1', system: 'Website', who: 'Platform', text: 'ERP: a new screen is live.', opened: Date.now() };
+  const rendered = [TEMPLATES.needs_you(sample), TEMPLATES.needs_you_done(sample), TEMPLATES.outage(sample), TEMPLATES.outage_fixed(sample, Date.now() + 60e3), TEMPLATES.good_news(sample),
+    TEMPLATES.summary({ date: '1 Jan', live: ['a'], progress: ['b'], needs: ['c'], board: 'https://github.com/o/infra/issues/1' })];
+  ok(rendered.every((x) => plainProblems(x).length === 0), 'templates: every owner-facing template renders plain (no path, size, address, id, error code or "You: nothing")');
+  const src = (await import('node:fs')).readFileSync(new URL('../.harness/tools/notify.mjs', import.meta.url), 'utf8');
+  ok(!/reply_markup|inline_keyboard/.test(src) && !tgState.calls.some((c) => c.reply_markup), 'templates: notify.mjs never sends a button (rule D)');
+  ok(plainProblems('see https://github.com/o/r/blob/main/vps/a.sh').length === 0 && plainProblems('C:/x and ~/a/b').length > 0, 'rule C: a link may carry a path; the text may not');
+
+  // a kit topic the group has not created yet (before setup runs again) reaches General, named
+  process.env.ALERTS_TOPICS = JSON.stringify({ needs: T('needs') });
+  at('2026-11-11T09:00:00Z'); await raise(store(`file:${join(dir, 'pre.json')}`), telegram(), { kind: 'good_news', text: 'ERP: invoices print again.' }, ob);
+  ok(last().message_thread_id === undefined && last().text === '[Good news] 🎉 ERP: invoices print again.', 'a kind whose topic is not set up yet goes to General with the topic named');
+  await telegram().send('nonsense', 'x').then(() => ok(false, 'unknown topic'), (e) => ok(/unknown topic "nonsense"/.test(e.message), 'a topic the kit does not know is still an error'));
+  await telegram().send('erp', 'x').then(() => ok(false, 'missing older topic'), (e) => ok(/unknown topic "erp"/.test(e.message), 'an older topic missing from the config is still an error, as before (only the K037 topics fall back)'));
+  delete process.env.ALERTS_TOPICS;
+
+  // a store that keeps no news (GitHub, in a product's Actions run): good news goes out plain; a key, --summary-only and the summary need a host's file store
+  {
+    const gsn = store('github:o/infra'), mgs = mark();
+    at('2026-11-12T09:00:00Z');
+    r = await raise(gsn, tg, { kind: 'good_news', text: 'Website: the new catalogue is live.' }, ob);
+    ok(r.status === 'sent' && since(mgs).length === 1 && !board.issues.some((i) => /good_news/.test(i.body || '')), 'good_news from a GitHub store is sent and opens no issue');
+    const refused = [];
+    for (const o of [{ key: 'web/catalogue' }, { summaryOnly: true }]) await raise(gsn, tg, { kind: 'good_news', text: 'Website: X is live.', ...o }, ob).then(() => refused.push('sent'), (e) => refused.push(e.message));
+    ok(refused.every((e) => /keeps no news/.test(e)) && since(mgs).length === 1, 'good_news --key or --summary-only on a store that keeps no news is refused, never sent twice or lost');
+    await summary([gsn], tg, { board: ob, progress: ['x'] }).then(() => ok(false, 'summary refused'), (e) => ok(/none of the stores keeps news/.test(e.message) && since(mgs).length === 1, 'a summary with no store that keeps news is refused, so it cannot go out twice'));
+    ok(plainProblems('🎉 Website: rebuilt on Next.js, faster pages.').length === 0, 'rule C: a product name like Next.js is plain words');
+  }
+
+  // an outage is never capped, and its board row does not wait for Telegram
+  {
+    process.env.ALERTS_HOLD_MINUTES = '0';
+    const cs3 = store(`file:${join(dir, 'outcap.json')}`), mc = mark();
+    at('2026-11-12T10:00:00Z');
+    for (let i = 0; i < 12; i++) await raise(cs3, tg, { kind: 'needs_you', key: `flood/${i}`, what: `Item ${i} waits for you.`, means: 'It waits.', step: 'Open the link.' }, ob);
+    const sentNeeds = since(mc).length;
+    r = await raise(cs3, tg, { kind: 'outage', key: 'erp/down', system: 'ERP' }, ob);
+    ok(sentNeeds === 10 && r.status === 'sent' && since(mc).length === 11, 'an outage goes out at once even past the hourly cap of "Needs you" (10 sent, then the outage)');
+    const c1 = board.comments.length;
+    await raise(cs3, telegram({ token: '' }), { kind: 'outage', key: 'web/down2', system: 'Website' }, ob);
+    ok(board.comments.length === c1 + 1 && /`web\/down2`/.test(board.comments.at(-1).body), 'an outage raised where no bot token is still reaches the Ops board at once');
+    delete process.env.ALERTS_HOLD_MINUTES;
+  }
+
+  // the command line
+  const cs2 = { ALERTS_STORE: `file:${join(dir, 'cli-kinds.json')}`, ALERTS_HOLD_MINUTES: '0', ALERTS_OPS_BOARD: 'github:o/infra' };
+  let c = await cli(['needs_you', '--key', 'pickup/obidex/jahjah-website#437', '--what', "The website didn't pick up #437.", '--means', 'Its work waits.', '--step', 'Paste the line in the website chat.', '--minutes', '1'], cs2);
+  ok(c.code === 0 && /needs_you sent pickup\/obidex\/jahjah-website#437/.test(c.out) && last().text.startsWith("🛑 The website didn't pick up #437."), 'notify.mjs needs_you works from the command line');
+  c = await cli(['resolve', '--key', 'pickup/obidex/jahjah-website#437'], cs2);
+  ok(c.code === 0 && /resolved/.test(c.out) && edits().at(-1).text === "✅ Sorted: The website didn't pick up #437.", 'and resolve edits it to ✅');
+  c = await cli(['summary', '--stores', cs2.ALERTS_STORE, '--dry-run'], cs2);
+  ok(c.code === 0 && /nothing to say/.test(c.out), 'notify.mjs summary --dry-run says when there is nothing to say');
+  c = await cli(['board'], cs2);
+  ok(c.code === 0 && c.out.includes(`Ops board: ${bi.html_url}`), 'notify.mjs board prints the one board');
+  process.env.GITHUB_API_URL = savedApi;
+  process.env.ALERTS_HOLD_MINUTES = '0';
+}
+
+tgServer.close(); ghServer.close(); globalThis.boardServer.close(); rmSync(dir, { recursive: true, force: true });
 console.log(`test-notify: all ${n} cases held`);

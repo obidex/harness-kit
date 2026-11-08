@@ -1,8 +1,40 @@
 # Harness Kit · alerts
 
-> Lookup only, never loaded by default. The owner's one notification standard (O10, K010): the group,
+> Lookup only, never loaded by default. The owner's one notification standard (O10, K010, K037): the kinds, the group,
 > the rules, how each kind of sender uses it, who runs the clock, setup and cost. The tool is
 > `tools/notify.mjs`; every rule below is enforced there and tested in the kit (`tools/test-notify.mjs`).
+
+## Kinds: what a sender reports (K037)
+
+Senders name a **kind**, never a channel, so the channel can change without touching them. The owner's
+group gets only the first four; everything technical goes to the Ops board. `problem` (below) is the
+older form, kept until every sender has moved to a kind.
+
+| Kind | Command | Where | What the owner sees |
+|---|---|---|---|
+| `needs_you` | `needs_you --key --what --means --step [--minutes] [--link]` | "Needs you", loud by day | 🛑 three plain lines: what happened, what it means, his exact step with minutes; a link only to the page where the step happens. Resolve edits it to `✅ Sorted: …` |
+| `outage` | `outage --key --system <Website, ERP> [--who]` | "Needs you", always loud | `⚠️ Website is down since 11:05. Platform is fixing it. Nothing for you.` Resolve edits the same message to `✅ Website was down 12 min. Fixed.` (an edit is silent; never a second message). Also a 🛑 row on the Ops board |
+| `good_news` | `good_news --text [--key] [--summary-only]` (the last two only on a host's file store) | "Good news", silent | `🎉 ERP: the purchase orders screen is live. Staff can use it now.` One key goes out once; `--summary-only` keeps it for the summary |
+| `summary` | `summary [--stores] [--progress <line>]…` | "Summary", 20:00 Damascus | ☀️ went live today · in progress · needs you (or "nothing"), last line `Background: <the Ops board>`. No message on a day with nothing to say; once a day; needs a file store among `--stores` |
+| `ops` | `ops --key --text [--link] [--system] [--who]` | the Ops board only | nothing: one comment per problem and per resolve, the board's row ⚠️ then ✅ |
+
+- **The Ops board** is one issue in the repository `ALERTS_OPS_BOARD` names (`github:<owner/name>`,
+  with `GH_TOKEN`), titled "Ops board" and found by its hidden marker. Its body is the live board
+  (state, since when, who is on it), edited at every change; resolved rows go after 7 days. No text on
+  it can @mention anyone. `notify.mjs board` opens it and prints its link. Pin it once (any session with write access can), and open it
+  with a bot or App token, not the owner's, so GitHub never subscribes him. A board call that fails is
+  retried by the next `tick`.
+- **Rule C, enforced.** `needs_you`, `outage`, `good_news` and `summary` refuse a text with a
+  filesystem path or file name, a size, an address or host name, a run or message id, an error code, or
+  "You: nothing" (`plainProblems`); a link may carry a path. A refused message is an error in the
+  sender's run, so its fixture catches it. `ops` carries technical text freely.
+- **Rule D.** No message carries a button (the template test checks the source).
+- **The clock.** A kind is never escalated or reminded: "Needs you" is already his, and the summary lists
+  what still waits on him. On a host, `needs_you` and `ops` are held 10 minutes like any problem; an
+  outage goes at once and is never capped. A stuck product wake (`pickup/<repo>#<n>`, infra I045) is a
+  `needs_you` with the line to paste as its step.
+- **Topics.** `setup` adds "Good news" and "Summary". Until it has run again, their messages reach the
+  group's General thread with the topic's name leading them.
 
 ## The group
 
@@ -58,8 +90,9 @@ A new project gets its own topic: add it to `TOPICS` in `notify.mjs` (a kit rele
 8. **Stale is never OK.** A check that reads an outside source (a job's last run, a report page, an
    API answer) and finds it older than its threshold says STALE, never OK, and opens a capped problem;
    a check that could not read the source at all says so, never "none found" (K035).
-9. **Never success or progress.** A RESOLVED is the only good news, and only for a problem that was
-   sent. Routine news waits for the digest.
+9. **Good news only as a kind (K037, superseding "never success").** Something people can use went
+   live is a `good_news` line, or a line in the evening summary. Routine progress, green runs and
+   technical success are never sent; they belong on the Ops board.
 10. **No sender talks to Telegram directly.** Everything goes through `notify.mjs`, so the rules hold
    everywhere (audit O10).
 

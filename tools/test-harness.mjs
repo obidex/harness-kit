@@ -64,7 +64,7 @@ const lock1 = JSON.parse(readFileSync(join(proj, '.harness/kit.lock.json'), 'utf
 ok(lock1.version === v1 && lock1.commit === git(kitRepo, 'rev-parse', `v${v1}`), 'the lock records the version and the commit its tag points to');
 ok(['audit', 'scrub', 'inbox', 'stale'].every((w) => existsSync(join(proj, `.github/workflows/harness-${w}.yml`))), 'workflows installed from templates');
 ok(!existsSync(join(proj, '.harness/templates')), 'templates are not copied into the project');
-ok(['.harness/tools/notify.mjs', '.harness/alerts.md'].every((f) => f in lock1.files) && /O10 Alerts\.\*\* One bot, one Telegram group/.test(readFileSync(join(proj, '.harness/owner-defaults.md'), 'utf8')), 'the alert standard is installed: notify.mjs, alerts.md and O10 in the loaded owner defaults');
+ok(['.harness/tools/notify.mjs', '.harness/alerts.md'].every((f) => f in lock1.files) && /O10 Alerts\.\*\* Senders use `notify\.mjs` kinds/.test(readFileSync(join(proj, '.harness/owner-defaults.md'), 'utf8')), 'the alert standard is installed: notify.mjs, alerts.md and O10 in the loaded owner defaults');
 const od = readFileSync(join(proj, '.harness/owner-defaults.md'), 'utf8');
 ok(/O15 Never a relay\.\*\* No automation, routine or thread asks the owner to wake, nudge or relay/.test(od) && /Haiku at low effort\s+reads logs and summarizes/.test(od), 'the loaded owner defaults carry O15 (never a relay) and the Haiku helper role');
 ok(/O17 Owner effort\.\*\* Before an owner step goes out/.test(od), 'the loaded owner defaults carry O17 (owner effort)');
