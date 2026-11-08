@@ -403,6 +403,7 @@ ok(c.code === 0 && /bot @example_alerts_bot/.test(c.out) && /group "Owner alerts
     const bm = since(mb);
     ok(bm.length === 1 && bm[0].text === "🛑 3 things need you: The ERP is waiting for your design pick; The website didn't pick up its work; A payment needs your OK.\nWho: you\nDo: 1) do 1 2) do 2 3) do 3\nWhere: ERP chat; website chat\nWhen: now"
       && tb.filter((x) => /one message for 3/.test(x)).length === 3, 'needs_you batch: three due at once are ONE message in the five lines, the soonest When, each place once');
+    ok((await bs.list()).filter((i) => i.sentAt).length === 1, 'needs_you batch: one message counts once against the hourly cap');
     await resolveKey(bs, tg, { key: 'b/1' }, ob); await resolveKey(bs, tg, { key: 'b/2' }, ob);
     const e0 = edits().length;
     ok(since(mb).length === 1 && edits().filter((x) => x.message_id === bm[0].message_id).length === 0, 'needs_you batch: sorting some of them sends and edits nothing');
@@ -412,6 +413,16 @@ ok(c.code === 0 && /bot @example_alerts_bot/.test(c.out) && /group "Owner alerts
     at('2026-11-08T13:11:00Z'); await raise(bs, tg, { kind: 'needs_you', key: 'b/5', what: 'And another.', step: 'do 5', where: 'ERP chat', when: 'today' }, ob);
     at('2026-11-08T13:21:00Z'); await raise(bs, tg, { kind: 'needs_you', key: 'b/5', what: 'And another.', step: 'do 5', where: 'ERP chat', when: 'today' }, ob);
     ok(since(mb).length === 2 && /^🛑 2 things need you: One more thing; And another\.\nWho: you\nDo: 1\) do 4 2\) do 5\n/.test(since(mb)[1].text), 'needs_you batch: one due on a raise takes the other one already due with it, oldest first');
+    // two pastes that pass alone but whose quotes pair across items when joined: each goes alone, and the tick goes on
+    {
+      const qs = store(`file:${join(dir, 'batch-q.json')}`), mq = mark();
+      at('2026-11-08T14:30:00Z');
+      await raise(qs, tg, { kind: 'needs_you', key: 'q/1', what: 'The shelf needs a measure.', step: 'measure the 5" gap', where: 'shop', when: 'today' }, ob);
+      await raise(qs, tg, { kind: 'needs_you', key: 'q/2', what: 'The ERP waits.', step: 'paste "Pick up #12 now"', where: 'ERP chat', when: 'today' }, ob);
+      at('2026-11-08T14:41:00Z'); let threw = '';
+      await tick(qs, tg, ob).catch((e) => { threw = e.message; });
+      ok(!threw && since(mq).length === 2 && since(mq).every((m) => /^🛑 The (shelf|ERP)/.test(m.text)), 'needs_you batch: a joined text that would break rule C goes as one message each, and the tick never throws');
+    }
   }
 
   // ⚠️→✅ outage: one loud message even at night, edited in place when fixed; its row on the Ops board

@@ -171,7 +171,7 @@ const clean = (s) => String(s || '').replace(/\s+/g, ' ').replace(/[|[\]`<>]/g, 
 /** The body: the list, then the thresholds. */
 export function render(items, { s = settings() } = {}) {
   const lines = [MARKER, 'Open work with no commit, comment or change past its threshold (C15, no silent stall), listed once a day.',
-    `Resume each item or report it STOPPED. Each item alerts at most once a day and ${s.alertsMax} times, then stays only in the daily digest. This issue updates in place and closes when the list is empty.`, ''];
+    `Resume each item, or close or park it with a one-line reason. Nothing here goes to the owner (K038); with the Ops board each item is also a row there. This issue updates in place and closes when the list is empty.`, ''];
   if (items.length) {
     lines.push('| Item | Kind | Idle | Threshold |', '|---|---|---|---|');
     for (const i of items) lines.push(`| [#${i.number}](${i.url}) ${clean(i.title)} | ${i.kind} | ${idleText(i.hours)} | ${i.limit} h |`);
@@ -276,7 +276,8 @@ async function quietClose(st, tg, keep, alerts, errors) {
 }
 
 /** scan, then update the one tracking issue; with the Ops board, one `ops` row per stale item and ✅ for
- *  each that moved. Never a message to the owner (K038). A failed board call fails the run after. */
+ *  each that moved. Never a message to the owner (K038). A board call that fails is logged and left for the
+ *  next run (notify.mjs boardSync); GH_TOKEN must be able to write the board's repository. */
 export async function report(repo, now = Date.now(), s = settings(loadData())) {
   const items = await scan(repo, now, s);
   const issue = await findTracking(repo);

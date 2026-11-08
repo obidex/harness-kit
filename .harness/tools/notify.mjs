@@ -344,7 +344,7 @@ async function resolveKind(st, tg, inc, o, t, board) {
   const mates = inc.batch ? (await st.list()).filter((i) => i.key !== inc.key && inc.batch.includes(i.key) && i.msg === inc.msg) : [];
   if (inc.msg && mates.some((i) => i.open)) { /* one message for several: it turns ✅ when the last of them is sorted */ }
   else if (inc.msg) {
-    const done = inc.kind === 'outage' ? TEMPLATES.outage_fixed(inc, t) : mates.length ? TEMPLATES.needs_you_batch_done([inc, ...mates]) : TEMPLATES.needs_you_done(inc);
+    const done = inc.kind === 'outage' ? TEMPLATES.outage_fixed(inc, t) : inc.batch && inc.batch.length > 1 ? TEMPLATES.needs_you_batch_done(inc.batch) : TEMPLATES.needs_you_done(inc);
     await tg.edit(inc.topic, inc.msg, done);
     await tg.call('unpinChatMessage', { chat_id: tg.chat, message_id: inc.msg }).catch(() => {});
   }
@@ -521,9 +521,16 @@ async function deliverNeeds(st, tg, items, list, t, r) {
   items.sort((a, b) => a.opened - b.opened);
   if (!tg.ready || capped(list, items[0], t, r)) return false;
   const text = TEMPLATES.needs_you_batch(items);
-  mustBePlain('needs_you', text);
+  // each item passed rule C on its own; a joined text that reads otherwise (quotes pairing across items)
+  // must not stop the store's tick: then each goes alone, as it would have before
+  if (plainProblems(text).length || formatProblems(text).length) {
+    let any = false;
+    for (const i of items) any = (await deliver(st, tg, null, i, list, t, r)) || any;
+    return any;
+  }
   const msg = await tg.send('needs', text, { t });
-  for (const i of items) { i.msg = msg; i.sentAt = t; i.batch = items.map((x) => x.key); }
+  // one message counts once against the hourly cap: only the first carries sentAt
+  items.forEach((i, n) => { i.msg = msg; if (n === 0) i.sentAt = t; else i.batchedAt = t; i.batch = items.map((x) => x.key); });
   return true;
 }
 

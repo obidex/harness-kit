@@ -103,7 +103,7 @@ ok(signature(select(board.filter((c) => c.kind !== 'initiative'), NOW, settings(
 
 // --- body, the alert text --------------------------------------------------------------------------
 const b = render(picked);
-ok(b.startsWith(MARKER) && b.includes('| [#9](u9) Bump x from 1 to 2 | red | 9 days | 48 h |') && b.includes('Thresholds in hours: PRs 48') && b.includes('3 times'), 'the body: marker first, each item with its kind, idle time and threshold, then the thresholds');
+ok(b.startsWith(MARKER) && b.includes('| [#9](u9) Bump x from 1 to 2 | red | 9 days | 48 h |') && b.includes('Thresholds in hours: PRs 48') && b.includes('Nothing here goes to the owner') && !/alerts at most/.test(b), 'the body: marker first, each item with its kind, idle time and threshold, then the thresholds; it says nothing goes to the owner');
 ok(render([{ number: 1, url: 'u', title: 'a | b @someone [x]', kind: 'card', hours: 50, limit: 48 }]).includes('a \\| b @​someone \\[x\\]'), 'titles cannot break the table or mention anyone');
 ok(idleText(5) === '5 h' && idleText(47) === '47 h' && idleText(48) === '2 days' && idleText(77) === '3 days 5 h', 'idle time reads in hours, then days');
 const txt = itemText('o/r', { number: 12, title: 'Launch\nreadiness', kind: 'initiative', hours: 552, limit: 48 });
@@ -197,6 +197,13 @@ pulls.length = 0; issues.find((i) => i.number === 10).updated_at = new Date(NOW 
 r = await report('o/r', at0(NOW + 6 * 3600000), fresh());
 ok(tg.length === 0 && r.alerts['stale:o/r#10'] === 'resolved' && boardIssue().comments.filter((c) => /^✅ resolved after .* · `stale:o\/r#10`/.test(c)).length === 1 && tracking()[0].state === 'closed' && /Nothing is stale/.test(tracking()[0].body),
   'the items move: each board row turns ✅ with one resolve comment, "Stale work" closes, and Telegram hears nothing');
+const patches = tracking()[0].patches, boardComments = boardIssue().comments.length;
+r = await report('o/r', at0(NOW + 6 * 3600000 + 60000), fresh());
+ok(tracking()[0].patches === patches && r.alert === 'none' && boardIssue().comments.length === boardComments && tg.length === 0, 'an empty list with everything closed touches nothing and sends nothing');
+add(13, 'card', 10);
+r = await report('o/r', at0(NOW + 6 * 3600000 + 120000), fresh());
+ok(tracking().length === 1 && tracking()[0].number === first.number && tracking()[0].state === 'open' && signature(r.items) === '13' && tg.length === 0, 'a new stale item reopens the same "Stale work" issue, never a second one');
+issues.splice(issues.findIndex((i) => i.number === 13), 1);
 // a board: initiatives and wait records with their own --config (S-033 item 1), in the same tracking issue and board
 issues.push({ number: 12, state: 'open', html_url: 'https://gh.test/o/r/issues/12', title: 'Launch readiness', labels: [{ name: 'Now' }, { name: 'initiative' }], body: '', updated_at: ago(23) },
   { number: 54, state: 'open', html_url: 'https://gh.test/o/r/issues/54', title: 'Coordinator state', labels: [{ name: 'coordinator-state' }], body: '<!-- coordinator-state -->', updated_at: new Date(NOW + 7 * 86400000 - 3600000).toISOString() });
