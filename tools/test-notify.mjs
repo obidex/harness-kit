@@ -28,6 +28,7 @@ const tgServer = await listen((req, res, p) => {
   if (method === 'getChat') return r({ id: -1001234, title: 'Owner alerts', type: 'supergroup', is_forum: tgState.forum, pinned_message: tgState.pinned });
   if (method === 'getChatMember') return r(tgState.admin ? { status: 'administrator', can_manage_topics: true, can_pin_messages: true } : { status: 'member' });
   if (method === 'createForumTopic') { const id = ++tgState.msg; tgState.topics[p.name] = id; return r({ message_thread_id: id, name: p.name }); }
+  if (method === 'sendMessage' && tgState.closed?.has(p.message_thread_id)) return json(res, 400, { ok: false, description: 'Bad Request: TOPIC_CLOSED' });
   if (method === 'sendMessage') { tgState.calls.at(-1).message_id = ++tgState.msg; return r({ message_id: tgState.msg, text: p.text }); }
   if (method === 'closeForumTopic') { if (tgState.closed?.has(p.message_thread_id)) return json(res, 400, { ok: false, description: 'Bad Request: TOPIC_CLOSED' }); return r(true); }
   if (method === 'editMessageText') return r({ message_id: p.message_id, text: p.text });
@@ -150,7 +151,7 @@ at('2026-10-05T12:59:00Z'); i0 = mark();
 ok((await tick(st, tg)).length === 0 && since(i0).length === 0, 'before 3 hours a tick does nothing');
 at('2026-10-05T13:00:00Z'); i0 = mark();
 let did = await tick(st, tg);
-const [esc, still] = since(i0);
+const sent153 = since(i0), esc = sent153.find((m) => m.text.startsWith('⏰')), still = sent153.find((m) => m.text.startsWith('🟠')); // its own topic's reply goes first (K039: a closed topic stops the escalation)
 ok(esc.text.endsWith("\nYou: Needs you: it has not cleared in 3 hours; pass this message to its project's coordinator"), 'the escalation ends with a "Needs you" line');
 ok(did.includes('escalated erp/ci') && esc.message_thread_id === T('needs') && esc.disable_notification === false && esc.text.includes(`/${T('erp')}/${erpMsg}`), 'at 3 hours it is escalated, loud, to "Needs you", linking the original');
 ok(still.reply_parameters.message_id === erpMsg && /STILL OPEN after 3 h/.test(still.text) && still.disable_notification === true, 'and a STILL OPEN reply goes silently under the original');
@@ -356,8 +357,9 @@ ok(c.code === 0 && /bot @example_alerts_bot/.test(c.out) && /group "Owner alerts
     if (board.fail) return json(res, 502, { message: 'Bad Gateway' });
     let m;
     if (req.method === 'GET' && u.pathname === '/repos/o/infra/issues') return json(res, 200, u.searchParams.get('page') === '1' ? board.issues.filter((i) => i.state === 'open') : []);
-    if (req.method === 'POST' && u.pathname === '/repos/o/infra/issues') { const i = { number: board.issues.length + 1, state: 'open', html_url: `https://github.invalid/o/infra/issues/${board.issues.length + 1}`, ...p }; board.issues.push(i); return json(res, 201, i); }
+    if (req.method === 'POST' && u.pathname === '/repos/o/infra/issues') { const i = { number: board.issues.length + 1, state: 'open', html_url: `https://github.invalid/o/infra/issues/${board.issues.length + 1}`, node_id: `I_${board.issues.length + 1}`, ...p }; board.issues.push(i); return json(res, 201, i); }
     if ((m = u.pathname.match(/^\/repos\/o\/infra\/issues\/(\d+)$/))) { if (req.method === 'PATCH') Object.assign(board.issues[m[1] - 1], p); return json(res, 200, board.issues[m[1] - 1]); }
+    if (req.method === 'POST' && u.pathname === '/graphql') { const i = board.issues.find((x) => x.node_id === p.variables?.id); if (!i) return json(res, 200, { errors: [{ message: 'Could not resolve to a node' }] }); if (i.pinned) return json(res, 200, { errors: [{ message: 'Issue is already pinned' }] }); i.pinned = true; return json(res, 200, { data: { pinIssue: { issue: { isPinned: true } } } }); }
     if ((m = u.pathname.match(/^\/repos\/o\/infra\/issues\/(\d+)\/comments$/))) { board.comments.push({ issue: Number(m[1]), ...p }); return json(res, 201, {}); }
     return json(res, 404, { message: 'Not Found' });
   });
@@ -554,7 +556,32 @@ ok(c.code === 0 && /bot @example_alerts_bot/.test(c.out) && /group "Owner alerts
     tgState.closed = new Set(closes);
     const again = await retire(telegram(), ['kit']);
     ok(/already closed/.test(again[0]), 'retiring a closed topic again is no error');
-    tgState.closed = null;
+    // a problem still open in a closed topic, or a sender not yet moved: it goes to the Ops board, never to Needs you
+    {
+      const savedHold = process.env.ALERTS_HOLD_MINUTES; process.env.ALERTS_HOLD_MINUTES = '0';
+      const cs = store(`file:${join(dir, 'closed.json')}`), cb0 = board.comments.length;
+      tgState.closed = null;
+      at('2026-11-03T05:00:00Z');
+      r = await problem(cs, tg, { key: 'kit/old', topic: 'kit', text: 'kit job red on main' });
+      ok(r.status === 'sent' && r.inc.msg, 'an old-style problem sent before its topic closed');
+      tgState.closed = new Set(closes);
+      const mc = mark();
+      for (const h of ['10:00', '10:30', '11:00']) { at(`2026-11-03T${h}:00Z`); await tick(cs, tg, ob); }
+      const moved = await cs.get('kit/old');
+      ok(since(mc).filter((m) => m.message_thread_id === T('needs')).length === 0 && moved.kind === 'ops' && moved.retiredTopic === 'kit' && !moved.msg && moved.boarded,
+        'a tick never escalates a problem whose topic is closed: it moves to the Ops board, nothing reaches Needs you');
+      ok(board.comments.length === cb0 + 1 && /`kit\/old`/.test(board.comments.at(-1).body), 'and the board gets its row once, however many ticks');
+      r = await problem(cs, tg, { key: 'kit/old', topic: 'kit', text: 'kit job red on main' });
+      ok(r.status === 'repeat' && since(mc).filter((m) => m.method === 'sendMessage' && !tgState.closed.has(m.message_thread_id)).length === 0, 'a repeat of a moved problem sends nothing');
+      r = await problem(cs, tg, { key: 'ops/new', topic: 'ops', text: 'an old sender still on problem' });
+      ok(r.status === 'moved to the Ops board' && (await cs.get('ops/new')).kind === 'ops', 'a new problem in a closed topic moves to the board instead of failing');
+      await tick(cs, tg, ob);
+      ok(board.comments.length === cb0 + 2 && /`ops\/new`/.test(board.comments.at(-1).body), 'the next tick puts its row up');
+      r = await resolveKey(cs, tg, { key: 'kit/old' }, ob);
+      ok(r.status === 'resolved' && board.comments.length === cb0 + 3 && since(mc).filter((m) => m.method === 'editMessageText').length === 0, 'its resolve turns the row ✅ and touches no Telegram message');
+      tgState.closed = null;
+      if (savedHold === undefined) delete process.env.ALERTS_HOLD_MINUTES; else process.env.ALERTS_HOLD_MINUTES = savedHold;
+    }
     await retire(telegram(), ['needs']).then(() => ok(false, 'needs kept'), (e) => ok(/one of the three topics the owner keeps/.test(e.message), 'retire never closes Needs you, Good news or Summary'));
     process.env.GITHUB_API_URL = `http://127.0.0.1:${ghServer.address().port}`;
     const gs2 = store('github:o/hands'), mo = mark(), n0 = issues.length;
@@ -579,6 +606,10 @@ ok(c.code === 0 && /bot @example_alerts_bot/.test(c.out) && /group "Owner alerts
   ok(c.code === 0 && /nothing to say/.test(c.out), 'notify.mjs summary --dry-run says when there is nothing to say');
   c = await cli(['board'], cs2);
   ok(c.code === 0 && c.out.includes(`Ops board: ${bi.html_url}`), 'notify.mjs board prints the one board');
+  c = await cli(['board', '--open'], cs2);
+  ok(c.code === 0 && c.out.includes(`Ops board: ${bi.html_url} (open and pinned)`) && bi.pinned === true && board.issues.filter((i) => i.title === 'Ops board').length === 1, 'board --open pins the one board');
+  c = await cli(['board', '--open'], cs2);
+  ok(c.code === 0 && /open and pinned/.test(c.out), 'board --open again: already pinned is no error');
   process.env.GITHUB_API_URL = savedApi;
   process.env.ALERTS_HOLD_MINUTES = '0';
 }

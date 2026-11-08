@@ -16,6 +16,10 @@ From roadmap #59 steps 2-3.
 - `digest` is retired: it posts nothing. `test` sends one silent message in "Summary" and edits it to ✅.
 - Fixes from the 0.34 review: a malformed `ALERTS_OPS_BOARD` no longer stops a tick; the summary's
   once-a-day check and record happen under the store's lock.
+- A legacy problem in a closed topic (open there before, or raised there by a sender not yet moved) moves
+  to the Ops board as an ops row: a tick never escalates it to Needs you or fails on it.
+- `board --open` opens and pins the Ops board; `hands-alerts` gains modes `board` (as the App) and
+  `retire`. `hands-settings` no longer runs the retired digest.
 
 ## 0.35.0 · 2026-11-08 · the owner's five-line format; stale work never reaches him (K038)
 

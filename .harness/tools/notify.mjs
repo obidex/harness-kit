@@ -272,9 +272,17 @@ const sentLastHour = (list, topic, t) => list.filter((i) => i.topic === topic &&
   + list.filter((i) => i.escMsg && i.escalated && t - i.escalated < HOUR && topic === 'needs').length;
 const capped = (list, inc, t, r) => !inc.outage && sentLastHour(list, inc.topic, t) >= (inc.topic === 'needs' ? r.capNeeds : r.cap);
 
+/** A topic the owner no longer keeps is closed (K039). A problem still sent there moves to the Ops board:
+ * it becomes an ops row (its old message, if any, is left as it was), so nothing is retried or escalated. */
+const topicClosed = (e) => /TOPIC_CLOSED/.test(e?.message || '');
+function toOps(inc, t) {
+  Object.assign(inc, { kind: 'ops', retiredTopic: inc.topic, topic: null, movedAt: t, ...(inc.msg ? { legacyMsg: inc.msg } : {}) });
+  inc.msg = null; delete inc.escalated; delete inc.maxSends;
+  return true;
+}
 async function sendProblem(tg, inc, list, t, r) {
   if (!tg.ready || capped(list, inc, t, r)) return false;
-  inc.msg = await tg.send(inc.topic, headline(inc), { outage: inc.outage, t });
+  try { inc.msg = await tg.send(inc.topic, headline(inc), { outage: inc.outage, t }); } catch (e) { if (topicClosed(e)) return toOps(inc, t); throw e; }
   inc.sentAt = t;
   if (inc.maxSends) { inc.sends = 1; inc.sentDay = dayOf(t, r.tz); }
   return true;
@@ -287,7 +295,8 @@ async function sendRepeat(tg, inc, t, r) {
   // an acknowledged or muted problem (control panel, K025) is never reminded
   if (!tg.ready || !inc.msg || sends >= inc.maxSends || inc.sentDay === dayOf(t, r.tz) || t - (inc.remindedAt || inc.sentAt || 0) < REPEAT_GAP || hushed(inc, t)) return false;
   const n = sends + 1, last = n >= inc.maxSends;
-  await tg.send(inc.topic, `🟠 STILL OPEN after ${age(t - inc.opened)} (alert ${n} of ${inc.maxSends}${last ? ', the last: from now on only a line in the daily digest until it clears' : ''}) · ${one(inc.text)}`, { reply: inc.msg, t });
+  try { await tg.send(inc.topic, `🟠 STILL OPEN after ${age(t - inc.opened)} (alert ${n} of ${inc.maxSends}${last ? ', the last: from now on only a line in the daily digest until it clears' : ''}) · ${one(inc.text)}`, { reply: inc.msg, t }); }
+  catch (e) { if (topicClosed(e)) return toOps(inc, t); throw e; }
   inc.sends = n; inc.sentDay = dayOf(t, r.tz); inc.remindedAt = t;
   return true;
 }
@@ -307,6 +316,7 @@ export async function problem(st, tg, o) {
       if (open.maxSends) open.text = one(o.text); // a capped repeat says how it stands now (its age moves)
       await st.save(open);
       if (o.link && !open.maxSends) await st.note(open, `Still failing: ${o.link}`);
+      if (open.kind) return { status: 'repeat', inc: open }; // moved to the Ops board (its topic is closed): the tick keeps its row
       if (!open.msg && tg.ready && due(st, open, t)) { const list = await st.list(); if (await sendProblem(tg, open, list, t, r)) { await st.save(open); return { status: 'repeat', inc: open }; } }
       if (open.maxSends && await sendRepeat(tg, open, t, r)) { await st.save(open); await st.note(open, `STILL OPEN: alert ${open.sends} of ${open.maxSends} sent.`); return { status: 'reminded', inc: open }; }
       if (open.maxSends && open.msg && (open.sends || 1) >= open.maxSends) return { status: 'capped-out', inc: open };
@@ -319,7 +329,7 @@ export async function problem(st, tg, o) {
     if (now0) try { sent = await sendProblem(tg, inc, list, t, r); } catch (e) { err = e; }
     await st.save(inc);
     if (err) throw err;
-    return { status: sent ? 'sent' : !now0 ? 'held' : tg.ready ? 'capped' : 'queued', inc };
+    return { status: inc.kind === 'ops' ? 'moved to the Ops board' : sent ? 'sent' : !now0 ? 'held' : tg.ready ? 'capped' : 'queued', inc };
   });
 }
 
@@ -485,6 +495,14 @@ export function opsBoard(spec = env('ALERTS_OPS_BOARD')) {
     repo,
     async url(create = false) { return (await find(create))?.html_url || null; },
     async issue(create = false) { return find(create); },
+    /** Pin the board in its repository (GraphQL pinIssue; a board already pinned is no error). Run as the
+     * bot or App that opened it (`notify.mjs board --open`), never with the owner's own token (S-034 A). */
+    async pin() {
+      const i = await find(true);
+      const j = await gh('POST', '/graphql', { query: 'mutation($id:ID!){pinIssue(input:{issueId:$id}){issue{isPinned}}}', variables: { id: i.node_id } });
+      if (j.errors?.length && !j.errors.every((e) => /already pinned/i.test(e.message || ''))) throw new Error(`GitHub pinIssue: ${j.errors.map((e) => e.message).join('; ')}`);
+      return i.html_url;
+    },
     /** One comment on the board's log, no row. */
     async note(line) { const i = await find(true); await gh('POST', `/repos/${repo}/issues/${i.number}/comments`, { body: noMention(line) }); },
     /** One row changes state, and its comment is the log line. */
@@ -687,15 +705,25 @@ export async function tick(st, tg, board = boardOrNull()) {
       if (!inc.msg && due(st, inc, t)) { if (await sendProblem(tg, inc, list, t, r)) { changed = true; did.push(`sent ${inc.key}`); } }
       if (inc.msg && (hushed(inc, t) || inc.maxSends)) { /* acknowledged or muted in the control panel; a capped problem's repeats are its sender's */ }
       else if (inc.msg && inc.topic !== 'needs' && !inc.escalated && t - inc.opened >= r.escalateAfter && !quiet && !capped(list, { topic: 'needs' }, t, r)) {
-        const original = await tg.link(inc.topic, inc.msg);
-        const you = youOf(inc).startsWith('Needs you:') ? youOf(inc) : 'Needs you: it has not cleared in 3 hours; pass this message to its project\'s coordinator';
-        inc.escMsg = await tg.send('needs', `⏰ STILL OPEN after ${age(t - inc.opened)}, nobody resolved it · ${one(inc.text)}${inc.link ? `\n${inc.link}` : ''}\n${original}\nYou: ${you}`, { t });
-        await tg.send(inc.topic, `🟠 STILL OPEN after ${age(t - inc.opened)} · escalated to Needs you`, { reply: inc.msg, t });
-        inc.escalated = t; inc.remindedAt = t; changed = true; did.push(`escalated ${inc.key}`);
+        // its own topic first: a closed one (K039) moves the problem to the Ops board and nothing reaches Needs you
+        let moved = false;
+        try { await tg.send(inc.topic, `🟠 STILL OPEN after ${age(t - inc.opened)} · escalated to Needs you`, { reply: inc.msg, t }); }
+        catch (e) { if (!topicClosed(e)) throw e; moved = toOps(inc, t); }
+        if (moved) { changed = true; did.push(`moved ${inc.key} to the Ops board (its topic is closed)`); }
+        else {
+          const original = await tg.link(inc.topic, inc.msg);
+          const you = youOf(inc).startsWith('Needs you:') ? youOf(inc) : 'Needs you: it has not cleared in 3 hours; pass this message to its project\'s coordinator';
+          inc.escalated = t; inc.remindedAt = t; changed = true; // recorded before the second send: a failure there never repeats the first
+          try { inc.escMsg = await tg.send('needs', `⏰ STILL OPEN after ${age(t - inc.opened)}, nobody resolved it · ${one(inc.text)}${inc.link ? `\n${inc.link}` : ''}\n${original}\nYou: ${you}`, { t }); }
+          catch (e) { await st.save(inc); throw e; }
+          did.push(`escalated ${inc.key}`);
+        }
       } else if (inc.msg && !quiet && t - (inc.remindedAt || inc.opened) >= r.remindEvery) {
-        await tg.send(inc.topic, `🟠 STILL OPEN after ${age(t - inc.opened)} · ${one(inc.text)}`, { reply: inc.msg, t });
-        inc.remindedAt = t; changed = true; did.push(`reminded ${inc.key}`);
+        try { await tg.send(inc.topic, `🟠 STILL OPEN after ${age(t - inc.opened)} · ${one(inc.text)}`, { reply: inc.msg, t }); inc.remindedAt = t; did.push(`reminded ${inc.key}`); }
+        catch (e) { if (!topicClosed(e)) throw e; toOps(inc, t); did.push(`moved ${inc.key} to the Ops board (its topic is closed)`); }
+        changed = true;
       }
+      if (inc.kind === 'ops') await boardSync(board, inc, t); // moved this round: its row goes up now
       if (changed) await st.save(inc);
     }
   });
@@ -786,7 +814,8 @@ async function main(argv) {
     }
     case 'board': {
       const b = opsBoard(); if (!b) throw new Error('ALERTS_OPS_BOARD is not set (github:<owner/name>)');
-      say(`Ops board: ${await b.url(true)}`);
+      // --open: open it if there is none and pin it (the bot or App does this once, before any host writes to it)
+      say(`Ops board: ${flag('--open') ? `${await b.pin()} (open and pinned)` : await b.url(true)}`);
       break;
     }
     case 'resolve': { const r = await resolveKey(store(), tg, { key: opt('--key'), text: opt('--text'), quiet: flag('--quiet') }); say(`${r.status} ${opt('--key')}`); break; }

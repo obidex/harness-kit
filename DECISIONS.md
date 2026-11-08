@@ -926,6 +926,10 @@ From roadmap #59 steps 2-3 (S-034 E and the owner's correction of 8 Nov, roadmap
 3. **The daily digest is retired.** Technical by nature; the evening summary and the board replace it.
 4. **The board has a log.** `note` writes one line with no row, so a host's routine notices leave the
    owner's group without being lost.
+5. **A closed topic never takes a message.** A problem whose topic is closed becomes an ops row on the
+   board; it is never escalated to Needs you from there.
+6. **The App opens and pins the board** (`board --open`, `hands-alerts` mode `board`), before any host
+   writes to it.
 
 **Status:** STANDING.
 

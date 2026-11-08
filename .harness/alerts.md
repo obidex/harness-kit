@@ -65,7 +65,11 @@ older form, kept until every sender has moved to a kind.
 - `problem` still works for a sender that has not moved, but the owner keeps only three topics:
   `retire --topics kit,ops,daily` closes Platform's old ones (their history stays). A product's own
   topic (`erp`, `website`) closes once that product's senders use kinds. A problem in a closed topic
-  closes without a reply.
+  closes without a reply. One still open there, or a new one a sender not yet moved raises there, moves
+  to the Ops board as an ops row (`retiredTopic` names where it was): never escalated, never retried.
+- `board --open` opens the Ops board if there is none and pins it. The bot or App runs it once
+  (`hands-alerts` mode `board`), before any host writes to the board, so the owner's own token never
+  opens it.
 - `ops` in a GitHub store with no `ALERTS_OPS_BOARD` is recorded as that repository's alert issue,
   never sent; a host's reader (the VPS alerts job) mirrors such issues to the board. The kit's
   `hands-report` reports this way.

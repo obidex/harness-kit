@@ -5,7 +5,10 @@
 # - dispatch `find` to see the bot's name and the groups it was added to (the group's id goes in the
 #   file ALERTS_CHAT_ID here, by PR); then `setup`: checks Topics and the bot's admin rights, creates
 #   the missing topics and pins the config every sender reads; then `test`: a PROBLEM and its RESOLVED
-#   reply in "Kit & Hands". `send` posts one message (topic + text); `tick` and `digest` run by hand.
+#   reply in "Kit & Hands". `send` posts one message (topic + text); `tick` runs by hand.
+# - `board` (text: the board's repository, owner/name) opens the Ops board as the App and pins it, once,
+#   before any host writes to it (S-034 A: the owner's own token never opens it); `retire` (text: the
+#   topics, e.g. kit,ops,daily) closes topics the owner no longer keeps (K039).
 # - hourly from 08:00 to 22:00 Damascus time, the tick: escalates every enrolled repository's silent
 #   problems open 3 hours to "Needs you" and sends problems held by a cap. OFF until the owner turns it
 #   on (Actions variable ALERTS_TICK=on): about 450 GitHub-hosted minutes a month (15 one-minute jobs a
@@ -19,14 +22,14 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: find, setup, test, send, tick or digest
+        description: find, setup, test, send, tick, board or retire
         required: true
         default: test
       topic:
         description: For send (needs, erp, website, kit, ops, daily)
         required: false
       text:
-        description: For send
+        description: For send; for board the repository (owner/name); for retire the topics (kit,ops,daily)
         required: false
 
 permissions:
@@ -83,6 +86,8 @@ jobs:
             test) $n test ;;
             send) $n send --topic "$TOPIC" --text "$TEXT" ;;
             tick) $n tick --stores "$(stores)" ;;
-            digest) $n digest --stores "$(stores)" ;;
-            *) echo "FAIL: mode '$MODE' is not find, setup, test, send, tick or digest"; exit 1 ;;
+            board) [[ "$TEXT" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "FAIL: text is not owner/name"; exit 1; }
+                   ALERTS_OPS_BOARD="github:$TEXT" $n board --open ;;
+            retire) $n retire --topics "$TEXT" ;;
+            *) echo "FAIL: mode '$MODE' is not find, setup, test, send, tick, board or retire"; exit 1 ;;
           esac | tee -a "$GITHUB_STEP_SUMMARY"
