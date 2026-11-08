@@ -911,3 +911,21 @@ K010 (one tool, quiet hours, the group holds its own config, the tick) stands.
    (owner, 8 Nov 2026). Recorded in `alerts.md`; the always-loaded rules (O10, C03) are unchanged.
 
 **Status:** STANDING.
+
+## K039 · 2026-11-08 · STANDING — the older alert paths go quiet; three topics
+
+From roadmap #59 steps 2-3 (S-034 E and the owner's correction of 8 Nov, roadmap #59 comment
+6720635142). Extends K037 and K038.
+
+1. **Three topics.** The owner's group keeps Needs you, Good news and Summary. `notify.mjs retire`
+   closes the rest (history stays); Platform's own topics close now, a product's when its senders have
+   moved to kinds (its coordinator's inbox card).
+2. **A technical alert in Actions is an issue, not a message.** `ops` in a GitHub store with no board is
+   recorded as its alert issue; the host that reads those issues mirrors them to the Ops board. The
+   kit's `hands-report` uses it.
+3. **The daily digest is retired.** Technical by nature; the evening summary and the board replace it.
+4. **The board has a log.** `note` writes one line with no row, so a host's routine notices leave the
+   owner's group without being lost.
+
+**Status:** STANDING.
+

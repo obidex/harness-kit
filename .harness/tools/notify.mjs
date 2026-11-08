@@ -31,6 +31,10 @@
 //   node .harness/tools/notify.mjs summary [--stores <spec,…>] [--progress <line>]… [--dry-run]
 //                                               ☀️ the evening summary in "Summary"; nothing on a day with nothing to say
 //   node .harness/tools/notify.mjs board        find or open the Ops board issue and print its link
+//   node .harness/tools/notify.mjs note --text <t> [--link <url>]   one line on the Ops board's log (no row)
+//   node .harness/tools/notify.mjs retire --topics kit,ops,daily     close topics the owner no longer keeps (K039)
+//   `digest` is retired (K039): it posts nothing. `ops` on a GitHub store with no ALERTS_OPS_BOARD is
+//   recorded as its issue, which a host's reader mirrors to the board.
 //   The owner-facing kinds refuse a text with a path, a size, an address, a run id, an error code,
 //   "You: nothing", an issue number outside a quoted paste, an alert count or a threshold (rule C), any
 //   message not in the owner's format (K038: `🛑 what` / `Who:` / `Do:` / `Where:` / `When:`, five lines
@@ -324,11 +328,13 @@ export async function resolveKey(st, tg, o, board) {
   return st.locked(async () => {
     const inc = await st.get(o.key);
     if (!inc) return { status: 'none' };
-    if (inc.kind) return resolveKind(st, tg, inc, o, t, board === undefined && ['ops', 'outage'].includes(inc.kind) ? opsBoard() : board);
+    if (inc.kind) return resolveKind(st, tg, inc, o, t, board === undefined && ['ops', 'outage'].includes(inc.kind) ? boardOrNull() : board);
     const text = fixed(inc, t);
     if (inc.msg && !o.quiet) {
-      await tg.send(inc.topic, text, { reply: inc.msg, t });
-      if (inc.escMsg) await tg.send('needs', text, { reply: inc.escMsg, t });
+      // a topic the owner no longer keeps is closed (K039): its old problems close without a reply
+      const closedTopic = (e) => { if (!/TOPIC_CLOSED/.test(e.message)) throw e; };
+      await tg.send(inc.topic, text, { reply: inc.msg, t }).catch(closedTopic);
+      if (inc.escMsg) await tg.send('needs', text, { reply: inc.escMsg, t }).catch(closedTopic);
     }
     // a resolved problem never stays pinned (owner, 2026-10-06); a message that was not pinned is no error
     for (const id of [inc.msg, inc.escMsg].filter(Boolean)) await tg.call('unpinChatMessage', { chat_id: tg.chat, message_id: id }).catch(() => {});
@@ -374,6 +380,8 @@ const hushed = (inc, t) => !!inc.ack || (inc.mutedUntil && inc.mutedUntil > t);
 export const KINDS = ['needs_you', 'outage', 'good_news', 'summary', 'ops'];
 const KIND_TOPIC = { needs_you: 'needs', outage: 'needs', good_news: 'good', summary: 'summary' };
 const hhmm = (t) => localTime(t).slice(11);
+/** The Ops board, or null; a malformed ALERTS_OPS_BOARD is logged, never a stop for the rest of a tick. */
+const boardOrNull = () => { try { return opsBoard(); } catch (e) { console.error(`notify: ${e.message}`); return null; } };
 /** Every owner-facing message the kinds send, in one place (the template test reads these). */
 export const TEMPLATES = {
   needs_you: (i) => [`🛑 ${i.what}`, 'Who: you', `Do: ${i.step}${i.minutes ? ` (about ${i.minutes} min)` : ''}`,
@@ -477,6 +485,8 @@ export function opsBoard(spec = env('ALERTS_OPS_BOARD')) {
     repo,
     async url(create = false) { return (await find(create))?.html_url || null; },
     async issue(create = false) { return find(create); },
+    /** One comment on the board's log, no row. */
+    async note(line) { const i = await find(true); await gh('POST', `/repos/${repo}/issues/${i.number}/comments`, { body: noMention(line) }); },
     /** One row changes state, and its comment is the log line. */
     async post(inc, state, line) {
       const i = await find(true);
@@ -553,7 +563,9 @@ export async function raise(st, tg, o, board = opsBoard()) {
     inc.text = `${inc.system} is down`;
   } else { // ops
     if (!o.text) throw new Error('ops needs --text');
-    if (!board) throw new Error('ALERTS_OPS_BOARD is not set (github:<owner/name>): a technical alert has nowhere to go');
+    // without a board, a GitHub store's issue is the record (a reader such as a host's alerts job mirrors it
+    // to the board, K039); a host's file store with no board would keep it where no agent reads it
+    if (!board && !st.name.startsWith('github:')) throw new Error('ALERTS_OPS_BOARD is not set (github:<owner/name>): a technical alert has nowhere to go');
     Object.assign(inc, { text: one(o.text), ...(o.system ? { system: one(o.system) } : {}), ...(o.who ? { who: one(o.who) } : {}) });
   }
   if (kind !== 'ops') { inc.message = TEMPLATES[kind](inc); mustBePlain(kind, inc.message); }
@@ -581,7 +593,7 @@ export async function raise(st, tg, o, board = opsBoard()) {
     for (const o2 of others) if (o2.msg) await st.save(o2);
     await st.save(inc);
     if (err) throw err;
-    return { status: sent ? 'sent' : !now0 ? 'held' : kind === 'ops' || tg.ready ? 'capped' : 'queued', inc };
+    return { status: sent ? 'sent' : !now0 ? 'held' : kind === 'ops' && !board ? 'recorded' : kind === 'ops' || tg.ready ? 'capped' : 'queued', inc };
   });
 }
 
@@ -622,17 +634,41 @@ export async function summary(stores, tg, o = {}) {
   const t = now(), key = `summary/${dayOf(t)}`;
   const keep = stores.find((s) => s.news);
   if (!keep) throw new Error('summary: none of the stores keeps news (a file store), so it could neither list good news nor send only once a day');
-  if ((await keep.list()).some((i) => i.key === key)) return { status: 'already sent today' };
-  const text = await summaryText(stores, o, t);
-  if (!text) return { status: 'nothing to say: no summary today' };
-  if (o.dryRun) return { status: 'dry run', text };
-  await tg.send('summary', text, { t });
-  await keep.locked(() => keep.save({ key, kind: 'summary', opened: t, closed: t, open: false }));
-  return { status: 'sent', text };
+  // checked and recorded under the store's lock: two runs at once still send one summary
+  return keep.locked(async () => {
+    if ((await keep.list()).some((i) => i.key === key)) return { status: 'already sent today' };
+    const text = await summaryText(stores, o, t);
+    if (!text) return { status: 'nothing to say: no summary today' };
+    if (o.dryRun) return { status: 'dry run', text };
+    await tg.send('summary', text, { t });
+    await keep.save({ key, kind: 'summary', opened: t, closed: t, open: false });
+    return { status: 'sent', text };
+  });
+}
+
+/** One line on the Ops board's log (a comment, no row): what a host did by itself, a maintenance notice. */
+export async function note(board, text, link) {
+  if (!board) throw new Error('ALERTS_OPS_BOARD is not set (github:<owner/name>): a note has nowhere to go');
+  if (!one(text)) throw new Error('note needs --text');
+  await board.note(`📝 ${one(text)}${link ? `\n${link}` : ''}`);
+}
+
+/** The owner's group keeps three topics (K037 E): close the others, their history stays. Never closes
+ * Needs you, Good news or Summary; a topic already closed (or gone) is no error. */
+export const KEEP_TOPICS = ['needs', 'good', 'summary'];
+export async function retire(tg, keys) {
+  const ids = await tg.topics(), out = [];
+  for (const k of keys) {
+    if (KEEP_TOPICS.includes(k)) throw new Error(`"${k}" is one of the three topics the owner keeps`);
+    if (!ids[k]) { out.push(`no topic "${k}" in this group`); continue; }
+    try { await tg.call('closeForumTopic', { chat_id: tg.chat, message_thread_id: ids[k] }); out.push(`closed "${TOPICS[k]?.name || k}"`); }
+    catch (e) { if (/TOPIC_CLOSED|TOPIC_NOT_MODIFIED/.test(e.message)) out.push(`"${TOPICS[k]?.name || k}" was already closed`); else throw e; }
+  }
+  return out;
 }
 
 /** Escalate, remind and send what waits; returns what it did, one line each. */
-export async function tick(st, tg, board = opsBoard()) {
+export async function tick(st, tg, board = boardOrNull()) {
   const r = rules(), t = now(), quiet = isQuiet(t, r), did = [];
   await st.locked(async () => {
     const list = await st.list();
@@ -755,21 +791,22 @@ async function main(argv) {
     }
     case 'resolve': { const r = await resolveKey(store(), tg, { key: opt('--key'), text: opt('--text'), quiet: flag('--quiet') }); say(`${r.status} ${opt('--key')}`); break; }
     case 'tick': { for (const st of storesOf()) for (const l of await tick(st, tg)) say(`${st.name}: ${l}`); break; }
-    case 'digest': {
+    case 'digest': { // retired (K039): technical, so it is no longer posted; the evening summary and the Ops board replace it
       const text = await digestText(storesOf());
       if (flag('--dry-run')) console.log(text);
-      else if (!Object.keys(await tg.topics()).length) say('no alerts group set up yet (no pinned config): digest not posted');
-      else { await tg.send('daily', text); say('digest posted'); }
+      say('the daily digest is retired (K039): nothing posted; the evening summary and the Ops board replace it');
       break;
     }
+    case 'note': { await note(opsBoard(), opt('--text'), opt('--link')); say('noted on the Ops board'); break; }
+    case 'retire': { for (const l of await retire(tg, (opt('--topics') || '').split(',').map((x) => x.trim()).filter(Boolean))) say(l); break; }
     case 'send': { if (!opt('--topic') || !opt('--text')) throw new Error('--topic and --text are required'); await tg.send(opt('--topic'), opt('--text')); say(`sent to ${opt('--topic')}`); break; }
     case 'test': {
       const mem = { incidents: {}, name: 'memory', async locked(f) { return f(); }, async list() { return Object.values(this.incidents); }, async get(k) { return this.incidents[k]?.open ? this.incidents[k] : null; }, async save(i) { this.incidents[i.key] = i; }, async note() {}, async close(i) { this.incidents[i.key] = i; } };
-      const key = `test/${now()}`;
-      const p = await problem(mem, tg, { key, topic: opt('--topic') || 'kit', text: 'Test problem from notify.mjs test: the alert standard works end to end' });
-      if (p.status !== 'sent') throw new Error(`the test problem was ${p.status}, not sent`);
-      await resolveKey(mem, tg, { key, text: 'Test resolved: this RESOLVED is a reply to the problem above' });
-      say(`PROBLEM ${p.inc.msg} sent and RESOLVED as a reply: ${await tg.link(p.inc.topic, p.inc.msg)}`);
+      // a silent message in "Summary" in the owner's format, then edited to ✅ (K039: no technical test text)
+      const topic = opt('--topic') || 'summary';
+      const msg = await tg.send(topic, '🔔 Test: the alert bot reaches this group\nWho: Platform\nDo: nothing');
+      await tg.edit(topic, msg, '✅ Test: the alert bot reaches this group\nDo: nothing');
+      say(`test message ${msg} sent and edited to ✅: ${await tg.link(topic, msg)}`);
       break;
     }
     case 'find': {
@@ -783,7 +820,7 @@ async function main(argv) {
       for (const c of chats.values()) say(`group "${c.title}" id ${c.id}${c.is_forum ? ' (Topics on)' : ' (Topics off)'}`);
       break;
     }
-    default: throw new Error('usage: notify.mjs needs_you|outage|good_news|ops|summary|board|resolve|tick|setup|problem|digest|send|test|find (see the header of this file)');
+    default: throw new Error('usage: notify.mjs needs_you|outage|good_news|ops|summary|board|note|resolve|tick|setup|retire|problem|digest|send|test|find (see the header of this file)');
   }
 }
 

@@ -60,6 +60,20 @@ older form, kept until every sender has moved to a kind.
 - **Topics.** `setup` adds "Good news" and "Summary". Until it has run again, their messages reach the
   group's General thread with the topic's name leading them.
 
+## The older senders go quiet (K039)
+
+- `problem` still works for a sender that has not moved, but the owner keeps only three topics:
+  `retire --topics kit,ops,daily` closes Platform's old ones (their history stays). A product's own
+  topic (`erp`, `website`) closes once that product's senders use kinds. A problem in a closed topic
+  closes without a reply.
+- `ops` in a GitHub store with no `ALERTS_OPS_BOARD` is recorded as that repository's alert issue,
+  never sent; a host's reader (the VPS alerts job) mirrors such issues to the board. The kit's
+  `hands-report` reports this way.
+- `note --text [--link]` writes one line on the board's log with no row: what a host did by itself, a
+  maintenance notice, a monthly count.
+- `digest` is retired: it posts nothing (the evening summary and the board replace it). `test` sends
+  one silent message in "Summary" and edits it to ✅.
+
 ## The group
 
 One bot, one private Telegram group with Topics on. The bot creates the topics itself (`notify.mjs

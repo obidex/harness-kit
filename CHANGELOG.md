@@ -3,6 +3,20 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.36.0 · 2026-11-08 · the older alert paths go quiet; three topics (K039)
+
+From roadmap #59 steps 2-3.
+
+- `notify.mjs retire --topics <k,…>` closes topics the owner no longer keeps (never Needs you, Good
+  news, Summary); a closed one again is no error. A legacy problem in a closed topic closes without a reply.
+- `notify.mjs note --text [--link]`: one line on the Ops board's log, no row.
+- `ops` in a GitHub store with no `ALERTS_OPS_BOARD` is recorded as its alert issue (status
+  `recorded`), never sent. `hands-report` now reports with `ops`: no Telegram message for a failed
+  hands job.
+- `digest` is retired: it posts nothing. `test` sends one silent message in "Summary" and edits it to ✅.
+- Fixes from the 0.34 review: a malformed `ALERTS_OPS_BOARD` no longer stops a tick; the summary's
+  once-a-day check and record happen under the store's lock.
+
 ## 0.35.0 · 2026-11-08 · the owner's five-line format; stale work never reaches him (K038)
 
 From the owner's correction on roadmap #59 (8 Nov), after four "STILL OPEN … alert 2 of 3" stale-work
