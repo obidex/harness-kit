@@ -639,7 +639,7 @@ export async function tick(st, tg, board = opsBoard()) {
     // a kind is never escalated or reminded ("Needs you" is already his; the summary lists what waits on him):
     // the tick sends what was held or capped and retries the Ops board
     const batch = waitingNeeds(st, list, t);
-    if (batch.length > 1 && await deliverNeeds(st, tg, batch, list, t, r)) for (const inc of batch) { await st.save(inc); did.push(`sent ${inc.key} (one message for ${batch.length})`); }
+    if (batch.length > 1 && await deliverNeeds(st, tg, batch, list, t, r)) for (const inc of batch) { await st.save(inc); did.push(`sent ${inc.key}${inc.batch ? ` (one message for ${inc.batch.length})` : ''}`); }
     for (const inc of list.filter((i) => i.kind && ['needs_you', 'outage', 'ops'].includes(i.kind))) {
       let changed = false;
       if (inc.open && !delivered(inc) && due(st, inc, t)) { if (await deliver(st, tg, board, inc, list, t, r)) { changed = true; did.push(`sent ${inc.key}`); } }
