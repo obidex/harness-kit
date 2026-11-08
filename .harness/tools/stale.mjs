@@ -201,7 +201,7 @@ export function profileTopic(file = '.harness/profile.json') {
 /** The project's topic (ALERTS_TOPIC, else the profile's `alerts.topic`): one of notify.mjs's project topics, or null. */
 export function topicOf(v = process.env.ALERTS_TOPIC || profileTopic()) {
   const t = String(v || '').trim();
-  return t && t in TOPICS && !['needs', 'daily'].includes(t) ? t : null;
+  return t && t in TOPICS && !['needs', 'good', 'summary', 'daily'].includes(t) ? t : null;
 }
 
 // --- GitHub ---------------------------------------------------------------------------------------

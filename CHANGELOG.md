@@ -3,6 +3,25 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.34.0 · 2026-11-08 · the owner's group carries only what matters to him (K037)
+
+From the owner's S-034 (roadmap #38), built as roadmap #59 step 1.
+
+- **O10 changes** (owner-defaults, loaded every session): senders use `notify.mjs` kinds; technical
+  alerts go to the Ops board; his group gets only Needs you, outages, good news and an evening summary;
+  quiet hours except outages. "Never success" is superseded (K037).
+- `notify.mjs` kinds: `needs_you` (🛑 three plain lines; resolve edits it to ✅), `outage` (⚠️ one loud
+  message, edited in place to ✅, a row on the board), `good_news` (🎉 one line, once per key, or
+  `--summary-only`), `summary` (☀️ went live · in progress · needs you · the board's link; nothing on an
+  empty day; once a day) and `ops` (the Ops board issue in `ALERTS_OPS_BOARD`: live body, one comment
+  per problem and resolve, no @mention, retried by `tick`). `notify.mjs board` finds or opens it.
+  Owner-facing kinds refuse paths, file names, sizes, addresses, ids, error codes and "You: nothing";
+  no message carries a button. A stuck product wake (`pickup/<repo>#<n>`) is a `needs_you`.
+- Topics "Good news" and "Summary" join `TOPICS` (run `setup` again); until then their messages reach
+  General, named. `stale.mjs` never uses them as a project topic.
+- `problem`, `resolve` of a problem, `tick` and `digest` behave as before for senders not yet moved;
+  the digest leaves good news and summaries out.
+
 ## 0.33.0 · 2026-11-07 · inbox wakes by label (K036)
 
 From the Nov 2026 radar (roadmap #48, after P4).

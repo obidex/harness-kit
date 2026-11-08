@@ -15,10 +15,25 @@
 //   node .harness/tools/notify.mjs digest [--stores <spec,…>]
 //                                               post the one daily digest in "Daily"
 //   node .harness/tools/notify.mjs send --topic <t> --text <t>     one plain message (silent unless "needs")
+//
+// Kinds (K037, S-034): what a sender reports, so the channel can change without touching senders.
+//   node .harness/tools/notify.mjs needs_you --key <k> --what <t> --means <t> --step <t> [--minutes <n>] [--link <url>]
+//                                               🛑 three plain lines in "Needs you"; resolve edits it to ✅
+//   node .harness/tools/notify.mjs outage --key <k> --system <name> [--who <name>]
+//                                               ⚠️ one loud message; resolve edits the same message to ✅
+//   node .harness/tools/notify.mjs good_news --text <t> [--key <k>] [--summary-only]
+//                                               🎉 one line in "Good news" (or only in the evening summary)
+//   node .harness/tools/notify.mjs ops --key <k> --text <t> [--link <url>] [--system <name>] [--who <name>]
+//                                               a technical alert: the Ops board (ALERTS_OPS_BOARD), never Telegram
+//   node .harness/tools/notify.mjs summary [--stores <spec,…>] [--progress <line>]… [--dry-run]
+//                                               ☀️ the evening summary in "Summary"; nothing on a day with nothing to say
+//   node .harness/tools/notify.mjs board        find or open the Ops board issue and print its link
+//   The owner-facing kinds refuse a text with a path, a size, an address, a run id, an error code or
+//   "You: nothing" (rule C), and no message carries a button.
 //   node .harness/tools/notify.mjs test         a PROBLEM in "Kit & Hands" and its RESOLVED reply (a proof)
 //   node .harness/tools/notify.mjs find         the bot's name and the groups it was added to, with their ids
 //
-// The rules (.harness/alerts.md):
+// The rules (.harness/alerts.md; `problem` is the older form, kept until every sender uses a kind):
 // - Topics: needs ("Needs you", the only loud one, action-required only), erp, website, kit, ops, daily.
 //   --action or --outage sends to "Needs you"; every other problem goes silently to its own topic.
 // - Quiet hours (23:00-08:00 Asia/Damascus): everything is silent except --outage.
@@ -53,6 +68,8 @@ import { fileURLToPath } from 'node:url';
 
 export const TOPICS = {
   needs: { name: 'Needs you', color: 0xFF93B2 },
+  good: { name: 'Good news', color: 0x8EEE98 },
+  summary: { name: 'Summary', color: 0xFFD67E },
   erp: { name: 'ERP', color: 0x6FB9F0 },
   website: { name: 'Website', color: 0x8EEE98 },
   kit: { name: 'Kit & Hands', color: 0xCB86DB },
@@ -115,6 +132,14 @@ export function telegram({ token = env('ALERTS_BOT_TOKEN') || env('TELEGRAM_BOT_
     throw new Error(`Telegram ${method}: ${r.status} ${j.description || ''}`.trim());
   };
   let topics;
+  // the topic's thread, or General with the topic's name leading the text: before setup (no config) and for a
+  // kit topic the group has not created yet (setup adds it); a topic the kit does not know is an error
+  const where = async (topic, text) => {
+    const ids = await tg.topics();
+    if (ids[topic]) return { message_thread_id: ids[topic], text };
+    if (Object.keys(ids).length && !(topic in TOPICS)) throw new Error(`unknown topic "${topic}" (known: ${Object.keys(ids).join(', ')})`);
+    return { text: `[${TOPICS[topic]?.name || topic}] ${text}` };
+  };
   const tg = {
     ready: !!(token && chat),
     chat,
@@ -130,15 +155,17 @@ export function telegram({ token = env('ALERTS_BOT_TOKEN') || env('TELEGRAM_BOT_
     },
     /** Send to a topic; returns the message id. */
     async send(topic, text, { reply, outage, t = now() } = {}) {
-      const ids = await tg.topics();
-      const flat = !Object.keys(ids).length;
-      if (!flat && !(topic in ids)) throw new Error(`unknown topic "${topic}" (known: ${Object.keys(ids).join(', ')})`);
       const m = await call('sendMessage', {
-        chat_id: chat, ...(flat ? { text: `[${TOPICS[topic]?.name || topic}] ${text}` } : { message_thread_id: ids[topic], text }), link_preview_options: { is_disabled: true },
+        chat_id: chat, ...await where(topic, text), link_preview_options: { is_disabled: true },
         disable_notification: !loud(topic, outage, t),
         ...(reply ? { reply_parameters: { message_id: reply, allow_sending_without_reply: true } } : {}),
       });
       return m.message_id;
+    },
+    /** Edit a sent message in place (Telegram never notifies an edit). */
+    async edit(topic, msg, text) {
+      const w = await where(topic, text);
+      await call('editMessageText', { chat_id: chat, message_id: msg, text: w.text, link_preview_options: { is_disabled: true } });
     },
     async link(topic, msg) { const ids = await tg.topics(); return ids[topic] ? `https://t.me/c/${String(chat).replace(/^-100/, '')}/${ids[topic]}/${msg}` : `message ${msg} in this chat`; },
   };
@@ -158,6 +185,7 @@ function fileStore(path) {
   };
   return {
     name: `file:${path}`,
+    news: true, // keeps good-news and summary records for the evening summary
     hold: 10 * 60e3, // a host checks every few minutes and ticks itself: a flap is never sent
     async locked(fn) {
       mkdirSync(dirname(path), { recursive: true });
@@ -174,14 +202,19 @@ function fileStore(path) {
   };
 }
 
-function githubStore(repo) {
+/** The GitHub REST API with GH_TOKEN (or GITHUB_TOKEN); errors name the call, never the token. */
+const ghApi = () => {
   const base = env('GITHUB_API_URL', 'https://api.github.com');
-  const gh = async (method, path, data) => {
+  return async (method, path, data) => {
     const r = await fetch(`${base}${path}`, { method, headers: { accept: 'application/vnd.github+json', authorization: `Bearer ${env('GH_TOKEN') || env('GITHUB_TOKEN')}`, 'x-github-api-version': '2022-11-28', 'content-type': 'application/json' }, body: data ? JSON.stringify(data) : undefined });
     const j = r.status === 204 ? {} : await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(`GitHub ${method} ${path}: ${r.status} ${j.message || ''}`.trim());
     return j;
   };
+};
+
+function githubStore(repo) {
+  const gh = ghApi();
   const MARK = /<!-- harness-alert: (\{.*?\}) -->/;
   const decode = (issue) => { const m = (issue.body || '').match(MARK); return m ? { ...JSON.parse(m[1]), issue: issue.number, url: issue.html_url } : null; };
   const encode = (inc) => { const { issue, url, ...rest } = inc; return `<!-- harness-alert: ${JSON.stringify(rest).replaceAll('-->', '--\\u003e')} -->`; };
@@ -280,11 +313,12 @@ export async function problem(st, tg, o) {
   });
 }
 
-export async function resolveKey(st, tg, o) {
+export async function resolveKey(st, tg, o, board) {
   const t = now();
   return st.locked(async () => {
     const inc = await st.get(o.key);
     if (!inc) return { status: 'none' };
+    if (inc.kind) return resolveKind(st, tg, inc, o, t, board === undefined && ['ops', 'outage'].includes(inc.kind) ? opsBoard() : board);
     const text = fixed(inc, t);
     if (inc.msg) {
       await tg.send(inc.topic, text, { reply: inc.msg, t });
@@ -296,6 +330,20 @@ export async function resolveKey(st, tg, o) {
     await st.close(inc, `RESOLVED after ${age(t - inc.opened)}${o.text ? `: ${one(o.text)}` : '.'}`);
     return { status: inc.msg ? 'resolved' : 'closed-unsent', inc };
   });
+}
+
+/** A kind ends with ✅ where it began: the owner's message is edited in place (silent, never a second
+ * message); an ops or outage row on the board turns ✅ with one resolve comment. */
+async function resolveKind(st, tg, inc, o, t, board) {
+  if (inc.msg) {
+    const done = inc.kind === 'outage' ? TEMPLATES.outage_fixed(inc, t) : TEMPLATES.needs_you_done(inc);
+    await tg.edit(inc.topic, inc.msg, done);
+    await tg.call('unpinChatMessage', { chat_id: tg.chat, message_id: inc.msg }).catch(() => {});
+  }
+  inc.open = false; inc.closed = t; inc.resolution = one(o.text || '');
+  await boardSync(board, inc, t);
+  await st.close(inc, `RESOLVED after ${age(t - inc.opened)}${o.text ? `: ${one(o.text)}` : '.'}`);
+  return { status: delivered(inc) ? 'resolved' : 'closed-unsent', inc };
 }
 
 /** The control panel's Acknowledge and Mute (K025): an acknowledged problem is never escalated or
@@ -314,12 +362,206 @@ export async function hush(st, key, { ack, mutedUntil } = {}) {
 }
 const hushed = (inc, t) => !!inc.ack || (inc.mutedUntil && inc.mutedUntil > t);
 
+// --- kinds (K037, S-034): the owner's group gets only what matters to him; technical alerts go to the Ops board ---
+export const KINDS = ['needs_you', 'outage', 'good_news', 'summary', 'ops'];
+const KIND_TOPIC = { needs_you: 'needs', outage: 'needs', good_news: 'good', summary: 'summary' };
+const hhmm = (t) => localTime(t).slice(11);
+/** Every owner-facing message the kinds send, in one place (the template test reads these). */
+export const TEMPLATES = {
+  needs_you: (i) => [`🛑 ${i.what}`, i.means, `👉 ${i.step}${i.minutes ? ` (about ${i.minutes} min)` : ''}`, ...(i.link ? [i.link] : [])].join('\n'),
+  needs_you_done: (i) => `✅ Sorted: ${i.what}`,
+  outage: (i) => `⚠️ ${i.system} is down since ${hhmm(i.opened)}. ${i.who} is fixing it. Nothing for you.`,
+  outage_fixed: (i, t) => `✅ ${i.system} was down ${age(t - i.opened)}. Fixed.`,
+  good_news: (i) => `🎉 ${i.text}`,
+  summary: ({ date, live, progress, needs, board }) => [
+    `☀️ Today, ${date}`,
+    `🎉 Went live: ${live.length ? '' : 'nothing new'}`, ...live.map((x) => `• ${x}`),
+    `🔧 In progress: ${progress.length ? '' : 'nothing'}`, ...progress.map((x) => `• ${x}`),
+    `🛑 Needs you: ${needs.length ? '' : 'nothing'}`, ...needs.map((x) => `• ${x}`),
+    ...(board ? [`Background: ${board}`] : []),
+  ].map((l) => l.trimEnd()).join('\n'),
+};
+/** Rule C: what an owner-facing message never carries. Links are allowed (a link opens the page where his step is). */
+export const NOT_PLAIN = [
+  [/(^|[\s(:'"])~?\/[\w.-]+\/[\w./-]*/, 'a filesystem path'],
+  [/\b[\w-]+\.(sh|mjs|cjs|js|ts|py|json|ya?ml|log|conf|env|service|timer)\b/i, 'a file name'],
+  [/\b\d+(\.\d+)?\s?(B|KB|MB|GB|TB|KiB|MiB|GiB|TiB)\b/, 'a size'],
+  [/\b\d{1,3}(\.\d{1,3}){3}\b/, 'an address'],
+  [/\b[\w-]+\.(internal|local|lan|home\.arpa)\b/i, 'a host name'],
+  [/\b\d{8,}\b/, 'a run or message id'],
+  [/\b(exit (code |status )?\d+|HTTP \d{3}|E(CONN\w+|NOENT|ACCES|PERM|TIMEDOUT|ADDRINUSE|NOTFOUND))\b/i, 'an error code'],
+  [/\bYou: nothing\b/i, '"You: nothing"'],
+];
+/** The rule-C problems in a text meant for the owner (links stripped first); [] when it is plain. */
+export const plainProblems = (text) => { const s = String(text ?? '').replace(/https?:\/\/\S+/g, ''); return NOT_PLAIN.filter(([re]) => re.test(s)).map(([, what]) => what); };
+const mustBePlain = (kind, text) => { const p = plainProblems(text); if (p.length) throw new Error(`${kind}: the owner's message carries ${p.join(', ')}: say it in business words (the technical part goes to the Ops board)`); };
+/** A board or comment text never notifies anyone on GitHub: no @mention survives. */
+const noMention = (s) => String(s ?? '').replace(/@(?=[A-Za-z0-9])/g, '@​');
+const cell = (s) => noMention(one(s)).replaceAll('|', '\\|');
+
+/** The Ops board (A): one GitHub issue, its body a live board, one comment per problem and per resolve. */
+export function opsBoard(spec = env('ALERTS_OPS_BOARD')) {
+  if (!spec) return null;
+  const repo = spec.replace(/^github:/, '');
+  if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) throw new Error(`ALERTS_OPS_BOARD "${spec}" is not github:<owner/name>`);
+  const gh = ghApi();
+  const MARK = /^<!-- harness-ops-board: (\{.*?\}) -->/;
+  let issue;
+  const find = async (create) => {
+    if (issue) return issue;
+    for (let p = 1; p < 10 && !issue; p++) {
+      const page = await gh('GET', `/repos/${repo}/issues?state=open&per_page=100&page=${p}`);
+      issue = page.filter((i) => !i.pull_request && MARK.test(i.body || '')).sort((a, b) => a.number - b.number)[0];
+      if (page.length < 100) break;
+    }
+    if (!issue && create) issue = await gh('POST', `/repos/${repo}/issues`, { title: 'Ops board', body: render({ rows: {} }) });
+    return issue;
+  };
+  const render = (b, t = now()) => {
+    const rows = Object.entries(b.rows).sort(([, x], [, y]) => (x.state === '✅') - (y.state === '✅') || y.since - x.since);
+    return [`<!-- harness-ops-board: ${JSON.stringify(b).replaceAll('-->', '--\\u003e')} -->`,
+      '**Ops board.** Technical alerts for the agents, kept by `notify.mjs` (`.harness/alerts.md`, K037): this body is the live state, each comment one problem or one resolve. Nothing here goes to the owner\'s Telegram.', '',
+      rows.length ? '| | What | Since | Who is on it | Now |\n|---|---|---|---|---|' : 'Nothing open.',
+      ...rows.map(([k, r]) => `| ${r.state} | ${cell(r.system || k)} | ${localTime(r.since)} | ${cell(r.who || '')} | ${cell(r.text)} |`),
+      '', `Updated ${localTime(t)} (${rules().tz}).`].join('\n');
+  };
+  return {
+    repo,
+    async url(create = false) { return (await find(create))?.html_url || null; },
+    async issue(create = false) { return find(create); },
+    /** One row changes state, and its comment is the log line. */
+    async post(inc, state, line) {
+      const i = await find(true);
+      const fresh = await gh('GET', `/repos/${repo}/issues/${i.number}`);
+      const b = (fresh.body || '').match(MARK) ? JSON.parse(fresh.body.match(MARK)[1]) : { rows: {} };
+      const t = now();
+      for (const [k, r] of Object.entries(b.rows)) if (r.state === '✅' && t - r.since > 7 * 24 * HOUR) delete b.rows[k];
+      b.rows[inc.key] = { state, since: t, system: noMention(inc.system || '') || undefined, who: state === '✅' ? '' : noMention(inc.who || 'Platform'), text: noMention(inc.text) };
+      await gh('POST', `/repos/${repo}/issues/${i.number}/comments`, { body: noMention(line) });
+      await gh('PATCH', `/repos/${repo}/issues/${i.number}`, { body: render(b, t) });
+    },
+  };
+}
+const boardOpenLine = (inc) => `${inc.kind === 'outage' ? '🛑 outage' : '⚠️ problem'} · \`${inc.key}\` · ${one(inc.text)}${inc.link ? `\n${inc.link}` : ''}`;
+const boardCloseLine = (inc, t) => `✅ resolved after ${age(t - inc.opened)} · \`${inc.key}\`${inc.resolution ? ` · ${inc.resolution}` : ''}`;
+/** Put an open (or just closed) kind on the board; a failure is retried by tick. */
+async function boardSync(board, inc, t) {
+  if (!board || !['ops', 'outage'].includes(inc.kind)) return false;
+  try {
+    if (inc.open && !inc.boarded) { await board.post(inc, inc.kind === 'outage' ? '🛑' : '⚠️', boardOpenLine(inc)); inc.boarded = t; return true; }
+    if (!inc.open && inc.boarded && !inc.boardClosed) { await board.post(inc, '✅', boardCloseLine(inc, inc.closed)); inc.boardClosed = t; return true; }
+  } catch (e) { console.error(`notify: the Ops board: ${e.message} (tick tries again)`); }
+  return false;
+}
+
+/** Deliver a due kind: a Telegram message for the owner's kinds, a board entry for ops; true when it went out. */
+async function deliver(st, tg, board, inc, list, t, r) {
+  if (inc.kind === 'ops') return boardSync(board, inc, t);
+  if (!tg.ready || capped(list, inc, t, r)) return false;
+  inc.msg = await tg.send(inc.topic, inc.message, { outage: inc.outage, t }); inc.sentAt = t;
+  await boardSync(board, inc, t);
+  return true;
+}
+const delivered = (inc) => (inc.kind === 'ops' ? !!inc.boarded : !!inc.msg);
+
+/** Raise one kind (needs_you, outage, good_news, ops). A repeat of an open key sends nothing. */
+export async function raise(st, tg, o, board = opsBoard()) {
+  const r = rules(), t = now(), kind = o.kind;
+  if (!KINDS.includes(kind) || kind === 'summary') throw new Error(`unknown kind "${kind}" (needs_you, outage, good_news, ops; the summary is its own command)`);
+  if (kind === 'good_news') return goodNews(st, tg, o, t);
+  if (!o.key) throw new Error('--key is required');
+  const inc = { key: o.key, kind, topic: KIND_TOPIC[kind] || null, opened: t, msg: null, count: 1, open: true, ...(o.link ? { link: o.link } : {}) };
+  if (kind === 'needs_you') {
+    for (const f of ['what', 'means', 'step']) if (!o[f]) throw new Error('needs_you needs --what, --means and --step: what happened, what it means, his exact step');
+    if (o.minutes !== undefined && !(Number.isInteger(Number(o.minutes)) && Number(o.minutes) > 0)) throw new Error('--minutes is a whole number of minutes');
+    Object.assign(inc, { what: one(o.what), means: one(o.means), step: one(o.step), ...(o.minutes ? { minutes: Number(o.minutes) } : {}) });
+    inc.text = inc.what;
+  } else if (kind === 'outage') {
+    if (!o.system) throw new Error('outage needs --system: what users notice is down, in their words ("Website", "ERP")');
+    Object.assign(inc, { system: one(o.system), who: one(o.who || 'Platform'), outage: true });
+    inc.text = `${inc.system} is down`;
+  } else { // ops
+    if (!o.text) throw new Error('ops needs --text');
+    if (!board) throw new Error('ALERTS_OPS_BOARD is not set (github:<owner/name>): a technical alert has nowhere to go');
+    Object.assign(inc, { text: one(o.text), ...(o.system ? { system: one(o.system) } : {}), ...(o.who ? { who: one(o.who) } : {}) });
+  }
+  if (kind !== 'ops') { inc.message = TEMPLATES[kind](inc); mustBePlain(kind, inc.message); }
+  return st.locked(async () => {
+    const open = await st.get(o.key);
+    if (open) {
+      open.count = (open.count || 1) + 1; open.lastSeen = t;
+      let sent = false;
+      if (!delivered(open) && due(st, open, t)) sent = await deliver(st, tg, board, open, await st.list(), t, r);
+      await st.save(open);
+      return { status: sent || delivered(open) || due(st, open, t) ? 'repeat' : 'held', inc: open };
+    }
+    const list = await st.list();
+    let sent = false, err;
+    const now0 = due(st, inc, t);
+    if (now0) try { sent = await deliver(st, tg, board, inc, list, t, r); } catch (e) { err = e; }
+    await st.save(inc);
+    if (err) throw err;
+    return { status: sent ? 'sent' : !now0 ? 'held' : kind === 'ops' || tg.ready ? 'capped' : 'queued', inc };
+  });
+}
+
+/** 🎉 one line; recorded (where the store keeps news) for the evening summary. One key goes out once. */
+async function goodNews(st, tg, o, t) {
+  if (!o.text) throw new Error('good_news needs --text: one line, what people can use now');
+  const inc = { key: o.key || `good/${t}`, kind: 'good_news', topic: 'good', text: one(o.text), opened: t, closed: t, open: false, msg: null };
+  inc.message = TEMPLATES.good_news(inc); mustBePlain('good_news', inc.message);
+  return st.locked(async () => {
+    if (o.key && (await st.list()).some((i) => i.kind === 'good_news' && i.key === o.key)) return { status: 'repeat', inc };
+    if (!o.summaryOnly) { if (!tg.ready) throw new Error('good_news: no bot token or chat id here'); inc.msg = await tg.send('good', inc.message, { t }); inc.sentAt = t; }
+    if (st.news) await st.save(inc);
+    return { status: o.summaryOnly ? 'kept for the summary' : 'sent', inc };
+  });
+}
+
+/** ☀️ The evening summary, or null on a day with nothing to say (nothing went live, nothing in progress, nothing for him). */
+export async function summaryText(stores, { progress = [], board = opsBoard() } = {}, t = now()) {
+  const day = dayOf(t), live = [], needs = [];
+  for (const st of stores) for (const i of await st.list()) {
+    if (i.kind === 'good_news' && dayOf(i.opened) === day) live.push(i.text);
+    if (i.kind === 'needs_you' && i.open && i.msg) needs.push(`${i.what} (since ${dayOf(i.opened) === day ? hhmm(i.opened) : localTime(i.opened)})`);
+  }
+  const lines = progress.map(one).filter(Boolean);
+  if (!live.length && !lines.length && !needs.length) return null;
+  const date = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', timeZone: rules().tz }).format(new Date(t));
+  let url = null;
+  if (board) try { url = await board.url(); } catch (e) { console.error(`notify: the Ops board link: ${e.message}`); }
+  const text = TEMPLATES.summary({ date, live, progress: lines, needs, board: url });
+  mustBePlain('summary', text);
+  return text;
+}
+
+/** Post the evening summary once a day (the first store that keeps news remembers it was sent). */
+export async function summary(stores, tg, o = {}) {
+  const t = now(), key = `summary/${dayOf(t)}`;
+  const keep = stores.find((s) => s.news);
+  if (keep && (await keep.list()).some((i) => i.key === key)) return { status: 'already sent today' };
+  const text = await summaryText(stores, o, t);
+  if (!text) return { status: 'nothing to say: no summary today' };
+  if (o.dryRun) return { status: 'dry run', text };
+  await tg.send('summary', text, { t });
+  if (keep) await keep.locked(() => keep.save({ key, kind: 'summary', opened: t, closed: t, open: false }));
+  return { status: 'sent', text };
+}
+
 /** Escalate, remind and send what waits; returns what it did, one line each. */
-export async function tick(st, tg) {
+export async function tick(st, tg, board = opsBoard()) {
   const r = rules(), t = now(), quiet = isQuiet(t, r), did = [];
   await st.locked(async () => {
     const list = await st.list();
-    for (const inc of list.filter((i) => i.open)) {
+    // a kind is never escalated or reminded ("Needs you" is already his; the summary lists what waits on him):
+    // the tick sends what was held or capped and retries the Ops board
+    for (const inc of list.filter((i) => i.kind && ['needs_you', 'outage', 'ops'].includes(i.kind))) {
+      let changed = false;
+      if (inc.open && !delivered(inc) && due(st, inc, t)) { if (await deliver(st, tg, board, inc, list, t, r)) { changed = true; did.push(`sent ${inc.key}`); } }
+      else if (await boardSync(board, inc, t)) { changed = true; did.push(`board ${inc.key}`); }
+      if (changed) await st.save(inc);
+    }
+    for (const inc of list.filter((i) => i.open && !i.kind)) {
       let changed = false;
       if (!inc.msg && due(st, inc, t)) { if (await sendProblem(tg, inc, list, t, r)) { changed = true; did.push(`sent ${inc.key}`); } }
       if (inc.msg && (hushed(inc, t) || inc.maxSends)) { /* acknowledged or muted in the control panel; a capped problem's repeats are its sender's */ }
@@ -345,6 +587,7 @@ export async function digestText(stores, t = now()) {
   let opened = 0, resolved = 0, open = 0;
   for (const st of stores) {
     for (const i of await st.list()) {
+      if (i.kind === 'good_news' || i.kind === 'summary') continue; // the evening summary's, not a problem
       const where = i.url || i.link || '';
       if (i.open) { open++; lines.push(`🟠 open ${age(t - i.opened)} · ${one(i.text)}${i.escalated ? ' (escalated)' : ''}${i.maxSends && i.msg ? ` (alerted ${i.sends || 1} of ${i.maxSends})` : ''} ${where}`.trim()); }
       else if (t - i.closed < day) { resolved++; lines.push(`✅ resolved after ${age(i.closed - i.opened)} · ${one(i.text)}`); }
@@ -397,6 +640,7 @@ async function main(argv) {
   const [cmd] = argv;
   const opt = (n) => { const i = argv.indexOf(n); return i >= 0 ? argv[i + 1] : undefined; };
   const flag = (n) => argv.includes(n);
+  const optAll = (n) => argv.flatMap((a, i) => (a === n && i + 1 < argv.length ? [argv[i + 1]] : []));
   const say = (s) => console.log(`notify: ${s}`);
   const tg = cmd === 'find' ? telegram({ chat: 'none' }) : telegram();
   const storesOf = () => (opt('--stores') || env('ALERTS_STORE') || '').split(',').filter(Boolean).map((s) => store(s.trim()));
@@ -406,6 +650,22 @@ async function main(argv) {
       const r = await problem(store(), tg, { key: opt('--key'), topic: opt('--topic'), text: opt('--text'), link: opt('--link'), title: opt('--title'), action: flag('--action'), outage: flag('--outage'), you: opt('--you'), maxSends: opt('--max-sends') });
       say(`${r.status} ${r.inc.key}${r.inc.url ? ` (${r.inc.url})` : ''}`);
       if (r.status === 'queued' && env('ALERTS_REQUIRE_SEND') === '1') { console.error('notify: no bot token or chat id here, so the problem was recorded but not sent'); process.exit(2); }
+      break;
+    }
+    case 'needs_you': case 'outage': case 'good_news': case 'ops': {
+      const r = await raise(store(), tg, { kind: cmd, key: opt('--key'), what: opt('--what'), means: opt('--means'), step: opt('--step'), minutes: opt('--minutes'), link: opt('--link'), system: opt('--system'), who: opt('--who'), text: opt('--text'), summaryOnly: flag('--summary-only') });
+      say(`${cmd} ${r.status} ${r.inc.key}`);
+      if (r.status === 'queued' && env('ALERTS_REQUIRE_SEND') === '1') { console.error('notify: no bot token or chat id here, so it was recorded but not sent'); process.exit(2); }
+      break;
+    }
+    case 'summary': {
+      const r = await summary(storesOf(), tg, { progress: optAll('--progress'), dryRun: flag('--dry-run') });
+      say(`summary: ${r.status}`); if (r.text && flag('--dry-run')) console.log(r.text);
+      break;
+    }
+    case 'board': {
+      const b = opsBoard(); if (!b) throw new Error('ALERTS_OPS_BOARD is not set (github:<owner/name>)');
+      say(`Ops board: ${await b.url(true)}`);
       break;
     }
     case 'resolve': { const r = await resolveKey(store(), tg, { key: opt('--key'), text: opt('--text') }); say(`${r.status} ${opt('--key')}`); break; }
@@ -438,7 +698,7 @@ async function main(argv) {
       for (const c of chats.values()) say(`group "${c.title}" id ${c.id}${c.is_forum ? ' (Topics on)' : ' (Topics off)'}`);
       break;
     }
-    default: throw new Error('usage: notify.mjs setup|problem|resolve|tick|digest|send|test|find (see the header of this file)');
+    default: throw new Error('usage: notify.mjs needs_you|outage|good_news|ops|summary|board|resolve|tick|setup|problem|digest|send|test|find (see the header of this file)');
   }
 }
 

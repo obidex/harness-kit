@@ -865,3 +865,30 @@ From the Nov 2026 radar (roadmap #48, after P4; owner's approval of #48, 6 Nov 2
    release; the old channel retires once nothing else posts on it.
 
 **Status:** STANDING.
+
+## K037 · 2026-11-08 · STANDING — the owner's group carries only what matters to him; technical alerts go to the Ops board
+
+**Source:** the owner's correction relayed by the strategist as S-034 (roadmap #38, 7 Nov 2026; his
+picks D1 A · D2 A · D3 A, "start this now"), built as roadmap #59 step 1. Gist: the Telegram alerts
+and their buttons were useless to a human (technical text, "You: nothing", buttons with no job);
+alerts meant for the AI go where the AI reads and acts on them; his group carries only what matters
+to him, and he prefers good news. Supersedes K010's "never success" and O10's old text; the rest of
+K010 (one tool, quiet hours, the group holds its own config, the tick) stands.
+
+1. **Two channels.** Technical alerts go to one Ops board issue (`ops` kind): its body is the live
+   state, each comment one problem or one resolve, and nothing on it can mention anyone. The owner's
+   group gets only `needs_you` (an action only he can do, three plain lines), `outage` (users notice;
+   one message, edited in place to ✅), `good_news` (🎉 something people can use went live) and the
+   ☀️ evening summary at 20:00 Damascus, skipped on a day with nothing to say.
+2. **Senders name a kind, never a channel** (no lock-in): the channel can change in `notify.mjs`
+   alone. `problem` stays until every sender has moved (roadmap #59 step 3), then retires.
+3. **Plain words are enforced, not hoped for.** Owner-facing kinds refuse paths, file names, sizes,
+   addresses, ids, error codes and "You: nothing"; no message carries a button. A refusal fails the
+   sender's run, so its fixture catches it before the owner ever would.
+4. **One message per event.** An outage and a Needs you end by editing their own message to ✅ (an edit
+   is silent); a kind is never escalated or reminded, because the evening summary lists what still
+   waits on him.
+5. **Still one tool, no new cost.** Everything stays in `notify.mjs`; the board is a GitHub issue (not
+   metered); the summary runs from an existing host tick. No AI on any machine.
+
+**Status:** STANDING.
