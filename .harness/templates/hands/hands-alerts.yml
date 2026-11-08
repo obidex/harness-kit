@@ -4,8 +4,8 @@
 # environment:
 # - dispatch `find` to see the bot's name and the groups it was added to (the group's id goes in the
 #   file ALERTS_CHAT_ID here, by PR); then `setup`: checks Topics and the bot's admin rights, creates
-#   the missing topics and pins the config every sender reads; then `test`: a PROBLEM and its RESOLVED
-#   reply in "Kit & Hands". `send` posts one message (topic + text); `tick` runs by hand.
+#   the missing topics and pins the config every sender reads; then `test`: one silent message in
+#   "Summary", edited to ✅. `send` posts one message (topic + text); `tick` runs by hand.
 # - `board` (text: the board's repository, owner/name) opens the Ops board as the App and pins it, once,
 #   before any host writes to it (S-034 A: the owner's own token never opens it); `retire` (text: the
 #   topics, e.g. kit,ops,daily) closes topics the owner no longer keeps (K039).
@@ -26,7 +26,7 @@ on:
         required: true
         default: test
       topic:
-        description: For send (needs, erp, website, kit, ops, daily)
+        description: For send (needs, good, summary; erp and website until their senders move)
         required: false
       text:
         description: For send; for board the repository (owner/name); for retire the topics (kit,ops,daily)

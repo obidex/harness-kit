@@ -364,6 +364,8 @@ async function resolveKind(st, tg, inc, o, t, board) {
     await tg.edit(inc.topic, inc.msg, done);
     await tg.call('unpinChatMessage', { chat_id: tg.chat, message_id: inc.msg }).catch(() => {});
   }
+  // a problem moved from a closed topic (K039) whose old escalation is in Needs you: that message turns ✅ too
+  if (inc.retiredTopic && inc.escMsg) await tg.edit('needs', inc.escMsg, fixed(inc, t)).catch((e) => console.error(`notify: ${e.message}`));
   inc.open = false; inc.closed = t; inc.resolution = one(o.text || '');
   await boardSync(board, inc, t);
   await st.close(inc, `RESOLVED after ${age(t - inc.opened)}${o.text ? `: ${one(o.text)}` : '.'}`);
