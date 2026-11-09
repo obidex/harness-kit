@@ -933,3 +933,20 @@ From roadmap #59 steps 2-3 (S-034 E and the owner's correction of 8 Nov, roadmap
 
 **Status:** STANDING.
 
+## K040 · 2026-11-09 · STANDING — code over stale instructions
+
+From roadmap #85 (owner, 9 Nov 2026: "add this to the plan and let's do it as soon as possible").
+
+1. **Why.** Xu & Wu (arXiv 2610.30571, Oct 2026, preprint): with a stale instruction file, coding
+   agents followed the file over the existing code in 90% of choices, mostly while naming the
+   conflict; one higher-priority sentence moved code-following from 4% to 91% and raised test pass
+   rates. Limits: 40 small Python projects, only the case where the file is the stale side.
+2. **Rule.** C26 in core, so every project loads it. Scoped because rulebooks here are often ahead of
+   the code on purpose: security requirements, explicit prohibitions, the owner's numbered rules and
+   decisions and documented migration plans always win over the code.
+3. **Sweep.** One stale-line sweep per project now, and again only after a big architecture change;
+   never on a schedule. Stale text is fixed in place (C17); where the code is the wrong side, a card.
+4. **Cap.** Core's byte cap is unchanged (C17); room came from text another rule already carries
+   (changelog 0.37.0).
+
+**Status:** STANDING.
