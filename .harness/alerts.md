@@ -127,8 +127,8 @@ A new project gets its own topic: add it to `TOPICS` in `notify.mjs` (a kit rele
 7. **Capped problems** (`--max-sends N`, K035). A sender that checks the same thing every day (stale
    work, stale data) opens its problem capped: the PROBLEM, then at most one STILL OPEN reply a day
    (the owner's day) from the sender's own repeat while it stays open, N messages in all (the kit's
-   senders use 3). Never escalated, never reminded by `tick`; past N it is only a row on the Ops board,
-   marked "alerted N of N", until its RESOLVED. Not for an outage or "Needs you".
+   senders use 3). Never escalated, never reminded by `tick`; past N nothing more is sent until its
+   RESOLVED (the digest that once listed it is retired, K039). Not for an outage or "Needs you".
 8. **Stale is never OK.** A check that reads an outside source (a job's last run, a report page, an
    API answer) and finds it older than its threshold says STALE, never OK, and opens a capped problem;
    a check that could not read the source at all says so, never "none found" (K035).
