@@ -13,8 +13,8 @@ From roadmap #85 (owner, 9 Nov 2026).
   and decisions, and documented migration plans always win; each behaviour-changing conflict is
   reported and filed as a card. Record in `catalogue/core.md`.
 - The core cap holds (C17): duplicated text came out to make room. C02's "two outcomes are two
-  ordered cards" (its title says it), C21's "ready for you" line (C03), C24's and C25's
-  parentheticals (C12, C21 and the records keep them), C23's "nothing Claude is scheduled" (follows
+  ordered cards" (its title says it), C21's "ready for you" line (C03), C24's parenthetical (a
+  usage-limit reset is a wait; the record keeps the examples), C25's merge parenthetical (C12, C21), C23's "nothing Claude is scheduled" (follows
   from its retirement rule; the record keeps it), C25's "reminders go at DONE" (C23), C17's "point,
   never copy" (its title), C19's "escalate on a repeat" (C18), the "Finishing and waiting" intro line
   (C20, C23). C10 and C14 are reworded shorter with the same meaning.
