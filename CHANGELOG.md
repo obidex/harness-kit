@@ -3,6 +3,23 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.37.0 · 2026-11-09 · code over stale instructions (K040)
+
+From roadmap #85 (owner, 9 Nov 2026).
+
+- **C26 Stale instructions** (core, loaded every session): when descriptive repository instructions
+  conflict with consistent patterns in the relevant existing code, keep the code's pattern unless the
+  task asks for the change; security requirements, explicit prohibitions, the owner's numbered rules
+  and decisions, and documented migration plans always win; each behaviour-changing conflict is
+  reported and filed as a card. Record in `catalogue/core.md`.
+- The core cap holds (C17): duplicated text came out to make room. C02's "two outcomes are two
+  ordered cards" (its title says it), C21's "ready for you" line (C03), C24's parenthetical (a
+  usage-limit reset is a wait; the record keeps the examples), C25's merge parenthetical (C12, C21), C23's "nothing Claude is scheduled" (follows
+  from its retirement rule; the record keeps it), C25's "reminders go at DONE" (C23), C17's "point,
+  never copy" (its title), C19's "escalate on a repeat" (C18), the "Finishing and waiting" intro line
+  (C20, C23). C10 and C14 are reworded shorter with the same meaning.
+- Replay result `replay/results/0.37.0.json`.
+
 ## 0.36.1 · 2026-11-08 · an ops row keeps the hold
 
 From roadmap #59 step 3 (infra's fixtures found it).
