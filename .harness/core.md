@@ -97,5 +97,5 @@
 - **C25 Waits wake themselves.** No turn ends waiting on CI, a review or another thread without one
   self-reminder (or watcher) at the expected finish. Each turn first reads the PR's checks, reviews
   and comments since last turn; new findings first. A wake reads the real state, then continues or
-  sets one more; 3 per wait, then STOPPED with why. Merge decisions read the PR, never another
-  thread's message alone.
+  sets one more; 3 per wait, then STOPPED with why. Merge decisions read the PR, never
+  another thread's message alone.
