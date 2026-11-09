@@ -10,8 +10,7 @@
 # every write token is minted for one job, one repository and the permissions that job needs.
 # Emergency stop: the Actions variable HANDS_PAUSED (README "Emergency").
 # The daily run also does the alert standard's daily work (O10, K010): escalations and STILL OPEN
-# replies for this repository's open problems, and the one digest in the "Daily" topic at 08:17
-# Damascus time, and the missed-run check: a row on the Ops board (ALERTS_OPS_BOARD; never Telegram,
+# replies for this repository's open problems, and the missed-run check: a row on the Ops board (ALERTS_OPS_BOARD; never Telegram,
 # K038) for any of this repository's scheduled workflows more than 36 hours overdue (GitHub's schedules
 # are best-effort), ✅ once it has run again. No extra job: steps in the drift check's job. This run cannot report its own
 # silence; a host's tick runs the same check (stale.mjs schedules) to cover it.

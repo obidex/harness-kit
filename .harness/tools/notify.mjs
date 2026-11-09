@@ -39,7 +39,7 @@
 //   "You: nothing", an issue number outside a quoted paste, an alert count or a threshold (rule C), any
 //   message not in the owner's format (K038: `🛑 what` / `Who:` / `Do:` / `Where:` / `When:`, five lines
 //   at most), and no message carries a button.
-//   node .harness/tools/notify.mjs test         a PROBLEM in "Kit & Hands" and its RESOLVED reply (a proof)
+//   node .harness/tools/notify.mjs test         one silent message in "Summary", edited to ✅ (a proof)
 //   node .harness/tools/notify.mjs find         the bot's name and the groups it was added to, with their ids
 //
 // The rules (.harness/alerts.md; `problem` is the older form, kept until every sender uses a kind):
