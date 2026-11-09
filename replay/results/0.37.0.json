@@ -33,7 +33,7 @@
     "R27": "C",
     "R28": "B"
   },
-  "rules_sha256": "7fb8b16407d3d5b8094881f3d2e9d9b4d2cc3352b2d9e21ab83b2d0e6bcbaeb4",
+  "rules_sha256": "c94362f24039de71ad8e651f5614df3061e4ce4b5e6aac223db0dbc967afed61",
   "adapters_sha256": "78c07194e035bc1378fd2b74d85b410348c593273fd53fdf6b82effc3dd9699c",
   "passed": 28,
   "total": 28,
