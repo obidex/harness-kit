@@ -8,13 +8,13 @@ Each version is the tag `v<version>` on this repository, never moved (K003). Pro
 The kit's own stale-line sweep (C26, K040): text that described code that no longer behaves that way.
 Each item was confirmed by a fresh-context check; no code changed.
 
-- `alerts.md`: the topic table lists only Needs you, Good news and Summary (K039); stale work past its
-  cap is an Ops-board row, not a digest line; the drift check no longer "posts the digest"; mode `test`
+- `alerts.md`: the topic table lists only Needs you, Good news and Summary (K039); a capped problem past
+  its cap sends nothing more until RESOLVED (no digest line); the drift check no longer "posts the digest"; mode `test`
   is one silent message in Summary; the host install pins the current tag, not v0.8.0.
 - `hands.md`: the drift check records overdue runs on the Ops board (no digest); a public project never
   sets `RUNNER` (A19 fails it), not "may prefer".
 - `README.md`: stale work is an Ops-board row per item, not capped alerts.
-- `hands-settings.yml` header comment and `notify.mjs` usage line: no digest; `test` as above.
+- `hands-settings.yml` header comment and `notify.mjs` header comments: no digest; `test` as above.
 - Catalogue C08, C09, C17: Verify columns say what the audit really checks (A12, not A08; no diff scan
   or link resolution by script).
 - `inbox` skill: an event-fired coordinator is woken by the `wake` label and subscribes to no channel
