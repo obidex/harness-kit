@@ -950,3 +950,22 @@ From roadmap #85 (owner, 9 Nov 2026: "add this to the plan and let's do it as so
    (changelog 0.37.0).
 
 **Status:** STANDING.
+
+
+## K041 · 2026-11-10 · STANDING — one message shape for the owner; settings never load in cloud threads
+
+From the owner's kit-consistency card (10 Nov 2026).
+
+1. **Shape.** The owner's 8 Nov rule (topic first, status word last, for messages he reads) is now in
+   C03 and O08, so no always-loaded rule contradicts `alerts.md`. Supersedes the wording of O08 in
+   K001 ("status word first") for those messages only; a card's closing note keeps C03's opening.
+2. **Standing approvals.** The block is brought to the text the Platform project already runs
+   (A16, Refusals, permissions-and-secrets lines); its kit text is 0.38.0.
+3. **Settings.** Evidence: the Claude Projects docs (roadmap #48 P3) and K031 say a cloud thread loads no
+   repository settings with one repository or several; a four-repository Platform thread (10 Nov) had no
+   identity env although its clones carry `.claude/settings.json`. The "settings load with one
+   repository" wording (permissions repair, 8 Oct) was superseded by K031 and is removed from the
+   Settings line. The identity step (`git config` per clone) and the run-card start check stay valid
+   either way.
+
+**Status:** STANDING.

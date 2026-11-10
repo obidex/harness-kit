@@ -3,6 +3,18 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.38.0 · 2026-11-10 · owner message shape agrees everywhere; standing approvals in step (K041)
+
+Owner card, 10 Nov 2026 (kit consistency).
+
+- **C03 and O08** now agree with the owner's 8 Nov shape (already in `alerts.md`): a message the owner
+  reads starts with the topic and ends with the status word; a card's closing note still opens with the status word.
+- **Standing approvals** (kit text 0.38.0): the block gains the A16 file-tools clause, the Refusals line
+  and the "permission settings and secrets" line the Platform block already carried, and the Settings
+  line no longer says settings load with one repository (A15 and K031 never allowed that). Projects get
+  the new block by an inbox request each.
+- Catalogue rows C03 and O08 match.
+
 ## 0.37.1 · 2026-11-09 · stale lines fixed (roadmap #85 sweep)
 
 The kit's own stale-line sweep (C26, K040): text that described code that no longer behaves that way.
