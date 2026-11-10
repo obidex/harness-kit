@@ -33,7 +33,7 @@
 
 <!-- standing-approvals:begin -->
 ```
-STANDING APPROVALS (kit text 0.38.0; owner, {{DATE}}; standing, for every {{PROJECT}} thread working an approved card)
+STANDING APPROVALS (kit text 0.39.0; owner, {{DATE}}; standing, for every {{PROJECT}} thread working an approved card)
 {{SETTINGS_LINE}} The owner approves in advance:
 - Identity: before the first commit, run `git config user.name {{OWNER_NAME}}` and `git config user.email {{OWNER_EMAIL}}` in each clone; commits and squash bodies carry no Claude attribution (O09). Never re-author a commit.
 - Edits: change the files the card names in {{REPOS}}, including agent rule files (AGENTS.md, CLAUDE.md, .claude/rules, .claude/skills, the decisions log) and the project's shared agent memory, when the card is an owner-approved change to them, using the file-edit tools (A16). Kit-managed files change only through kit updates.
@@ -43,6 +43,6 @@ STANDING APPROVALS (kit text 0.38.0; owner, {{DATE}}; standing, for every {{PROJ
 - Talk: comment on issues and PRs in {{REPOS}}; file and wake inbox issues in {{INBOX_REPOS}} (O14), through the coordinator when a thread holds one repository (A15).
 - Refusals: a safety-check refusal is never retried, reworded or moved to another thread, session or tool (C14). Record the exact command and denial where the project keeps refusals; fix a real configuration gap only where the fix is not itself the refused action.
 - Permission settings and secrets are never changed by the agents they govern.
-Not covered (still the owner's): {{RESERVED}}; secrets, .claude/settings.json, root steps on machines, deleting data.
+Not covered (still the owner's): {{RESERVED}}; secrets, .claude/settings.json, root steps on machines, deleting data without a verified backup.
 ```
 <!-- standing-approvals:end -->
