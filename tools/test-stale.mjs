@@ -78,6 +78,13 @@ let threw = 0;
 for (const bad of [[{ hours: { card: 'two' } }, {}], [{ hours: { soon: 3 } }, {}], [{ hours: { card: 0 } }, {}], [{ watch: ['prs'] }, {}], [{ alerts_max: 0 }, {}], [{ initiative_labels: 'Now' }, {}], [{}, { HARNESS_STALE_PR_DAYS: 'two' }], [[], {}]]) { try { settings(...bad); } catch { threw++; } }
 ok(threw === 8, 'a threshold, watch, cap or label list it cannot read is refused, never a silent default');
 {
+  const { validateSchema } = await import('../.harness/tools/lib.mjs');
+  const schema = JSON.parse(readFileSync(join(kit, '.harness/profile.schema.json'), 'utf8')), example = JSON.parse(readFileSync(join(kit, 'examples/profile.example.json'), 'utf8'));
+  const withHours = (hours) => validateSchema(schema, { ...example, stale: { hours } });
+  ok(Object.keys(DEFAULTS).every((k) => withHours({ [k]: 24 }).length === 0) && withHours({ soon: 24 }).length > 0 && settings({ hours: { state: 24 } }).hours.state === 24,
+    'every threshold the tool reads, hours.state among them, is one the profile schema accepts; an unknown one is refused');
+}
+{
   const d = mkdtempSync(join(tmpdir(), 'stale-data-'));
   writeFileSync(join(d, 'p.json'), JSON.stringify({ alerts: { topic: 'kit' }, stale: { hours: { card: 30 } } }));
   writeFileSync(join(d, 'c.json'), JSON.stringify({ hours: { initiative: 24 }, initiative_labels: ['Now'] }));
