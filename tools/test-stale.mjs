@@ -9,7 +9,7 @@ import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { readFileSync, readdirSync, mkdtempSync, mkdirSync, copyFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { parseCron, nextRun, scheduleState, overdueHours, schedules, alertSchedules, missedText, isTracking, checkState, classifyPr, classifyIssue, select, settings, loadData, render, signature, idleText, itemKey, itemText, topicOf, profileTopic, report, DEFAULTS, MARKER } from '../.harness/tools/stale.mjs';
+import { parseCron, nextRun, scheduleState, overdueHours, schedules, alertSchedules, missedText, isTracking, checkState, classifyPr, classifyIssue, select, settings, loadData, render, signature, idleText, itemKey, itemText, topicOf, profileTopic, report, DEFAULTS, MARKER, STATE_LABEL, stateKey, stateFreshness } from '../.harness/tools/stale.mjs';
 import { body as inboxBody, setField } from '../.harness/tools/inbox.mjs';
 import { parseYaml } from '../.harness/tools/lib.mjs';
 
@@ -136,7 +136,7 @@ const srv = createServer((q, res) => {
     if (w) { const x = wfs.find((y) => y.meta.id === Number(w[1])); return send(200, { workflow_runs: x.runs.filter((r) => r.event === u.searchParams.get('event')).slice(0, Number(u.searchParams.get('per_page')) || 30) }); }
     w = u.pathname.match(/^\/repos\/o\/r\/contents\/(.+)$/);
     if (w) { const x = wfs.find((y) => y.meta.path === w[1]); return x ? send(200, { content: Buffer.from(x.text).toString('base64'), encoding: 'base64' }) : send(404, {}); }
-    if (u.pathname === '/repos/o/r/pulls') return send(200, u.searchParams.get('page') === '1' ? pulls.map((p) => p.list) : []);
+    if (u.pathname === '/repos/o/r/pulls') return send(200, u.searchParams.get('page') === '1' ? pulls.filter((p) => (p.list.state || 'open') === (u.searchParams.get('state') || 'open')).map((p) => p.list) : []);
     let m = u.pathname.match(/^\/repos\/o\/r\/pulls\/(\d+)$/);
     if (m) return send(200, pulls.find((p) => p.list.number === Number(m[1])).full);
     m = u.pathname.match(/^\/repos\/o\/r\/commits\/(\w+)\/(check-runs|status)$/);
@@ -211,6 +211,48 @@ pulls.push(pr(70, 9, { mergeable: true }, [run('failure')]));
 r = await report('o/r', at0(NOW + 7 * 86400000), B);
 ok(signature(r.items) === '12' && r.alerts['stale:o/r#12'] === 'sent' && tg.length === 0 && /`stale:o\/r#12` · Stale initiative in o\/r: #12 Launch readiness/.test(boardIssue().comments.join('\n')) && tracking()[0].body.includes('initiatives (`Now`) 48'),
   'a board watching initiatives and wait records puts a Now item idle 23 days on the Ops board, never in Telegram; the STATE issue moved within 48 h');
+
+// --- the STATE issue's freshness (K042): out of date only when work merged since it was last written ----
+{
+  const T = NOW + 7 * 86400000, B2 = settings({ initiative_labels: ['Now'], watch: ['initiative'] }), iso = (ms) => new Date(ms).toISOString(), H = 3600000;
+  ok(DEFAULTS.state === 48 && STATE_LABEL === 'coordinator-state' && stateKey('o/r') === 'state:o/r'
+    && stateFreshness({ updatedAt: iso(T - 50 * H), merges: [iso(T - 10 * H), null, iso(T - 60 * H)], now: T }).stale && stateFreshness({ updatedAt: iso(T - 50 * H), merges: [iso(T - 10 * H), iso(T - 60 * H)], now: T }).merges === 1
+    && !stateFreshness({ updatedAt: iso(T - 50 * H), merges: [iso(T - 60 * H)], now: T }).stale && !stateFreshness({ updatedAt: iso(T - 47 * H), merges: [iso(T - 10 * H)], now: T }).stale
+    && stateFreshness({ updatedAt: iso(T - 30 * H), merges: [iso(T - 10 * H)], now: T, limit: 24 }).stale,
+    'a STATE issue is out of date when it was written 48 h or more ago AND a pull request merged since; idle with no merge since, or a merge before it was written, is not');
+  const st54 = issues.find((i) => i.number === 54);
+  const comments0 = boardIssue().comments.length;
+  st54.updated_at = iso(T - 50 * H);
+  r = await report('o/r', at0(T), B2);
+  ok(r.state.number === 54 && r.state.hours === 50 && !r.state.stale && !('state:o/r' in r.alerts), 'a STATE issue idle 50 h with no merge since raises nothing: nothing moved');
+  pulls.push({ list: { number: 71, state: 'closed', title: 'merged before', html_url: 'u71', updated_at: iso(T - 60 * H), merged_at: iso(T - 60 * H) }, full: {}, runs: [] },
+    { list: { number: 72, state: 'closed', title: 'closed unmerged', html_url: 'u72', updated_at: iso(T - 5 * H), merged_at: null }, full: {}, runs: [] });
+  r = await report('o/r', at0(T + 60000), B2);
+  ok(!r.state.stale && !('state:o/r' in r.alerts), 'a merge before the state was written, or a pull request closed unmerged, does not count');
+  pulls.push({ list: { number: 73, state: 'closed', title: 'merged since', html_url: 'u73', updated_at: iso(T - 10 * H), merged_at: iso(T - 10 * H) }, full: {}, runs: [] });
+  r = await report('o/r', at0(T + 120000), B2);
+  ok(r.state.stale && r.state.merges === 1 && r.alerts['state:o/r'] === 'sent' && tg.length === 0 && boardIssue().comments.length === comments0 + 1
+    && /⚠️ problem · `state:o\/r` · State out of date in o\/r: #54 was last written 2 days 2 h ago and 1 pull request merged since \(threshold 48 h\)/.test(boardIssue().comments.join('\n')),
+    'a STATE issue 50 h old with a merge since is ONE ⚠️ row on the Ops board (state:<repo>), never a Telegram message');
+  r = await report('o/r', at0(T + 180000), B2);
+  ok(r.alerts['state:o/r'] === 'repeat' && boardIssue().comments.length === comments0 + 1 && signature(r.items) === '12' && !tracking()[0].body.includes('#54'), 'the next run adds nothing; the state row is not an item of the "Stale work" list');
+  r = await report('o/r', at0(T + 200000), B);
+  ok(r.state.stale && r.state.listed && r.alerts['stale:o/r#54'] === 'sent' && r.alerts['state:o/r'] === 'resolved', 'where the STATE issue is already listed as a stale wait record, that item row is the only one: never two rows for one issue');
+  r = await report('o/r', at0(T + 220000), B2);
+  ok(r.alerts['state:o/r'] === 'sent' && r.alerts['stale:o/r#54'] === 'resolved', 'and the other way round');
+  delete process.env.ALERTS_OPS_BOARD;
+  r = await report('o/r', at0(T + 240000), B2);
+  ok(r.state.stale && !('state:o/r' in r.alerts) && tg.length === 0, 'without the Ops board an out-of-date state is only logged');
+  process.env.ALERTS_OPS_BOARD = 'github:o/r';
+  st54.updated_at = iso(T + H);
+  r = await report('o/r', at0(T + 2 * H), B2);
+  ok(!r.state.stale && r.alerts['state:o/r'] === 'resolved' && boardIssue().comments.filter((c) => /^✅ resolved after .* · `state:o\/r`/.test(c)).length === 2 && tg.length === 0, 'rewriting the STATE issue turns the row ✅ on the next run');
+  st54.state = 'closed';
+  r = await report('o/r', at0(T + 2 * H + 60000), B2);
+  ok(r.state === null && !('state:o/r' in r.alerts), 'a repository with no open STATE issue has no state row');
+  st54.state = 'open';
+  pulls.splice(pulls.findIndex((p) => p.list.number === 71), 3);
+}
 
 // --- missed scheduled runs: cron, overdue by more than 36 h, PROBLEM then RESOLVED in the topic ------
 const at = (iso) => Date.parse(iso);

@@ -3,6 +3,26 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.39.0 · 2026-11-10 · state that cannot go stale; the failed-wake paste named in O15; the kit loads its own rules (K042)
+
+From roadmap #90 (owner, 10 Nov 2026: the context-files overhaul).
+
+- **O15** names its second exception, which the owner approved on 7 Nov 2026 and the always-loaded text
+  still forbade: a wake no session picked up reaches him as one paste, at most one a day per stuck item.
+  Its catalogue row carries the detail. `owner-defaults.md` is 2 bytes shorter than in 0.38.0.
+- **Standing approvals** (kit text 0.39.0): "Not covered" no longer lists all deleting of data, only
+  "deleting data without a verified backup", as the owner ruled on 9 Oct 2026. Projects get the new
+  block by an inbox request each.
+- **State freshness.** `stale.mjs report` adds one Ops board row `state:<owner/name>` when the open
+  issue labelled `coordinator-state` was last written 48 hours or more ago (`hours.state`) while pull
+  requests merged since, and turns it ✅ once the issue is rewritten. An issue already listed as a stale
+  wait record keeps that one row. Nothing goes to the owner. `wake.md` §6 says what lives in the STATE
+  issue and what the state file may still carry; the review checklist's item 6 follows.
+- **The kit's own `CLAUDE.md`**: a thread working in this repository now loads core, owner defaults and
+  the version, plus what is this repository's own. It is not installed in projects.
+- **`correct` skill**: an owner correction's decision entry carries a `Homes:` line listing every
+  always-loaded place it must reach, with one inbox request per home in another project.
+
 ## 0.38.0 · 2026-11-10 · owner message shape agrees everywhere; standing approvals in step (K041)
 
 Owner card, 10 Nov 2026 (kit consistency).

@@ -969,3 +969,35 @@ From the owner's kit-consistency card (10 Nov 2026).
    either way.
 
 **Status:** STANDING.
+
+
+## K042 · 2026-11-10 · STANDING — state lives in an issue and is checked; the failed-wake paste; homes of a correction
+
+From roadmap #90 (owner, 10 Nov 2026: "review these files and update them. Consider this message as a
+confirmation and a permission to do everything necessary without asking twice").
+
+1. **State.** State files went stale in every project because volatile state sat in a canon file that
+   changes only by card and PR, mixed with slow facts, and nobody owned its freshness. So: volatile
+   state lives in the STATE issue (`wake.md` §5-6), rewritten at the end of every coordinator run; the
+   state file keeps only slow facts and points to it. C17's "the state file" reads as that pair; the
+   always-loaded text is unchanged.
+2. **Freshness, with no AI.** The daily stale-work job adds one Ops board row when the STATE issue is 48
+   hours old while pull requests merged since. Merges are the signal that work moved; an idle
+   repository with an old state raises nothing. No new schedule and nothing to the owner (K038).
+3. **O15.** The owner's exception of 7 Nov 2026 (a failed wake is the one time he is asked to paste, at
+   most one message a day per stuck item) is named in O15, next to O18's "check". Refines K014.
+4. **Standing approvals.** Deleting data after a verified backup is the agents' (owner, 9 Oct 2026), so
+   the block reserves only deleting without one. Kit text 0.39.0. Whether a one-repository cloud thread
+   loads settings stays as K041 found it (it does not); a direct probe in a one-repository project is
+   asked of those projects, since this one has several repositories.
+5. **Entry file.** The kit gets a root `CLAUDE.md` importing its own rule files, so a thread working
+   here loads them. It is the repository's own file, not a kit-managed one.
+6. **Homes.** An owner rule drifted three times in a month because it had many homes and reached one.
+   The `correct` skill now makes the decision entry list its homes and the coordinator file one inbox
+   request per home (C19: a step in the skill; nothing fails when it is skipped, so it is the cheap
+   level, chosen because the homes are prose in other projects that no check here can read).
+
+Homes: kit owner defaults (O15, this release); kit `standing-approvals.md` (this release); each
+project's instructions block (one inbox request each).
+
+**Status:** STANDING.
