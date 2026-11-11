@@ -3,6 +3,17 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.40.0 · 2026-11-11 · real data waits for a tap (O19, K043)
+
+From roadmap #98 section 7 (owner, 11 Nov 2026).
+
+- **O19** in the owner defaults: once real data is live, only a project's named list of actions that
+  cannot change or delete data runs by itself; everything else waits for one tap by a person on a card
+  that says what it does, what it needs, the risk and the undo. Its catalogue row carries the card's shape,
+  the default list, the example-data switch and the list each project makes before real data goes live.
+- `owner-defaults.md` stays at 4091 bytes: nine rules lose words another loaded line already carries.
+- `test-harness` proves O19 is in the installed owner defaults.
+
 ## 0.39.0 · 2026-11-10 · state that cannot go stale; the failed-wake paste named in O15; the kit loads its own rules (K042)
 
 From roadmap #90 (owner, 10 Nov 2026: the context-files overhaul).

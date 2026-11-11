@@ -1001,3 +1001,33 @@ Homes: kit owner defaults (O15, this release); kit `standing-approvals.md` (this
 project's instructions block (one inbox request each).
 
 **Status:** STANDING.
+
+## K043 · 2026-11-11 · STANDING — real data waits for a tap (O19)
+
+From roadmap #98 and its section 7 (owner, 11 Nov 2026: "once real data is live, nothing that can change
+or delete data runs by itself. It waits for one tap from me on a card that says what it does, what it
+needs, the risk and how to undo it. Only the short list in #98 lane A stays automatic. This is a rule for
+what you build. Change nothing that is live today because of it." Earlier the same day: "whenever real
+information is up I would rather have automations and fixes on a one click basis from a user rather than
+act on their own, with explanation displayed of what they do exactly and what they need and precautions
+about it... for things that need multiple steps I would rather have clear steps given to me on a
+command.")
+
+1. **The rule.** O19 in the owner defaults, so every project gets it by its pin. A project names its lane A
+   list (actions that cannot change or delete data and may run by themselves with real data live) in its
+   repository; everything else is lane B: one tap by a person on a card stating what it does, what it
+   needs, the risk and the undo. The catalogue row carries the card's shape and the default lane A list.
+2. **The switch.** With example data or on staging every fix may run by itself, so drills stay fast. A
+   mode nobody can read counts as real.
+3. **Before real data goes live**, a project's coordinator lists every automation that can change or
+   delete live data and marks each lane A or B. The list comes first; a lane-B one that runs by itself
+   today becomes a card; nothing live changes before the list exists, and nothing that already waits for
+   a person is rebuilt.
+4. **Room under the cap.** The owner defaults stay at 4091 bytes: O01, O02, O04, O07, O08, O09, O13, O14
+   and O16 lose words that another loaded line already carries (C03 for closing notes, O06 for Opus on
+   risky work, the catalogue for the `inbox` skill and the scheduling example). No meaning is dropped.
+
+Homes: kit owner defaults (O19, this release) and its catalogue row; obidex/infra's decisions log (the
+production server's lanes); the ERP, which does not install the kit, by an inbox request.
+
+**Status:** STANDING.
