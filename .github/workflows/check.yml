@@ -3,11 +3,14 @@ name: check
 
 on:
   pull_request:
+    # edited: a description changed after the check ran is judged again (O09)
+    types: [opened, synchronize, reopened, edited]
   push:
     branches: [main]
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: check-${{ github.ref }}
@@ -25,6 +28,11 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
+      - name: No Claude footer in the pull request description (O09)
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node .harness/tools/guard.mjs pr-body --repo "${{ github.repository }}" --pr "${{ github.event.pull_request.number }}"
       - run: node tools/check-kit.mjs
       - name: A change to the kit is a new version
         if: github.event_name == 'pull_request'

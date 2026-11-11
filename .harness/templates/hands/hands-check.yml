@@ -5,10 +5,12 @@ name: hands-check
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    # edited: a description changed after the check ran is judged again (O09)
+    types: [opened, synchronize, reopened, edited]
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: hands-check-${{ github.ref }}
@@ -33,3 +35,9 @@ jobs:
         run: node kit/.harness/tools/hands.mjs validate .
       - name: Every job that can reach the App key runs only from main
         run: node kit/.harness/tools/hands.mjs control-check .
+      - name: No Claude footer in the pull request description (O09)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: node kit/.harness/tools/guard.mjs pr-body --repo "$REPO" --pr "$PR"
