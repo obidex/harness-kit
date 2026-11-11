@@ -7,11 +7,12 @@ Each version is the tag `v<version>` on this repository, never moved (K003). Pro
 
 From roadmap #98 section 7 (owner, 11 Nov 2026).
 
-- **O19** in the owner defaults: once real data is live, only a project's named list of actions that
-  cannot change or delete data runs by itself; everything else waits for one tap by a person on a card
-  that says what it does, what it needs, the risk and the undo. Its catalogue row carries the card's shape,
-  the default list, the example-data switch and the list each project makes before real data goes live.
-- `owner-defaults.md` stays at 4091 bytes: nine rules lose words another loaded line already carries.
+- **O19** in the owner defaults: with real data live, nothing built that can change or delete data runs by
+  itself; it waits for the owner's one tap on a card that says what it does, what it needs, the risk and
+  the undo, and only a project's named list stays automatic. Live jobs stay as they are. Its catalogue row
+  carries the card's shape, the default list, the example-data switch and the list each project makes.
+- `owner-defaults.md` goes from 4091 to 4090 bytes: words another loaded line already carries are dropped
+  from twelve rules and the header (K043 item 4).
 - `test-harness` proves O19 is in the installed owner defaults.
 
 ## 0.39.0 · 2026-11-10 · state that cannot go stale; the failed-wake paste named in O15; the kit loads its own rules (K042)
