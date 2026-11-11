@@ -1058,3 +1058,29 @@ From the owner (11 Nov 2026): Claude footers were back in PR bodies; a PR carryi
 Homes: `guard.mjs`, the guard and hands-check templates, the kit's `check.yml`; O09's catalogue row.
 
 **Status:** STANDING.
+
+## K045 · 2026-11-11 · STANDING — the one-time permission line
+
+From roadmap #101 (owner, 11 Nov 2026: "we should always resort to automations when available, and a
+solution like this needs to be used, not ignored by others because they don't know it's an option").
+In a pve01 runner thread the owner's laptop safety check refused one approved step; the thread logged the
+refusal, did not work around it, and gave him a decision; he added six permission lines (about two minutes)
+and the thread ran the step with nothing more from him.
+
+1. **The rule is A24** (adapter), with the how-to in `permission-line.md`. It was not put in the always-loaded
+   text: both files are at their caps, and the cost of knowing it is a lookup a thread makes when a safety
+   check stops it (C14 already points the thread to the owner's decision; A24 names what to offer).
+2. **Order.** An existing route first, this second, a manual step last.
+3. **Limits.** Only the owner edits permission settings; an agent never asks him to switch a check off;
+   a refusal still ends the attempt, and his own change to his own permissions, offered once, is the only
+   thing that reopens it; nothing on his reserved list; the narrowest line; a wide line has a reason and a
+   look-again date and is never given for a machine that holds real data.
+4. **One home for the lines.** Each project keeps a list of the lines in the repository that owns its
+   machines (the shape is in `permission-line.md`). It is not a permission, and the owner's file is the truth.
+5. **Standing approvals unchanged.** They keep saying the file is his, so projects need no new block.
+   Replay result 0.42.0 (an adapter changed).
+
+Homes: the adapter (A24, this release) and its record; `permission-line.md`; each project's list (infra has
+one); the ERP, which does not install the kit, by the roadmap.
+
+**Status:** STANDING.
