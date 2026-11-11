@@ -1063,13 +1063,13 @@ Homes: `guard.mjs`, the guard and hands-check templates, the kit's `check.yml`; 
 
 From roadmap #101 (owner, 11 Nov 2026: "we should always resort to automations when available, and a
 solution like this needs to be used, not ignored by others because they don't know it's an option").
-In a pve01 runner thread the owner's laptop safety check refused one approved step; the thread logged the
+In a runner-setup thread the owner's laptop safety check refused one approved step; the thread logged the
 refusal, did not work around it, and gave him a decision; he added six permission lines (about two minutes)
 and the thread ran the step with nothing more from him.
 
 1. **The rule is A24** (adapter), with the how-to in `permission-line.md`. It was not put in the always-loaded
    text: both files are at their caps, and the cost of knowing it is a lookup a thread makes when a safety
-   check stops it (C14 already points the thread to the owner's decision; A24 names what to offer).
+   check stops it (O01 already reserves a refused action for the owner's decision; A24 names what to offer).
 2. **Order.** An existing route first, this second, a manual step last.
 3. **Limits.** Only the owner edits permission settings; an agent never asks him to switch a check off;
    a refusal still ends the attempt, and his own change to his own permissions, offered once, is the only
@@ -1080,7 +1080,7 @@ and the thread ran the step with nothing more from him.
 5. **Standing approvals unchanged.** They keep saying the file is his, so projects need no new block.
    Replay result 0.42.0 (an adapter changed).
 
-Homes: the adapter (A24, this release) and its record; `permission-line.md`; each project's list (infra has
-one); the ERP, which does not install the kit, by the roadmap.
+Homes: the adapter (A24, this release) and its record; `permission-line.md`; each project's own list; a
+project that does not install the kit, by the owner's board.
 
 **Status:** STANDING.

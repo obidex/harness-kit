@@ -34,7 +34,7 @@
     "R28": "B"
   },
   "rules_sha256": "0dc1958cd3757c5938937ec47e30c0e1d94913cbc536129df0999539407d1383",
-  "adapters_sha256": "d62572088cb7833434d6b21a1c2bbe1fbfba36a6ba8670767801fd69530f74af",
+  "adapters_sha256": "2ecd948083da39de223db237b730f632c7611ffec4a5edd9ab61c9b21518688d",
   "passed": 28,
   "total": 28,
   "answers": {

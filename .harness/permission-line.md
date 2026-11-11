@@ -19,8 +19,10 @@ not retry, reword or move it; the offer below is the one thing that reopens it.
 He approves without reading, so the checking happens first.
 1. The step is not on his reserved list (spending, going live in production, deleting data without a
    verified backup, secrets). If it is, there is no offer.
-2. Each line is the narrowest that does the job: an exact command or script, not a whole machine. A
-   reviewer other than the author checks every line for width before it is sent.
+2. Each line is the narrowest that does the job: an exact command, not a whole machine. A script line is
+   narrow only if the script comes from a reviewed commit on the default branch, sits at a path the agent
+   cannot write (or is pinned by checksum), and does not execute its arguments; any other script line is
+   wide. A reviewer other than the author checks every line for width before it is sent.
 3. A wide line (`ssh <host>:*` lets the thread run any command on that host) has a named reason and a
    look-again date, and is never given for a machine that holds real data.
 4. The project's list (below) is read first; lines it already has are not asked for again, and several
@@ -41,7 +43,8 @@ One decision card with a recommendation (O03), then one message with the whole s
    and reply "done"`.
 
 After he says done: read how the lines landed (the file parses, the lines sit inside the list, commas
-are right) before using them. Then run the step, one command at a time so each matches a line, and
+are right) before using them. Read only the permission list (for example `jq '.permissions.allow'`,
+which also proves the file parses), never the whole file: it can hold secrets (O04). Then run the step, one command at a time so each matches a line, and
 report the result with proof (O08). Anything refused after the change is a new finding, reported with
 the exact text; the thread stops there.
 
@@ -53,7 +56,7 @@ lines. No secrets, no addresses. A table, one row per line:
 | Line | What it opens | Width | Card | Added | Look again |
 |---|---|---|---|---|---|
 | `Bash(ssh <host>:*)` | any command on `<host>` as the logged-in account | wide: <reason> | <card> | <date> | <date> |
-| `Bash(bash <script>:*)` | that script, any arguments | narrow | <card> | <date> | n/a |
+| `Bash(bash <script>:*)` | that script, any arguments | narrow only if the script is from a reviewed commit on the default branch, at a path the agent cannot write, and runs no argument as a command; otherwise wide | <card> | <date> | n/a or <date> |
 
 - A thread reads it before it asks; it changes by a PR on the card that added or removed a line,
   and the owner's own file is the truth: if they differ, the list is corrected from his report.

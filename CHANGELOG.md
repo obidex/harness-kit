@@ -5,7 +5,7 @@ Each version is the tag `v<version>` on this repository, never moved (K003). Pro
 
 ## 0.42.0 · 2026-11-11 · the one-time permission line is a known option (A24, K045)
 
-From roadmap #101 (owner, 11 Nov 2026), after a pve01 runner thread offered him one permission line that
+From roadmap #101 (owner, 11 Nov 2026), after a runner-setup thread offered him one permission line that
 cleared a blocked step.
 
 - **A24** in the Claude Code adapter: when a safety check or permission prompt on the owner's own machine
