@@ -9,7 +9,7 @@ import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { readFileSync, readdirSync, mkdtempSync, mkdirSync, copyFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { parseCron, nextRun, scheduleState, overdueHours, schedules, alertSchedules, missedText, isTracking, checkState, classifyPr, classifyIssue, select, settings, loadData, render, signature, idleText, itemKey, itemText, topicOf, profileTopic, report, DEFAULTS, MARKER, STATE_LABEL, stateKey, stateFreshness } from '../.harness/tools/stale.mjs';
+import { parseCron, nextRun, scheduleState, overdueHours, schedules, alertSchedules, missedText, isTracking, isWakeChannel,checkState, classifyPr, classifyIssue, select, settings, loadData, render, signature, idleText, itemKey, itemText, topicOf, profileTopic, report, DEFAULTS, MARKER, STATE_LABEL, stateKey, stateFreshness } from '../.harness/tools/stale.mjs';
 import { body as inboxBody, setField } from '../.harness/tools/inbox.mjs';
 import { parseYaml } from '../.harness/tools/lib.mjs';
 
@@ -259,6 +259,30 @@ ok(signature(r.items) === '12' && r.alerts['stale:o/r#12'] === 'sent' && tg.leng
   ok(r.state === null && !('state:o/r' in r.alerts), 'a repository with no open STATE issue has no state row');
   st54.state = 'open';
   pulls.splice(pulls.findIndex((p) => p.list.number === 71), 3);
+}
+
+// --- the inbox wake channel is open by design, never stale work (K046, kit inbox #34) ----------------
+{
+  const T = NOW + 30 * 86400000, iso = (ms) => new Date(ms).toISOString(), PRS = settings({ watch: ['pr'] });
+  const draftPr = (number, ref, owner = 'o/r', draft = true) => ({ list: { number, title: `draft ${number}`, html_url: `https://gh.test/o/r/pull/${number}`, updated_at: iso(T - 9 * 86400000), draft, head: { ref, repo: { full_name: owner } } },
+    full: { number, draft, mergeable: true, head: { sha: `sha${number}` } }, runs: [] });
+  ok(isWakeChannel({ draft: true, head: { ref: 'inbox-wake', repo: { full_name: 'o/r' } } }, 'o/r') && isWakeChannel({ draft: true, head: { ref: 'wake-channel', repo: { full_name: 'O/R' } } }, 'o/r')
+    && !isWakeChannel({ draft: true, head: { ref: 'inbox-wake', repo: { full_name: 'mallory/r' } } }, 'o/r') && !isWakeChannel({ draft: false, head: { ref: 'inbox-wake', repo: { full_name: 'o/r' } } }, 'o/r')
+    && !isWakeChannel({ draft: true, head: { ref: 'feature', repo: { full_name: 'o/r' } }, title: 'Inbox wake channel (never merge)' }, 'o/r') && !isWakeChannel({ draft: true, head: { ref: 'inbox-wake', repo: null } }, 'o/r'),
+    'the wake channel is a draft from the kit\'s wake branch in the repository itself; never a fork\'s, a ready PR, a title or a deleted head');
+  const keep = pulls.splice(0);
+  const channel = draftPr(382, 'feature');
+  pulls.push(channel);
+  r = await report('o/r', at0(T), PRS);
+  ok(signature(r.items) === '382' && r.items[0].kind === 'draft' && r.alerts['stale:o/r#382'] === 'sent' && tracking()[0].state === 'open', 'before: an idle draft from another branch is stale work, with its Ops board row');
+  channel.list.head.ref = 'inbox-wake';
+  r = await report('o/r', at0(T + 60000), PRS);
+  ok(r.items.length === 0 && tracking()[0].state === 'closed' && /Nothing is stale/.test(tracking()[0].body) && r.alerts['stale:o/r#382'] === 'resolved' && tg.length === 0,
+    'a repository whose only open PR is its inbox wake channel: the "Stale work" issue closes and the channel\'s row turns ✅, with nothing to Telegram');
+  pulls.push(draftPr(383, 'inbox-wake', 'mallory/r'), draftPr(384, 'wake-channel'), draftPr(385, 'inbox-wake', 'o/r', false));
+  r = await report('o/r', at0(T + 120000), PRS);
+  ok(signature(r.items) === '383,385', 'a fork\'s draft named inbox-wake and a ready PR from inbox-wake stay on the list; the wake-channel draft does not');
+  pulls.splice(0, pulls.length, ...keep);
 }
 
 // --- missed scheduled runs: cron, overdue by more than 36 h, PROBLEM then RESOLVED in the topic ------
