@@ -1021,8 +1021,8 @@ have clear steps given to me on a command.")
    list, all from the initiative.
 2. **The switch.** With example data or on staging every fix may run by itself, so drills stay fast. The
    kit adds one default: a mode nobody can read counts as real.
-3. **The list.** Before a project's real data goes live (and now, for a project whose real data is already
-   live), its coordinator lists every automation that can change or delete live data and marks each lane
+3. **The list.** Before a project's real data goes live (kit's own addition: a project whose real data is
+   already live makes it as its next card), its coordinator lists every automation that can change or delete live data and marks each lane
    A or B. The list comes first. A lane-B one that runs by itself becomes a work card for the owner's
    decision and keeps running unchanged until he decides; nothing live changes because of this rule, and
    nothing that already waits for a person is rebuilt.
