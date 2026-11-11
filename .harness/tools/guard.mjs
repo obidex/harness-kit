@@ -102,8 +102,9 @@ const summary = (line) => { if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(
 async function prBody() {
   const repo = opt('--repo'), n = opt('--pr');
   if (!/^[\w.-]+\/[\w.-]+$/.test(repo || '') || !/^\d+$/.test(n || '')) throw new Error('--repo owner/name and --pr N are required');
-  const wait = Math.max(0, Math.min(600, Number(opt('--wait') ?? 90))), step = Math.max(0, Number(opt('--interval') ?? 10));
-  const until = Date.now() + wait * 1000;
+  const wait = Number(opt('--wait') ?? 90), step = Number(opt('--interval') ?? 10);
+  if (!Number.isFinite(wait) || wait < 0 || !Number.isFinite(step) || step <= 0) throw new Error('--wait must be 0 or more seconds and --interval above 0');
+  const until = Date.now() + Math.min(wait, 600) * 1000;
   for (;;) {
     const found = footerLines((await get(`/repos/${repo}/pulls/${n}`)).body || '');
     if (!found.length) { console.log('guard: the pull request body carries no Claude footer'); summary('- The pull request body carries no Claude footer (O09).'); return; }

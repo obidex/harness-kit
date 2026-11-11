@@ -1049,7 +1049,10 @@ From the owner (11 Nov 2026): Claude footers were back in PR bodies; a PR carryi
    thread link is added by the platform). It waits up to 90 s for the scrubber, because the scrubber's
    edit starts no workflow. It rides on the checks each project already requires (`harness-guard`,
    `hands-check`, `check-kit`), so no settings change and no second tool.
-3. **Squash bodies** stay blank where the project's settings say so (infra), so a description never
+3. **Single runner.** The guard and the scrubber can share one runner, so the guard may fail before the
+   scrubber starts, and the scrubber's edit starts no workflow. The scrubber therefore re-runs the failed
+   gate run of that head after it edits a PR (`actions: write` on the scrub job only).
+4. **Squash bodies** stay blank where the project's settings say so (infra), so a description never
    reaches a merge commit.
 
 Homes: `guard.mjs`, the guard and hands-check templates, the kit's `check.yml`; O09's catalogue row.

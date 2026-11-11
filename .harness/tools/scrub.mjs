@@ -106,6 +106,23 @@ async function api(method, path, body) {
   return JSON.parse(text);
 }
 
+/** Workflows whose failed run on a PR's head the scrubber starts again after it removes a footer (K044). */
+export const RERUN = new Set(['harness-guard', 'hands-check', 'check']);
+/** The failed runs of `runs` (a GitHub run list) that the scrubber re-runs. */
+export const rerunnable = (runs) => (runs || []).filter((r) => r && r.conclusion === 'failure' && RERUN.has(r.name)).map((r) => r.id);
+
+/**
+ * The scrubber's own edit starts no workflow, so a required check that failed on the footer (harness-guard
+ * waits 90 s for the scrubber, which may be queued behind it on a single runner) would stay red on a clean
+ * body. Start those failed runs again. Best effort: a read-only token, or any error, only warns.
+ */
+async function rerunChecks(repo, sha) {
+  try {
+    const l = await api('GET', `/repos/${repo}/actions/runs?head_sha=${encodeURIComponent(sha)}&per_page=50`);
+    for (const id of rerunnable(l.workflow_runs)) await api('POST', `/repos/${repo}/actions/runs/${id}/rerun-failed-jobs`);
+  } catch (e) { console.log(`::warning::scrub: could not start the failed checks again (${e.message.slice(0, 120)})`); }
+}
+
 async function main() {
   if (process.argv.includes('--stdin')) { process.stdout.write(scrub(readFileSync(0, 'utf8'))); return; }
   const name = process.env.GITHUB_EVENT_NAME;
@@ -124,6 +141,7 @@ async function main() {
     throw e;
   }
   console.log(`scrub: ${t.path}: attribution removed`);
+  if (name === 'pull_request') await rerunChecks(JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8')).repository.full_name, now.head.sha);
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
