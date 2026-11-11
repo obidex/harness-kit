@@ -21,7 +21,8 @@ He approves without reading, so the checking happens first.
    verified backup, secrets). If it is, there is no offer.
 2. Each line is the narrowest that does the job: an exact command, not a whole machine. A script line is
    narrow only if the script comes from a reviewed commit on the default branch, sits at a path the agent
-   cannot write (or is pinned by checksum), and does not execute its arguments; any other script line is
+   cannot write (a checksum is not enough: the line matches the command text, not the file), and does not
+   execute its arguments; any other script line is
    wide. A reviewer other than the author checks every line for width before it is sent.
 3. A wide line (`ssh <host>:*` lets the thread run any command on that host) has a named reason and a
    look-again date, and is never given for a machine that holds real data.
