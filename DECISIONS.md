@@ -1037,3 +1037,24 @@ Homes: kit owner defaults (O19, this release) and its catalogue row; obidex/infr
 production server's lanes); the ERP, which does not install the kit, by an inbox request.
 
 **Status:** STANDING.
+
+## K044 · 2026-11-11 · STANDING — O09 is a merge gate on the description, not only a scrubber
+
+From the owner (11 Nov 2026): Claude footers were back in PR bodies; a PR carrying one must not merge.
+
+1. **Cause.** The scrubber (K006) is event-driven and never rechecks: bodies written before it ran on
+   pull requests stayed, and a footer added by an edit lives until the scrubber's run finishes.
+2. **Gate.** `guard.mjs pr-body` fails while the live description carries a footer or Claude
+   co-author/session line (code blocks excluded; links are left to the scrubber, since the session's own
+   thread link is added by the platform). It waits up to 90 s for the scrubber, because the scrubber's
+   edit starts no workflow. It rides on the checks each project already requires (`harness-guard`,
+   `hands-check`, `check-kit`), so no settings change and no second tool.
+3. **Single runner.** The guard and the scrubber can share one runner, so the guard may fail before the
+   scrubber starts, and the scrubber's edit starts no workflow. The scrubber therefore re-runs the failed
+   gate run of that head after it edits a PR (`actions: write` on the scrub job only).
+4. **Squash bodies** stay blank where the project's settings say so (infra), so a description never
+   reaches a merge commit.
+
+Homes: `guard.mjs`, the guard and hands-check templates, the kit's `check.yml`; O09's catalogue row.
+
+**Status:** STANDING.
