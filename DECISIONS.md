@@ -1084,3 +1084,30 @@ Homes: the adapter (A24, this release) and its record; `permission-line.md`; eac
 project that does not install the kit, by the owner's board.
 
 **Status:** STANDING.
+
+## K046 · 2026-11-11 · STANDING — a step that blocks no work is never WAITING FOR YOU; the wake channel is not stale
+
+From the website's kit requests, which the owner pasted to Platform on 11 Nov 2026 ("whatever you wanna
+say you say to the platform and it then does the rest from there"); kit inbox #34 and #36.
+
+1. **C03.** Owner, 11 Nov 2026 (website card 534): "A step that blocks no work is never WAITING FOR YOU.
+   Say it once as 'only you, nothing is waiting on it' and carry on." C03 read the other way ("Nothing" is
+   never a status while any party has an action). The loaded line now ties `WAITING FOR YOU` to work
+   waiting on the owner; the phrase, the "Only you" list and `needs-owner` live in the C03 record, since
+   core is at its cap and must not grow (C17).
+2. **O15.** The loaded line had dropped its record's condition that the failed-wake paste is sent by a job
+   with no AI; it carries it again at the same size. The owner's 7 Nov word (K042 item 3) is unchanged.
+3. **Standing approvals 0.39.0** ("deleting data without a verified backup" reserved, where 0.38.0
+   reserved all deleting). Checked against the owner's word: his 8 Oct decision "owner keeps only spending
+   and design", sent to every project, makes deleting data after a verified backup the agents'. Unchanged.
+4. **Stale work.** The inbox wake channel stays open by design, so it is never listed: matched by the
+   kit's own wake branch in the repository itself, the identity `inbox.mjs` already uses to find it,
+   which covers every existing channel with no new label or body marker.
+5. **Not done: the 50-minute cap in C25** (kit inbox #36). The same edit was refused by the safety check
+   on 9 Oct 2026 (refusal P16) and is not retried, reworded or moved (C14). The cap lives where it was
+   set: the projects' own rules and timers.
+
+Homes: core C03 and its record; O15; `stale.mjs` and `test-stale`; the website's own canon (W266) already
+carries item 1.
+
+**Status:** STANDING.

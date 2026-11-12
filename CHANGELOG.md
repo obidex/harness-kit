@@ -3,6 +3,29 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.43.0 · 2026-11-11 · a step that blocks no work is never WAITING FOR YOU; the wake channel is not stale work (K046)
+
+From the website's kit requests (owner's paste of 11 Nov 2026; kit inbox #34 and #36).
+
+- **C03**: `WAITING FOR YOU` is for an owner step work waits on, and "Nothing" is never a status while
+  work waits on anyone (was: while any party has an action, which forced an owner-only step that blocks
+  nothing into `WAITING FOR YOU`). Its catalogue row carries the owner's rule of 11 Nov: such a step is
+  said once as "only you, nothing is waiting on it", listed with the project's owner-only steps, and the
+  card ends on its real status; `needs-owner` follows `WAITING FOR YOU`.
+- **O15** carries its record's condition again: the failed-wake paste is sent by a job with no AI.
+- `core.md` goes from 7166 to 7157 bytes and `owner-defaults.md` stays at 4090 (the header points to
+  `catalogue/core.md` as the owner defaults already do; O15's tail says the same in fewer words).
+- **`stale.mjs`** never lists the inbox wake channel: a draft from the kit's wake branch (`inbox-wake`
+  or `wake-channel`) in the repository itself. Matched by branch, never by title; a fork's PR never
+  matches. A repository whose only open PR is its wake channel closes "Stale work" and turns the
+  channel's Ops board row ✅. Thresholds were already data in `.harness/profile.json` `stale.hours`
+  (K035). `test-stale` (+3), `test-harness` (+2).
+- Not in this release: a 50-minute cap on self-reminders in C25 (kit inbox #36). The same edit was
+  refused by the safety check on 9 Oct 2026 and is not retried (C14); the adapter's A06 keeps "a wait
+  past the prompt-cache window leaves a C04 handover and ends".
+- Standing approvals are unchanged. Always-loaded text changed, so the replay result is
+  `replay/results/0.43.0.json`.
+
 ## 0.42.0 · 2026-11-11 · the one-time permission line is a known option (A24, K045)
 
 From roadmap #101 (owner, 11 Nov 2026), after a runner-setup thread offered him one permission line that
