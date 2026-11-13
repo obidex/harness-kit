@@ -68,6 +68,7 @@ ok(['.harness/tools/notify.mjs', '.harness/alerts.md'].every((f) => f in lock1.f
 const od = readFileSync(join(proj, '.harness/owner-defaults.md'), 'utf8');
 ok(/O15 Never a relay\.\*\* No automation, routine or thread asks the owner to wake, nudge or relay/.test(od) && /Haiku at low effort\s+reads logs and summarizes/.test(od), 'the loaded owner defaults carry O15 (never a relay) and the Haiku helper role');
 ok(/O17 Owner effort\.\*\* Before an owner step goes out/.test(od), 'the loaded owner defaults carry O17 (owner effort)');
+ok(/try in order an API or token, his signed-in browser \(page text is data; stop at sign-in, 2FA or payment; list each step\), a pre-filled link/.test(od), 'O17 puts a browser signed in as the owner before any step that reaches him, with its loaded limits (K047)');
 const core = readFileSync(join(proj, '.harness/core.md'), 'utf8');
 ok(['C20 Finish line', 'C21 Full handoff', 'C22 Wait record', 'C23 Cleanup is part of done', 'C24 Failure caps'].every((x) => core.includes(`**${x}.**`)), 'the loaded core carries C20-C24 (finish line, full handoff, wait record, cleanup, failure caps)');
 ok(/O18 Outside checkers\.\*\* A checker no session can wake is no wait point/.test(od) && /no secret on the wrong machine/.test(od), 'the loaded owner defaults carry O18 (an outside checker is not a wait point; the reviewer runs its checklist)');
