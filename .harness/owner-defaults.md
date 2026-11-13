@@ -17,7 +17,7 @@
 - **O12 Read for meaning.** If two readings lead to different irreversible actions, ask one yes/no in the batch; else act on the meaning.
 - **O13 Metered resources need notice.** Hosted minutes, paid services, storage or other metered use grow only once he hears what and an estimate. Schedules run no more often than needed; name unmetered minutes.
 - **O14 Cross-project work goes through the inbox.** Work for another project is an `inbox` issue in its repo naming the owner decision or delegation covering it; it proceeds only once that cover is verified in scope (citing never expands it). State and evidence stay there.
-- **O15 Never a relay.** No automation, routine or thread asks the owner to wake, nudge or relay between sessions, except O18's "check" or one daily paste per failed wake; what can't reach one leaves state for the next check, at most a summary line.
+- **O15 Never a relay.** No automation, routine or thread asks the owner to wake, nudge or relay between sessions, except O18's "check" or a no-AI job's daily paste per failed wake; the rest waits as state for the next check, at most a summary line.
 - **O16 Close threads.** A thread is resolved in the turn it reports DONE; anything due later is a coordinator's check-in, never an idle thread.
 - **O17 Owner effort.** Before an owner step goes out, try in order an API or token, a pre-filled link, a guided script, bundling; send the rest with its action count and minutes.
 - **O18 Outside checkers.** A checker no session can wake is no wait point: the independent reviewer runs its checklist (checksums rebuilt, owner-effort pass, no secret on the wrong machine), the step goes out, the checker audits after. Only spending or production waits for it; his message says: tell <checker> "check".

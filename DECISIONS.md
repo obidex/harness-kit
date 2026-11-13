@@ -1058,3 +1058,56 @@ From the owner (11 Nov 2026): Claude footers were back in PR bodies; a PR carryi
 Homes: `guard.mjs`, the guard and hands-check templates, the kit's `check.yml`; O09's catalogue row.
 
 **Status:** STANDING.
+
+## K045 · 2026-11-11 · STANDING — the one-time permission line
+
+From roadmap #101 (owner, 11 Nov 2026: "we should always resort to automations when available, and a
+solution like this needs to be used, not ignored by others because they don't know it's an option").
+In a runner-setup thread the owner's laptop safety check refused one approved step; the thread logged the
+refusal, did not work around it, and gave him a decision; he added six permission lines (about two minutes)
+and the thread ran the step with nothing more from him.
+
+1. **The rule is A24** (adapter), with the how-to in `permission-line.md`. It was not put in the always-loaded
+   text: both files are at their caps, and the cost of knowing it is a lookup a thread makes when a safety
+   check stops it (O01 already reserves a refused action for the owner's decision; A24 names what to offer).
+2. **Order.** An existing route first, this second, a manual step last.
+3. **Limits.** Only the owner edits permission settings; an agent never asks him to switch a check off;
+   a refusal still ends the attempt, and his own change to his own permissions, offered once, is the only
+   thing that reopens it; nothing on his reserved list; the narrowest line; a wide line has a reason and a
+   look-again date and is never given for a machine that holds real data.
+4. **One home for the lines.** Each project keeps a list of the lines in the repository that owns its
+   machines (the shape is in `permission-line.md`). It is not a permission, and the owner's file is the truth.
+5. **Standing approvals unchanged.** They keep saying the file is his, so projects need no new block.
+   Replay result 0.42.0 (an adapter changed).
+
+Homes: the adapter (A24, this release) and its record; `permission-line.md`; each project's own list; a
+project that does not install the kit, by the owner's board.
+
+**Status:** STANDING.
+
+## K046 · 2026-11-11 · STANDING — a step that blocks no work is never WAITING FOR YOU; the wake channel is not stale
+
+From the website's kit requests, which the owner pasted to Platform on 11 Nov 2026 ("whatever you wanna
+say you say to the platform and it then does the rest from there"); kit inbox #34 and #36.
+
+1. **C03.** Owner, 11 Nov 2026 (website card 534): "A step that blocks no work is never WAITING FOR YOU.
+   Say it once as 'only you, nothing is waiting on it' and carry on." C03 read the other way ("Nothing" is
+   never a status while any party has an action). The loaded line now ties `WAITING FOR YOU` to work
+   waiting on the owner; the phrase, the "Only you" list and `needs-owner` live in the C03 record, since
+   core is at its cap and must not grow (C17).
+2. **O15.** The loaded line had dropped its record's condition that the failed-wake paste is sent by a job
+   with no AI; it carries it again at the same size. The owner's 7 Nov word (K042 item 3) is unchanged.
+3. **Standing approvals 0.39.0** ("deleting data without a verified backup" reserved, where 0.38.0
+   reserved all deleting). Checked against the owner's word: his 8 Oct decision "owner keeps only spending
+   and design", sent to every project, makes deleting data after a verified backup the agents'. Unchanged.
+4. **Stale work.** The inbox wake channel stays open by design, so it is never listed: matched by the
+   kit's own wake branch in the repository itself, the identity `inbox.mjs` already uses to find it,
+   which covers every existing channel with no new label or body marker.
+5. **Not done: the 50-minute cap in C25** (kit inbox #36). The same edit was refused by the safety check
+   on 9 Oct 2026 (refusal P16) and is not retried, reworded or moved (C14). The cap lives where it was
+   set: the projects' own rules and timers.
+
+Homes: core C03 and its record; O15; `stale.mjs` and `test-stale`; the website's own canon (W266) already
+carries item 1.
+
+**Status:** STANDING.
