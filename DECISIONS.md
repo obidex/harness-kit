@@ -1141,3 +1141,23 @@ idea of 7 Nov 2026 (roadmap #67, "we can try that sometimes") becomes a standing
 Homes: O17 and its record; `test-harness`; a project that does not install the kit, by the owner's board.
 
 **Status:** STANDING.
+
+## K048 · 2026-11-18 · STANDING — urgent only, plus one weekly brief
+
+**Owner (18 Nov 2026, roadmap #124, option A).** After seeing the daily summary he asked for very light,
+very occasional updates: good news and what needs him, each with its owner and one place to act.
+
+1. **Urgent, at once:** an outage users see. **Urgent after 24 hours:** a step only he can do that has
+   blocked work (`needs_you` is held 24 h). A money or design decision is a button in his control room
+   and a line in the brief, not a message.
+2. **One weekly brief** (Saturday 10:00 Damascus by default): at most 3 good-news lines, then what needs
+   him, each on one line with its place and the paste included; "Nothing needs you." when none; skipped in
+   a week with nothing for him. No status of AI work, no counts, no links to read.
+3. **Never sent:** the daily summary, "nothing new", a second copy of an item (a Needs you already sent
+   alone is not in the brief), any AI-side fault.
+4. **Superseded:** the evening summary and good news sent on their own (K037); the 10-minute hold of
+   `needs_you` (K038).
+
+Homes: O10 and its catalogue row; `alerts.md`; `notify.mjs` (`brief`, `needsHold`); `tools/test-notify.mjs`.
+
+**Status:** STANDING.
