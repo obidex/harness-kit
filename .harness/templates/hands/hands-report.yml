@@ -50,7 +50,7 @@ jobs:
           printf '%s · %s\n\n%s\n' "$JOB" "$url" "$writes" | gh issue comment "$n" --body-file -
       # notify.mjs from the kit tag this repository pins, never another copy (K007.7)
       - if: inputs.result == 'failure' || inputs.result == 'success'
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: control
           persist-credentials: false
@@ -58,7 +58,7 @@ jobs:
         id: kit
         run: echo "ref=v$(tr -d '[:space:]' < control/HANDS_KIT_VERSION)" >> "$GITHUB_OUTPUT"
       - if: inputs.result == 'failure' || inputs.result == 'success'
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ vars.HARNESS_KIT_REPO || 'obidex/harness-kit' }}
           ref: ${{ steps.kit.outputs.ref }}

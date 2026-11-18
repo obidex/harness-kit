@@ -36,10 +36,10 @@ jobs:
     outputs:
       repos: ${{ steps.find.outputs.repos }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - id: kit
         run: echo "ref=v$(tr -d '[:space:]' < HANDS_KIT_VERSION)" >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ vars.HARNESS_KIT_REPO || 'obidex/harness-kit' }}
           ref: ${{ steps.kit.outputs.ref }}
@@ -85,13 +85,13 @@ jobs:
           REPO: ${{ matrix.repo }}
         run: echo "name=${REPO#*/}" >> "$GITHUB_OUTPUT"
       # only code from the kit tag this repository pins runs here, never the project's own copy (K007.7)
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: control
           persist-credentials: false
       - id: kit
         run: echo "ref=v$(tr -d '[:space:]' < control/HANDS_KIT_VERSION)" >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ vars.HARNESS_KIT_REPO || 'obidex/harness-kit' }}
           ref: ${{ steps.kit.outputs.ref }}
@@ -107,14 +107,15 @@ jobs:
           permission-contents: write
           permission-pull-requests: write
           permission-workflows: write
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ matrix.repo }}
           token: ${{ steps.token.outputs.token }}
           path: project
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
+          package-manager-cache: false
       - name: Open the maintenance PR and turn on auto-merge
         id: open
         env:

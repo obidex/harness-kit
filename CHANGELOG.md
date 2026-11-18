@@ -3,6 +3,25 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.44.1 · 2026-11-18 · templates pin the same actions as the kit (harness-kit#69)
+
+Found by the coordinator queue run of 13 Nov 2026: Dependabot moved the kit's own workflows to
+`actions/checkout` v7.0.1 and `actions/setup-node` v7.1.0 (#46, #47) but never reads templates, so an
+installed project's Dependabot PR for the same actions drifted its kit-managed copies and stayed red.
+
+- Every template under `.harness/templates/workflows/` and `.harness/templates/hands/` pins
+  `actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1` and
+  `actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0` (was v4.4.0 of both).
+- Every template's setup-node sets `package-manager-cache: false`: setup-node v5+ turns npm caching on
+  by itself when a project's `package.json` names npm, and these jobs run only the kit's own tools,
+  several with write permissions. No template used `always-auth`, `registry-url` or `cache`.
+- checkout v7 refuses a fork PR's code under `pull_request_target` or `workflow_run` unless allowed. No
+  template uses either trigger (A19); each `ref:` checks out the kit, the default branch or a base SHA.
+- Self-hosted runners must be at 2.327.1 or later (Node 24) to run these versions.
+- `check-kit` (check 10) fails when a template pins an `actions/*` action at another SHA than the kit's
+  own workflows, or runs setup-node without `package-manager-cache: false`.
+- No loaded text, adapter or standing approval changed: no replay result.
+
 ## 0.44.0 · 2026-11-13 · a browser signed in as the owner comes before any step that reaches him (K047)
 
 From the owner (13 Nov 2026; roadmap #113): his idea of 7 Nov (roadmap #67) becomes a standing rule.

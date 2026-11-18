@@ -11,6 +11,7 @@
 // 4. examples/profile.example.json validates against .harness/profile.schema.json.
 // 5. Preset capability lists use only capabilities the schema knows.
 // 6. Nothing that looks like a secret is committed in the kit's text.
+// 10. Templates pin each action as the kit's own workflows do; setup-node never caches there.
 
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -158,6 +159,21 @@ for (const f of existsSync(join(root, 'replay/results')) ? readdirSync(join(root
   const r = JSON.parse(read(`replay/results/${f}`));
   if (f !== `${r.kit}.json`) fail(`replay/results/${f} holds kit ${r.kit}`);
   for (const p of resultProblems(r, { current: false })) fail(`replay/results/${f}: ${p}`);
+}
+
+// --- 10. templates pin each action as the kit's own workflows do (harness-kit#69) ---------------
+// Dependabot moves only .github/workflows; a template left behind turns every installed project's
+// Dependabot PR red (its kit-managed copies drift from the lock). setup-node never caches here.
+const usesIn = (dir) => (existsSync(join(root, dir)) ? readdirSync(join(root, dir)).filter((f) => f.endsWith('.yml')).map((f) => `${dir}/${f}`) : []);
+const pins = new Map();
+for (const f of usesIn('.github/workflows')) for (const m of read(f).matchAll(/uses: (actions\/[\w-]+)@([0-9a-f]{40}) # (\S+)/g)) pins.set(m[1], `${m[2]} # ${m[3]}`);
+for (const f of [...usesIn('.harness/templates/workflows'), ...usesIn('.harness/templates/hands')]) {
+  const text = read(f);
+  for (const m of text.matchAll(/uses: (actions\/[\w-]+)@(\S+)(?: # (\S+))?/g)) {
+    const want = pins.get(m[1]);
+    if (want && `${m[2]} # ${m[3]}` !== want) fail(`${f} pins ${m[1]}@${m[2]} # ${m[3]}; the kit's own workflows pin ${want}`);
+  }
+  if ((text.match(/uses: actions\/setup-node@/g) || []).length !== (text.match(/package-manager-cache: false/g) || []).length) fail(`${f}: every setup-node sets package-manager-cache: false`);
 }
 
 const rules = worded.size;
