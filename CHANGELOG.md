@@ -3,6 +3,19 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.45.0 · 2026-11-18 · urgent only, plus one weekly brief (K048, roadmap #124)
+
+The owner's pick (option A, 18 Nov 2026): his Telegram interrupts only for an outage, or for a step only
+he can do once it has blocked work for 24 hours; everything else waits for one short weekly message.
+
+- `needs_you` is held 24 hours (`ALERTS_NEEDS_HOLD_HOURS`, default 24) before it is sent; an outage still goes at once.
+- `good_news` is kept in a host's file store and never sent on its own; a store that keeps no news refuses it.
+- New `brief` command: Saturday 10:00 Damascus (`ALERTS_BRIEF_DAY`, `ALERTS_BRIEF_HOUR`), at most 3 good-news
+  lines, then each open Needs you not already sent alone, or "Nothing needs you."; skipped in an empty week;
+  once a week. `summary` is retired and posts nothing.
+- O10's loaded line says the new shape (same size); the catalogue row and `alerts.md` say the rest.
+- A host moves to it by pinning this release's `notify.mjs` and calling `brief` from its tick instead of `summary`.
+
 ## 0.44.1 · 2026-11-18 · templates pin the same actions as the kit (harness-kit#69)
 
 Found by the coordinator queue run of 13 Nov 2026: Dependabot moved the kit's own workflows to

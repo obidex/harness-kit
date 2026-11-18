@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { createServer } from 'node:http';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { telegram, store, problem, resolveKey, tick, hush, digestText, setup, isQuiet, loud, TOPICS, raise, summary, summaryText, opsBoard, plainProblems, TEMPLATES, formatProblems, note, retire } from '../.harness/tools/notify.mjs';
+import { telegram, store, problem, resolveKey, tick, hush, digestText, setup, isQuiet, loud, TOPICS, raise, brief, briefText, briefTime, opsBoard, plainProblems, TEMPLATES, formatProblems, note, retire } from '../.harness/tools/notify.mjs';
 
 let n = 0;
 const ok = (cond, what) => { n++; if (!cond) { console.log(`test-notify: FAIL ${n}. ${what}`); process.exit(1); } console.log(`test-notify: ok ${n}. ${what}`); };
@@ -78,6 +78,7 @@ const T = (name) => tgState.topics[TOPICS[name].name];
 const dir = mkdtempSync(join(tmpdir(), 'notify-test-'));
 // the rules below run without the hold; the hold has its own cases after them
 process.env.ALERTS_HOLD_MINUTES = '0';
+process.env.ALERTS_NEEDS_HOLD_HOURS = '0'; // the 24 h urgent hold (K048) has its own cases below
 const st = store(`file:${join(dir, 'state.json')}`);
 const tg = telegram();
 at('2026-10-05T09:00:00Z');
@@ -468,37 +469,58 @@ ok(c.code === 0 && /bot @example_alerts_bot/.test(c.out) && /group "Owner alerts
   delete process.env.ALERTS_OPS_BOARD;
   await raise(ks, tg, { kind: 'ops', key: 'vps/none', text: 'x' }).then(() => ok(false, 'ops without a board'), (e) => ok(/ALERTS_OPS_BOARD is not set/.test(e.message), 'ops without ALERTS_OPS_BOARD is an error, never a Telegram message'));
 
-  // 🎉 good news and the ☀️ evening summary
+  // 🎉 good news and the 🗓 weekly brief (K048)
   const ns = store(`file:${join(dir, 'news.json')}`), mg = mark();
   at('2026-11-10T09:00:00Z');
-  ok(await summaryText([ns], { board: ob }) === null, 'summary: a day with nothing to say has no summary');
-  r = await summary([ns], tg, { board: ob });
-  ok(r.status === 'nothing to say: no summary today' && since(mg).length === 0, 'summary: and sends nothing');
+  ok(await briefText([ns]) === null, 'brief: a week with nothing to say has no brief');
+  r = await brief([ns], tg, { force: true });
+  ok(r.status === 'nothing to say: no brief this week' && since(mg).length === 0, 'brief: and sends nothing');
   r = await raise(ns, tg, { kind: 'good_news', key: 'erp/po-screen', text: 'ERP: the purchase orders screen is live. Staff can use it now.' }, ob);
-  ok(r.status === 'sent' && last().text === '🎉 ERP: the purchase orders screen is live. Staff can use it now.\nDo: nothing' && last().message_thread_id === T('good') && last().disable_notification === true, 'good_news: one 🎉 line in "Good news"');
+  ok(r.status === 'kept for the brief' && since(mg).length === 0, 'good_news: kept for the brief, never sent on its own');
   r = await raise(ns, tg, { kind: 'good_news', key: 'erp/po-screen', text: 'ERP: the purchase orders screen is live. Staff can use it now.' }, ob);
-  ok(r.status === 'repeat' && since(mg).length === 1, 'good_news: the same key goes out once');
-  r = await raise(ns, tg, { kind: 'good_news', text: 'Website: 12 new product pages are up.', summaryOnly: true }, ob);
-  ok(since(mg).length === 1 && r.status === 'kept for the summary', 'good_news --summary-only: kept for the summary, not sent on its own');
+  ok(r.status === 'repeat' && since(mg).length === 0, 'good_news: the same key is kept once');
+  await raise(ns, tg, { kind: 'good_news', text: 'Website: 12 new product pages are up.' }, ob);
   await raise(ns, tg, { kind: 'good_news', text: 'Website: /var/www is fast' }, ob).then(() => ok(false, 'refused'), (e) => ok(/a filesystem path/.test(e.message), 'good_news: rule C holds for it too'));
-  const held = { ...pick, key: 'pickup/held#1', what: 'A flap that never reached him.' };
-  at('2026-11-10T09:00:00Z'); await raise(ns, tg, { ...pick, key: 'pickup/web#437', what: "The website didn't pick up its work.", step: 'paste "Pick up jahjah-website #437 now."', where: 'website chat' }, ob);
-  at('2026-11-10T09:11:00Z'); await raise(ns, tg, { ...pick, key: 'pickup/web#437', what: "The website didn't pick up its work.", step: 'paste "Pick up jahjah-website #437 now."', where: 'website chat' }, ob);
-  at('2026-11-10T09:12:00Z'); await raise(ns, tg, held, ob);
-  at('2026-11-10T17:00:00Z'); r = await summary([ns], tg, { board: ob, progress: ['Telegram redesign: step 2 of 4'] });
+  // the 24 h urgent hold: a Needs you is not sent before 24 h; the brief lists it; after 24 h it goes alone and leaves the brief
+  process.env.ALERTS_NEEDS_HOLD_HOURS = '24';
+  const web = { ...pick, key: 'pickup/web#437', what: "The website didn't pick up its work.", step: 'paste "Pick up jahjah-website #437 now."', where: 'website chat' };
+  at('2026-11-10T09:00:00Z'); r = await raise(ns, tg, web, ob);
+  ok(r.status === 'held' && since(mg).length === 0, 'needs_you: held, not sent when raised (K048)');
+  at('2026-11-10T20:00:00Z'); r = await raise(ns, tg, web, ob); await tick(ns, tg, ob);
+  ok(since(mg).length === 0, 'needs_you: still nothing 11 hours later');
+  at('2026-11-11T08:59:00Z'); await tick(ns, tg, ob);
+  ok(since(mg).length === 0, 'needs_you: nothing 23 h 59 min after it opened');
+  ok(!briefTime(Date.parse('2026-11-14T06:59:00Z')) && briefTime(Date.parse('2026-11-14T07:00:00Z')) && !briefTime(Date.parse('2026-11-13T09:00:00Z')), 'brief: its hour is Saturday 10:00 Damascus');
+  at('2026-11-14T06:00:00Z'); r = await brief([ns], tg);
+  ok(r.status === 'not the brief hour' && since(mg).length === 0, 'brief: not before its hour');
+  // the brief: held Needs you listed once, good news at most three lines, no counts or links
+  const web2 = { ...pick, key: 'pickup/web#438', what: 'The ERP is idle.', step: 'paste "Pick up the ERP card now."', where: 'ERP chat' };
+  at('2026-11-11T08:00:00Z'); await raise(ns, tg, web2, ob);
+  for (const [k, x] of ['A', 'B', 'C'].entries()) { at(`2026-11-12T09:0${k}:00Z`); await raise(ns, tg, { kind: 'good_news', text: `Website: page ${x} is live.` }, ob); }
+  // web (opened 2026-11-10T09:00Z) is past 24 h, so the next tick sends it alone: it must not appear in the brief
+  at('2026-11-11T09:01:00Z'); await tick(ns, tg, ob);
+  ok(since(mg).length === 1 && last().message_thread_id === T('needs') && /^🛑 The website didn't pick up its work\./.test(last().text), 'needs_you: after 24 h it goes out as its own loud message');
+  at('2026-11-14T07:00:00Z'); r = await brief([ns], tg);
   ok(r.status === 'sent' && last().message_thread_id === T('summary') && last().text === [
-    '☀️ 10 Nov: went live: ERP: the purchase orders screen is live. Staff can use it now; Website: 12 new product pages are up. in progress: Telegram redesign: step 2 of 4.',
-    'Who: you', 'Do: paste "Pick up jahjah-website #437 now."', 'Where: the Needs you topic', 'When: today'].join('\n'),
-  'summary: five lines: what went live and what is in progress, then his one step (a Needs you still open) and where');
-  r = await summary([ns], tg, { board: ob });
-  ok(r.status === 'already sent today' && since(mg).length === 3, 'summary: once a day; a Needs you still held (never sent) is not in it');
-  ok(!/🎉|☀️/.test(await digestText([ns])), 'the old daily digest leaves good news and summaries out');
+    '🗓 Weekly brief · 14 Nov', '🎉 Website: page C is live.', '🎉 Website: page B is live.', '🎉 Website: page A is live.',
+    'Needs you:', '1) The ERP is idle. Do: paste "Pick up the ERP card now." (ERP chat)'].join('\n'),
+  'brief: at most 3 good-news lines (newest first), then each open Needs you with its step and place; one already sent alone is not repeated');
+  r = await brief([ns], tg);
+  ok(r.status === 'already sent today' && since(mg).length === 2, 'brief: once a week');
+  at('2026-11-21T07:00:00Z'); r = await brief([ns], tg);
+  ok(r.status === 'sent' && last().text.endsWith('Needs you:\n1) The ERP is idle. Do: paste "Pick up the ERP card now." (ERP chat)') && !/🎉/.test(last().text), 'brief: next week only what is new; still-open items are listed again');
+  await resolveKey(ns, tg, { key: web2.key }, ob); await resolveKey(ns, tg, { key: web.key }, ob);
+  at('2026-11-28T07:00:00Z'); r = await brief([ns], tg);
+  ok(r.status === 'nothing to say: no brief this week' && since(mg).length === 3, 'brief: skipped entirely in a week with no good news and nothing for him');
+  process.env.ALERTS_NEEDS_HOLD_HOURS = '0';
+  ok(!/🎉|☀️/.test(await digestText([ns])), 'the old daily digest leaves good news and briefs out');
 
   // rule C and rule D across every template: no path, size, address, id or code; no button anywhere
   const sample = { what: 'The ERP is waiting for your design pick.', step: 'Open the link and tap A or B.', minutes: 2, where: 'ERP chat', when: 'today', link: 'https://github.com/o/r/issues/1', system: 'Website', who: 'Platform', text: 'ERP: a new screen is live.', opened: Date.now() };
   const rendered = [TEMPLATES.needs_you(sample), TEMPLATES.needs_you_done(sample), TEMPLATES.needs_you_batch([sample, { ...sample, when: 'now' }]), TEMPLATES.needs_you_batch_done([sample, sample]),
-    TEMPLATES.outage(sample), TEMPLATES.outage_fixed(sample, Date.now() + 60e3), TEMPLATES.good_news(sample),
-    TEMPLATES.summary({ date: '1 Jan', live: ['a'], progress: ['b'], needs: ['c'], board: 'https://github.com/o/infra/issues/1' }), TEMPLATES.summary({ date: '1 Jan', live: [], progress: ['b'], needs: [], board: 'https://github.com/o/infra/issues/1' })];
+    TEMPLATES.outage(sample), TEMPLATES.outage_fixed(sample, Date.now() + 60e3), TEMPLATES.good_news(sample)];
+  const briefs = [TEMPLATES.brief({ date: '1 Jan', good: ['a.'], needs: [sample] }), TEMPLATES.brief({ date: '1 Jan', good: [], needs: [] })];
+  ok(briefs.every((x) => plainProblems(x).length === 0 && x.split('\n').length <= 6), 'templates: the weekly brief renders plain and short');
   ok(rendered.every((x) => plainProblems(x).length === 0), 'templates: every owner-facing template renders plain (no path, size, address, id, error code, issue number, alert count or "You: nothing")');
   ok(rendered.every((x) => formatProblems(x).length === 0), "templates: every owner-facing template passes the owner's format (emoji + what, then Who/Do/Where/When in order, Do always, five lines at most)");
   ok(formatProblems('🔴 PROBLEM · Stale card in infra: #70\nhttps://x\nYou: nothing').length && formatProblems('🛑 a\nDo: x\nWho: you').length && formatProblems('🛑 a\nWho: you').length && formatProblems('a\nDo: x').length && formatProblems('🛑 a\nWho: you\nDo: x\nWhere: y\nWhen: today\nmore').length && formatProblems('🛑 a\nDo: x\nWhen: later').length,
@@ -509,22 +531,18 @@ ok(c.code === 0 && /bot @example_alerts_bot/.test(c.out) && /group "Owner alerts
 
   // a kit topic the group has not created yet (before setup runs again) reaches General, named
   process.env.ALERTS_TOPICS = JSON.stringify({ needs: T('needs') });
-  at('2026-11-11T09:00:00Z'); await raise(store(`file:${join(dir, 'pre.json')}`), telegram(), { kind: 'good_news', text: 'ERP: invoices print again.' }, ob);
-  ok(last().message_thread_id === undefined && last().text === '[Good news] 🎉 ERP: invoices print again.\nDo: nothing', 'a kind whose topic is not set up yet goes to General with the topic named');
+  at('2026-12-05T09:00:00Z'); const pre = store(`file:${join(dir, 'pre.json')}`); await raise(pre, telegram(), { kind: 'good_news', text: 'ERP: invoices print again.' }, ob); await brief([pre], telegram(), { force: true });
+  ok(last().message_thread_id === undefined && last().text === '[Summary] 🗓 Weekly brief · 5 Dec\n🎉 ERP: invoices print again.\nNothing needs you.', 'a kind whose topic is not set up yet goes to General with the topic named');
   await telegram().send('nonsense', 'x').then(() => ok(false, 'unknown topic'), (e) => ok(/unknown topic "nonsense"/.test(e.message), 'a topic the kit does not know is still an error'));
   await telegram().send('erp', 'x').then(() => ok(false, 'missing older topic'), (e) => ok(/unknown topic "erp"/.test(e.message), 'an older topic missing from the config is still an error, as before (only the K037 topics fall back)'));
   delete process.env.ALERTS_TOPICS;
 
-  // a store that keeps no news (GitHub, in a product's Actions run): good news goes out plain; a key, --summary-only and the summary need a host's file store
+  // a store that keeps no news (GitHub, in a product's Actions run): good news is refused, never sent on its own and never lost silently
   {
     const gsn = store('github:o/infra'), mgs = mark();
     at('2026-11-12T09:00:00Z');
-    r = await raise(gsn, tg, { kind: 'good_news', text: 'Website: the new catalogue is live.' }, ob);
-    ok(r.status === 'sent' && since(mgs).length === 1 && !board.issues.some((i) => /good_news/.test(i.body || '')), 'good_news from a GitHub store is sent and opens no issue');
-    const refused = [];
-    for (const o of [{ key: 'web/catalogue' }, { summaryOnly: true }]) await raise(gsn, tg, { kind: 'good_news', text: 'Website: X is live.', ...o }, ob).then(() => refused.push('sent'), (e) => refused.push(e.message));
-    ok(refused.every((e) => /keeps no news/.test(e)) && since(mgs).length === 1, 'good_news --key or --summary-only on a store that keeps no news is refused, never sent twice or lost');
-    await summary([gsn], tg, { board: ob, progress: ['x'] }).then(() => ok(false, 'summary refused'), (e) => ok(/none of the stores keeps news/.test(e.message) && since(mgs).length === 1, 'a summary with no store that keeps news is refused, so it cannot go out twice'));
+    await raise(gsn, tg, { kind: 'good_news', text: 'Website: the new catalogue is live.' }, ob).then(() => ok(false, 'refused'), (e) => ok(/keeps no news/.test(e.message) && since(mgs).length === 0, 'good_news on a store that keeps no news is refused: it would never reach the brief'));
+    await brief([gsn], tg, { force: true }).then(() => ok(false, 'brief refused'), (e) => ok(/none of the stores keeps news/.test(e.message) && since(mgs).length === 0, 'a brief with no store that keeps news is refused, so it cannot go out twice'));
     ok(plainProblems('🎉 Website: rebuilt on Next.js, faster pages.').length === 0, 'rule C: a product name like Next.js is plain words');
   }
 
@@ -618,8 +636,10 @@ ok(c.code === 0 && /bot @example_alerts_bot/.test(c.out) && /group "Owner alerts
   ok(c.code === 0 && /needs_you sent pickup\/obidex\/jahjah-website#437/.test(c.out) && last().text === "🛑 The website didn't pick up its work.\nWho: you\nDo: Paste the line. (about 1 min)\nWhere: website chat\nWhen: this week", 'notify.mjs needs_you works from the command line');
   c = await cli(['resolve', '--key', 'pickup/obidex/jahjah-website#437'], cs2);
   ok(c.code === 0 && /resolved/.test(c.out) && edits().at(-1).text === "✅ Sorted: The website didn't pick up its work.\nDo: nothing", 'and resolve edits it to ✅');
-  c = await cli(['summary', '--stores', cs2.ALERTS_STORE, '--dry-run'], cs2);
-  ok(c.code === 0 && /nothing to say/.test(c.out), 'notify.mjs summary --dry-run says when there is nothing to say');
+  c = await cli(['brief', '--stores', cs2.ALERTS_STORE, '--dry-run'], cs2);
+  ok(c.code === 0 && /nothing to say/.test(c.out), 'notify.mjs brief --dry-run says when there is nothing to say');
+  c = await cli(['summary'], cs2);
+  ok(c.code === 0 && /retired/.test(c.out), 'notify.mjs summary is retired: it posts nothing');
   c = await cli(['board'], cs2);
   ok(c.code === 0 && c.out.includes(`Ops board: ${bi.html_url}`), 'notify.mjs board prints the one board');
   c = await cli(['board', '--open'], cs2);
