@@ -1161,3 +1161,30 @@ very occasional updates: good news and what needs him, each with its owner and o
 Homes: O10 and its catalogue row; `alerts.md`; `notify.mjs` (`brief`, `needsHold`); `tools/test-notify.mjs`.
 
 **Status:** STANDING.
+
+## K049 · 2026-11-19 · STANDING — rules that fit the new model: finishing work, effort, a clean-up pilot
+
+**Owner (19 Nov 2026, roadmap #125, his "approve" on the 18 Nov radar and its package).** On rules, his
+words: "I made the rules so I have the right to change them when I feel like we have features that serve
+us better." Source: Anthropic's guide "Prompting Claude Fable 5.2", read at its source on 19 Nov 2026.
+
+1. **Finishing work (C27).** The guide's "Finishing work" block is loaded once, through core, unchanged.
+   Anthropic measured about half as many sessions ending with work that could have continued, for about 30%
+   more output. It does not loosen C14, the owner's reserved list (O01) or the real-data taps (O19).
+2. **Absolute words.** The guide says the model treats "never" as absolute and that old cautions pile up
+   into needless approval requests. Every "never", "always" and "must not" in the loaded rules was sorted
+   (the list is on roadmap #125): truly absolute ones stay; C14's "stop" on a missing tool and O06's "never
+   switched" become scoped; C17's "must not grow" becomes "rises only by the owner's decision".
+3. **Caps.** Core 7168 → 8704 bytes and owner defaults 4096 → 4160, by this decision (C17).
+4. **Effort (A23, `models.md`).** High for hard and unattended work, medium where results hold, the top
+   levels only with a measured gain; subagents' model and effort named or inherited knowingly.
+5. **Clean-up pilot (C26's exception, `cards/cleanup.md`).** The ownership sentence goes only into a
+   clean-up card's own prompt, never into loaded rules; "owner" in the rules stays the human owner. Cap: one
+   card per project per week for two weeks, then one report and the owner picks widen, keep or drop.
+6. **Local state is never committed.** `harness-guard` fails a PR that adds or changes
+   `.claude/settings.local.json` or `CLAUDE.local.md` (roadmap #125 A2).
+
+Homes: C14, C17, C26, C27 and their records; O06; A23; `models.md`; `cards/cleanup.md`; `guard.mjs`;
+`check-kit` caps; `test-harness`, `test-guard`.
+
+**Status:** STANDING.
