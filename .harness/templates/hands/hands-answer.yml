@@ -60,7 +60,7 @@ jobs:
           [[ "${REPO%%/*}" == "$OWNER" ]] || { echo "hands-answer: only this owner's repositories"; exit 1; }
           [[ "$ISSUE" =~ ^[0-9]+$ ]] || { echo "hands-answer: issue must be a number"; exit 1; }
           echo "name=${REPO#*/}" >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - id: kit
@@ -69,7 +69,7 @@ jobs:
           v="$(tr -d '[:space:]' < HANDS_KIT_VERSION)"
           [ "$(printf '%s\n0.26.0\n' "$v" | sort -V | head -1)" = "0.26.0" ] || { echo "hands-answer: HANDS_KIT_VERSION $v is older than 0.26.0, the first with ask.mjs"; exit 1; }
           echo "ref=v$v" >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ vars.HARNESS_KIT_REPO || 'obidex/harness-kit' }}
           ref: ${{ steps.kit.outputs.ref }}
