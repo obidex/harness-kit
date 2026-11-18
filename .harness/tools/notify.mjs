@@ -196,7 +196,7 @@ function fileStore(path) {
   };
   return {
     name: `file:${path}`,
-    news: true, // keeps good-news and summary records for the evening summary
+    news: true, // keeps good-news and summary records for the weekly brief
     hold: 10 * 60e3, // a host checks every few minutes and ticks itself: a flap is never sent
     async locked(fn) {
       mkdirSync(dirname(path), { recursive: true });
@@ -701,7 +701,7 @@ export async function tick(st, tg, board = boardOrNull()) {
   const r = rules(), t = now(), quiet = isQuiet(t, r), did = [];
   await st.locked(async () => {
     const list = await st.list();
-    // a kind is never escalated or reminded ("Needs you" is already his; the summary lists what waits on him):
+    // a kind is never escalated or reminded ("Needs you" is already his; the weekly brief lists what waits on him):
     // the tick sends what was held or capped and retries the Ops board
     const batch = waitingNeeds(st, list, t);
     if (batch.length > 1 && await deliverNeeds(st, tg, batch, list, t, r)) for (const inc of batch) { await st.save(inc); did.push(`sent ${inc.key}${inc.batch ? ` (one message for ${inc.batch.length})` : ''}`); }
@@ -748,7 +748,7 @@ export async function digestText(stores, t = now()) {
   let opened = 0, resolved = 0, open = 0;
   for (const st of stores) {
     for (const i of await st.list()) {
-      if (i.kind === 'good_news' || i.kind === 'summary' || i.kind === 'brief') continue; // the evening summary's, not a problem
+      if (i.kind === 'good_news' || i.kind === 'summary' || i.kind === 'brief') continue; // the weekly brief's, not a problem
       const where = i.url || i.link || '';
       if (i.open) { open++; lines.push(`🟠 open ${age(t - i.opened)} · ${one(i.text)}${i.escalated ? ' (escalated)' : ''}${i.maxSends && i.msg ? ` (alerted ${i.sends || 1} of ${i.maxSends})` : ''} ${where}`.trim()); }
       else if (t - i.closed < day) { resolved++; lines.push(`✅ resolved after ${age(i.closed - i.opened)} · ${one(i.text)}`); }
@@ -833,10 +833,10 @@ async function main(argv) {
     }
     case 'resolve': { const r = await resolveKey(store(), tg, { key: opt('--key'), text: opt('--text'), quiet: flag('--quiet') }); say(`${r.status} ${opt('--key')}`); break; }
     case 'tick': { for (const st of storesOf()) for (const l of await tick(st, tg)) say(`${st.name}: ${l}`); break; }
-    case 'digest': { // retired (K039): technical, so it is no longer posted; the evening summary and the Ops board replace it
+    case 'digest': { // retired (K039): technical, so it is no longer posted; the weekly brief and the Ops board replace it
       const text = await digestText(storesOf());
       if (flag('--dry-run')) console.log(text);
-      say('the daily digest is retired (K039): nothing posted; the evening summary and the Ops board replace it');
+      say('the daily digest is retired (K039): nothing posted; the weekly brief and the Ops board replace it');
       break;
     }
     case 'note': { await note(opsBoard(), opt('--text'), opt('--link')); say('noted on the Ops board'); break; }
