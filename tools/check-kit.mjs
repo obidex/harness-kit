@@ -77,7 +77,7 @@ const lx = [...ps.matchAll(/^\| ([LX][0-9]{2}) \|/gm)].map((m) => m[1]);
 new Set(lx).size === lx.length || fail('project-specific.md repeats an L or X ID');
 
 // --- 3. caps on always-loaded text ----------------------------------------------------------------
-const caps = { '.harness/core.md': 7168, '.harness/owner-defaults.md': 4096 };
+const caps = { '.harness/core.md': 8704, '.harness/owner-defaults.md': 4160 }; // raised by the owner, K049
 for (const [f, max] of Object.entries(caps)) {
   const n = Buffer.byteLength(read(f));
   if (n > max) fail(`${f} is ${n} bytes, over its cap of ${max}`);

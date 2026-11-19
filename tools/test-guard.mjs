@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { createServer } from 'node:http';
 import { execFile, execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
-import { verdict, agentConfig, WEB_FLOW_ID, DEPENDABOT_ID } from '../.harness/tools/guard.mjs';
+import { verdict, agentConfig, localState, WEB_FLOW_ID, DEPENDABOT_ID } from '../.harness/tools/guard.mjs';
 import { parseYaml } from '../.harness/tools/lib.mjs';
 
 const kit = new URL('..', import.meta.url).pathname;
@@ -45,6 +45,11 @@ ok(verdict({ pr: { user: dep }, commits: [c('d1', dep, flow), c('d2', stranger)]
 ok(verdict({ pr: { user: stranger }, commits: [c('d1', dep, flow)], files: ['.github/workflows/ci.yml'], trusted }).untrusted.length > 0, 'Dependabot commits in a PR someone else opened are not trusted');
 const off = verdict({ ...base, pr: { user: stranger }, trusted: undefined });
 ok(!off.configured && off.untrusted.length === 0 && off.touched.length === 1, 'a profile without trusted_actors is reported as not configured, never as trusted');
+
+// --- local Claude Code state is never committed (roadmap #125 A2) ---------------------------------------
+ok(localState([{ filename: '.claude/settings.local.json', status: 'added' }, { filename: 'src/.claude/settings.local.json', status: 'modified' }, { filename: 'CLAUDE.local.md', status: 'added' }]).length === 3, 'settings.local.json (at any depth) and CLAUDE.local.md count as local state');
+ok(localState([{ filename: '.claude/settings.local.json', status: 'removed' }, { filename: '.claude/settings.json', status: 'modified' }, { filename: 'docs/settings.local.json', status: 'added' }]).length === 0, 'removing local state, the shared settings.json and look-alikes outside .claude pass');
+ok(localState([{ filename: '.claude/settings.local.json', previous_filename: 'notes.json', status: 'renamed' }]).length === 1 && localState([{ filename: 'notes.json', previous_filename: '.claude/settings.local.json', status: 'renamed' }]).length === 0, 'renaming into local state fails; renaming it away passes');
 
 // --- the command, against a fake GitHub ------------------------------------------------------------
 const files = (k) => Array.from({ length: k }, (_, i) => ({ filename: i === 0 ? '.claude/settings.json' : `src/f${i}.js` }));
@@ -86,6 +91,9 @@ ok(r.code === 0 && /::warning::/.test(r.stdout), 'command: without a profile the
 state = { user: owner, files: files(3), commits: [...Array.from({ length: 259 }, (_, i) => c(`x${i}`, owner)), c('z9', stranger)] };
 r = await run(['--profile', profile]);
 ok(r.code === 1 && /260 commits but GitHub listed 250/.test(r.stdout + r.stderr), 'command: a PR longer than the 250 commits GitHub lists is refused, never judged in part');
+state = { user: owner, files: [{ filename: '.claude/settings.local.json', status: 'added' }], commits: [c('a1', owner)] };
+r = await run(['--profile', profile]);
+ok(r.code === 1 && /local Claude Code state/.test(r.stdout), 'command: committed settings.local.json fails even from a trusted account');
 // pr-body (O09, K044): the live description must carry no Claude footer
 const runBody = (extra = []) => new Promise((done) => execFile(process.execPath, [join(kit, '.harness/tools/guard.mjs'), 'pr-body', '--repo', 'o/r', '--pr', '2', ...extra],
   { env: { ...process.env, GITHUB_API_URL: `http://127.0.0.1:${srv.address().port}`, GH_TOKEN: 't', GITHUB_STEP_SUMMARY: '' } }, (err, stdout, stderr) => done({ code: err ? err.code : 0, stdout, stderr })));

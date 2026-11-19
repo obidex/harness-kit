@@ -3,6 +3,30 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.46.0 · 2026-11-19 · rules that fit the new model: finishing work, effort, a clean-up pilot (K049, roadmap #125)
+
+The owner approved the 18 Nov radar package (19 Nov 2026): rules tuned to Anthropic's guide "Prompting
+Claude Fable 5.2", a clean-up pilot and a dated safety sweep.
+
+- **C27 Finishing work** (new, loaded): Anthropic's "Finishing work" block, unchanged. It loosens no
+  safety refusal (C14), reserved owner step (O01) or real-data tap (O19). `test-harness` pins its text by hash.
+- **C14** now says: a missing repo, secret, connector or tool is named, never mocked, guessed or swapped
+  for another secret, repo or account, and the work that does not need it is finished (was "name it and stop").
+- **C17**: a cap on loaded text rises only by the owner's decision (was "must not grow"). Caps: core
+  7168 → 8704 bytes, owner defaults 4096 → 4160 (K049).
+- **C26** gains its one exception: a clean-up card may change existing patterns on purpose.
+- **O06**: a thread's model is set per thread and only the coordinator switches it (was "never switched").
+- **A23**: effort follows the guide (low for helpers, medium where results hold, high for hard and
+  unattended work, xhigh or max only with a measured gain); subagents' model and effort are named or
+  inherited knowingly; the weekly usage line goes in the weekly brief (the daily summary is gone, K048).
+- New `models.md` (lookup): which model and effort each kind of run uses today, and the guide's effort advice.
+- New `cards/cleanup.md` (lookup): the clean-up card template with Anthropic's ownership sentence, a
+  fresh reader that lists what the summary leaves out, and the pilot's cap (one card per project per week, two weeks).
+- `harness-guard` fails any PR that adds or changes `.claude/settings.local.json` or `CLAUDE.local.md`,
+  whoever wrote it: saved "don't ask again" answers have carried secrets into pushed repositories.
+- Loaded text and an adapter changed: replay result `replay/results/0.46.0.json`.
+- Projects: the always-loaded files grow by about 1.6 KB (one import, no new file to wire).
+
 ## 0.45.0 · 2026-11-18 · urgent only, plus one weekly brief (K048, roadmap #124)
 
 The owner's pick (option A, 18 Nov 2026): his Telegram interrupts only for an outage, or for a step only
