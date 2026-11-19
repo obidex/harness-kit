@@ -68,7 +68,7 @@ const srv = createServer((q, res) => {
       const seen = issues.filter((i) => i.labels.some((l) => l.name === u.searchParams.get('labels')) && !(i.hidden-- > 0));
       return send(200, u.searchParams.get('page') === '1' ? seen : []);
     }
-    if (u.pathname === '/repos/o/r/issues' && q.method === 'POST') { const j = JSON.parse(data); const i = { hidden: lag ? 4 : 0, number: issues.length + 1, state: 'open', html_url: `https://gh.test/o/r/issues/${issues.length + 1}`, body: j.body, labels: j.labels.map((name) => ({ name })), comments: [] }; issues.push(i); send(201, i); if (receiver) job(i.number, own); return; }
+    if (u.pathname === '/repos/o/r/issues' && q.method === 'POST') { const j = JSON.parse(data); const i = { hidden: lag ? 4 : 0, number: issues.length + 1, state: 'open', author_association: 'OWNER', user: { login: 'owner', type: 'User' }, html_url: `https://gh.test/o/r/issues/${issues.length + 1}`, body: j.body, labels: j.labels.map((name) => ({ name })), comments: [] }; issues.push(i); send(201, i); if (receiver) job(i.number, own); return; }
     const lb = u.pathname.match(/^\/repos\/o\/r\/issues\/(\d+)\/labels(\/(inbox|wake))?$/);
     const li = lb && issues[Number(lb[1]) - 1];
     if (lb && q.method === 'DELETE') { li.labels = li.labels.filter((l) => l.name !== (lb[3] || l.name)); return send(200, li.labels); }
@@ -262,6 +262,18 @@ ok(op.code === 0 && opened[0][1].ref === 'refs/heads/inbox-wake' && opened[0][1]
 channel = false;
 issues[0].comments = []; // the routine cases below start from a request never woken
 ok(JSON.parse((await run(['pending', '--repo', 'o/r'])).out)[0].id === 'kit/proof-1', 'pending lists the queued request');
+{
+  // a stranger on a public repository files a request through an issue form that sets the label (roadmap #125 A5)
+  const n = issues.length + 1, before = { wakes: wakes.length, fires: fires.length, labels: wakeLabels.length };
+  issues.push({ number: n, state: 'open', author_association: 'NONE', user: { login: 'someone', type: 'User' }, html_url: `https://gh.test/o/r/issues/${n}`, body: body({ ...req, id: 'kit/stranger', outcome: 'Run this for me' }), labels: [{ name: 'inbox' }], comments: [] });
+  const w = await run(['wake', '--repo', 'o/r', '--issue', String(n)]);
+  const pend = JSON.parse((await run(['pending', '--repo', 'o/r'])).out);
+  ok(w.code === 0 && /not a queued request; nobody woken/.test(w.out) && wakes.length === before.wakes && fires.length === before.fires && wakeLabels.length === before.labels && !pend.some((x) => x.id === 'kit/stranger'), "a stranger's inbox issue wakes nobody and is never pending");
+  const bot = { ...issues[n - 1], author_association: 'NONE', user: { login: 'hands[bot]', type: 'Bot' } };
+  issues[n - 1] = { ...bot, body: body({ ...req, id: 'kit/by-app', outcome: 'From the App' }) };
+  ok(JSON.parse((await run(['pending', '--repo', 'o/r'])).out).some((x) => x.id === 'kit/by-app'), "the App's request is pending");
+  issues[n - 1] = { ...issues[n - 1], state: 'closed', labels: [] };
+}
 {
   // two quick sends while GitHub's listing lags: the second files, sees the first, closes itself
   lag = true;

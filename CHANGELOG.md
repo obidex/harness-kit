@@ -3,6 +3,14 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.46.1 · 2026-11-19 · a stranger's issue is never an inbox request (roadmap #125 A5)
+
+- **`inbox.mjs`**: `pending` and the `wake` job count an `inbox` issue only when its author has write
+  access (owner, member, collaborator) or is an App. On a public repository an issue form can set the
+  `inbox` label for anyone; such an issue now wakes nobody and is never pending. `test-inbox` covers a
+  stranger's issue (fails without the change) and an App's.
+- **The `inbox` skill**: the GitHub-tools fallback for `pending` applies the same author rule.
+
 ## 0.46.0 · 2026-11-19 · rules that fit the new model: finishing work, effort, a clean-up pilot (K049, roadmap #125)
 
 The owner approved the 18 Nov radar package (19 Nov 2026): rules tuned to Anthropic's guide "Prompting
