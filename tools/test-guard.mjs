@@ -49,6 +49,7 @@ ok(!off.configured && off.untrusted.length === 0 && off.touched.length === 1, 'a
 // --- local Claude Code state is never committed (roadmap #125 A2) ---------------------------------------
 ok(localState([{ filename: '.claude/settings.local.json', status: 'added' }, { filename: 'src/.claude/settings.local.json', status: 'modified' }, { filename: 'CLAUDE.local.md', status: 'added' }]).length === 3, 'settings.local.json (at any depth) and CLAUDE.local.md count as local state');
 ok(localState([{ filename: '.claude/settings.local.json', status: 'removed' }, { filename: '.claude/settings.json', status: 'modified' }, { filename: 'docs/settings.local.json', status: 'added' }]).length === 0, 'removing local state, the shared settings.json and look-alikes outside .claude pass');
+ok(localState([{ filename: '.claude/settings.local.json', previous_filename: 'notes.json', status: 'renamed' }]).length === 1 && localState([{ filename: 'notes.json', previous_filename: '.claude/settings.local.json', status: 'renamed' }]).length === 0, 'renaming into local state fails; renaming it away passes');
 
 // --- the command, against a fake GitHub ------------------------------------------------------------
 const files = (k) => Array.from({ length: k }, (_, i) => ({ filename: i === 0 ? '.claude/settings.json' : `src/f${i}.js` }));

@@ -50,9 +50,9 @@
   next card and admits only fix PRs.
 - **C14 Failure handling.** A refused command or safety refusal is a finding: report the exact
   command; never retry, reword or route around it. A missing repo, secret, connector or tool: name
-  it, never mock it or guess its value, finish what does not need it. Three failures in a row on one step, or the turn
-  budget → STOPPED with what is complete. `Found:` names what went wrong, its class (context ·
-  constraint · verification · planning) and its prevention (C19).
+  it; never mock, guess or swap in another; finish what does not need it. Three failures in a
+  row on one step, or the turn budget → STOPPED with what is complete. `Found:` names what went
+  wrong, its class (context · constraint · verification · planning) and its prevention (C19).
 - **C15 No silent stall.** Green unmerged PRs, conflicted PRs and quiet cards are listed on a
   schedule; each resumes or is STOPPED.
 

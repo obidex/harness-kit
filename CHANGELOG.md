@@ -10,8 +10,8 @@ Claude Fable 5.2", a clean-up pilot and a dated safety sweep.
 
 - **C27 Finishing work** (new, loaded): Anthropic's "Finishing work" block, unchanged. It loosens no
   safety refusal (C14), reserved owner step (O01) or real-data tap (O19). `test-harness` pins its text by hash.
-- **C14** now says: a missing repo, secret, connector or tool is named, never mocked or guessed, and the
-  work that does not need it is finished (was "name it and stop"; "substitute" read as "never use another tool").
+- **C14** now says: a missing repo, secret, connector or tool is named, never mocked, guessed or swapped
+  for another secret, repo or account, and the work that does not need it is finished (was "name it and stop").
 - **C17**: a cap on loaded text rises only by the owner's decision (was "must not grow"). Caps: core
   7168 → 8704 bytes, owner defaults 4096 → 4160 (K049).
 - **C26** gains its one exception: a clean-up card may change existing patterns on purpose.
