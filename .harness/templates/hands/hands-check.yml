@@ -7,6 +7,10 @@ on:
   pull_request:
     # edited: a description changed after the check ran is judged again (O09)
     types: [opened, synchronize, reopened, edited]
+  # Each merge is checked again on main (C13): without it main has no check of its own, and a
+  # workflow file GitHub cannot read is the only run a push ever shows.
+  push:
+    branches: [main]
 
 permissions:
   contents: read
@@ -14,7 +18,8 @@ permissions:
 
 concurrency:
   group: hands-check-${{ github.ref }}
-  cancel-in-progress: true
+  # a newer push replaces a pull request's run; a run on main always finishes
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   hands-check:
@@ -36,6 +41,7 @@ jobs:
       - name: Every job that can reach the App key runs only from main
         run: node kit/.harness/tools/hands.mjs control-check .
       - name: No Claude footer in the pull request description (O09)
+        if: github.event_name == 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
