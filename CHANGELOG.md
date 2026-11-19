@@ -6,7 +6,7 @@ Each version is the tag `v<version>` on this repository, never moved (K003). Pro
 ## 0.46.2 · 2026-11-19 · the control repository's main gets a check of its own (K050)
 
 - **`hands-check` template**: it also runs on each push to `main`, with every step but the pull request
-  description's; a run on main is never cancelled by the next one. Before, no workflow in a control
+  description's; a run that started on main is never cancelled. Before, no workflow in a control
   repository ran on a push, so main showed no check after a merge (C13) and the only push run it could
   ever show was a workflow file GitHub could not read: one such failure stayed "the last check on main"
   for weeks after its fix. `test-guard` covers the trigger, the skipped step and the concurrency line

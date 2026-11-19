@@ -18,7 +18,7 @@ permissions:
 
 concurrency:
   group: hands-check-${{ github.ref }}
-  # a newer push replaces a pull request's run; a run on main always finishes
+  # a newer push replaces a pull request's run; a run that started on main is never cancelled
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:

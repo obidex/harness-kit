@@ -142,7 +142,7 @@ ok(/node base\/\.harness\/tools\/guard\.mjs pr-body/.test(body) && /GH_TOKEN/.te
 const hc = parseYaml(readFileSync(join(kit, '.harness/templates/hands/hands-check.yml'), 'utf8'));
 ok(hc.on.pull_request.types.includes('edited') && hc.jobs['hands-check'].steps.some((s) => /guard\.mjs pr-body/.test(s.run || '')) && hc.permissions['pull-requests'] === 'read', 'hands-check judges the description too, and again when it is edited');
 const hcBody = hc.jobs['hands-check'].steps.find((s) => /guard\.mjs pr-body/.test(s.run || ''));
-ok(/^\[\s*main\s*\]$/.test(String(hc.on.push?.branches)) && hcBody.if === "github.event_name == 'pull_request'" && hc.jobs['hands-check'].steps.filter((s) => s.run && !s.if).length === 3
+ok(String(hc.on.push?.branches).replace(/[\[\]\s]/g, '') === 'main' && hcBody.if === "github.event_name == 'pull_request'" && hc.jobs['hands-check'].steps.filter((s) => s.run && !s.if).length === 3
   && hc.concurrency['cancel-in-progress'] === "${{ github.event_name == 'pull_request' }}", 'hands-check also runs on each merge to main: every check but the description\'s, and a run on main is never cancelled');
 const kc = parseYaml(readFileSync(join(kit, '.github/workflows/check.yml'), 'utf8'));
 ok(kc.on.pull_request.types.includes('edited') && kc.jobs.kit.steps.some((s) => /guard\.mjs pr-body/.test(s.run || '')), 'the kit\'s own check-kit judges the description too');
