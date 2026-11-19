@@ -3,6 +3,16 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.46.2 · 2026-11-19 · the control repository's main gets a check of its own (K050)
+
+- **`hands-check` template**: it also runs on each push to `main`, with every step but the pull request
+  description's; a run that started on main is never cancelled. Before, no workflow in a control
+  repository ran on a push, so main showed no check after a merge (C13) and the only push run it could
+  ever show was a workflow file GitHub could not read: one such failure stayed "the last check on main"
+  for weeks after its fix. `test-guard` covers the trigger, the skipped step and the concurrency line
+  (fails without the change). Cost: about one hosted minute per merge to the control repository
+  (`hands.md`).
+
 ## 0.46.1 · 2026-11-19 · a stranger's issue is never an inbox request (roadmap #125 A5)
 
 - **`inbox.mjs`**: `pending` and the `wake` job count an `inbox` issue only when its author has write

@@ -1188,3 +1188,21 @@ Homes: C14, C17, C26, C27 and their records; O06; A23; `models.md`; `cards/clean
 `check-kit` caps; `test-harness`, `test-guard`.
 
 **Status:** STANDING.
+
+## K050 · 2026-11-19 · STANDING — the control repository's main is checked after each merge
+
+**Context.** A control repository's only check, `hands-check`, ran on pull requests alone. A reader of "the
+last push check on main" (a status feed, C13's confirmation after a merge) found one run in six weeks: a
+workflow file GitHub could not read, failed in the second it was pushed and fixed the same day. Main was not
+red, but nothing on it said so, and nothing would have said it was.
+
+**Decision.** `hands-check` also runs on each push to `main`: the settings file and the control check, not
+the description check (a push has no pull request). A run on main is never cancelled. It needs no secret and
+no new permission. Cost: about one hosted minute per merge there (O13: named in `hands.md`'s table).
+
+**Rejected.** Teaching each reader to ignore a failed push run older than some age: the reader would still
+have no evidence that main is sound, only silence.
+
+Homes: `.harness/templates/hands/hands-check.yml`; `hands.md` (cost table); `test-guard`.
+
+**Status:** STANDING.
