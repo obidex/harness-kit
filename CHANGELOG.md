@@ -11,7 +11,8 @@ The owner's 20 Nov 2026 rule for working in bulk, and three things parallel work
   running card's files or tables, or the owner. It replaces "next items start by board order when a slot
   opens". The rest of the rule is the new lookup file `bulk.md`: subagents wherever they speed the work
   up, the owner's signed-in browser before any owner step (limits unchanged), scarce resources protected,
-  one report at the end. Core did not grow: C20's first sentence is three words shorter, no rule removed.
+  one report at the end. Core stays under its cap (8701 of 8704 bytes, 7 more than before): C20's first
+  sentence is three words shorter, no rule removed.
 - **HI05** (new, capability host/infra): an AI agent on a project's own machine is no longer forbidden
   where the owner lifts the ban for that machine by name; it is proposed on a card and nothing is
   installed, signed in or started before he approves it. Supersedes K016 item 3 to that extent.
