@@ -24,7 +24,7 @@ const BOT = { user: { login: 'github-actions[bot]', type: 'Bot' } };
 
 // --- which files --------------------------------------------------------------------------------------
 ok(['.env', '.env.local', 'config/.env.production', 'deploy/server.pem', 'keys/app.key', 'id_rsa', '.ssh/id_ed25519.pub', '.npmrc', 'credentials.json', 'config/secrets.yml', 'infra/terraform.tfstate', 'infra/terraform.tfstate.backup', 'prod.tfvars', 'prod.auto.tfvars.json', '.dev.vars', '.git-credentials', '.pypirc',
-  '.docker/config.json', 'kubeconfig', 'deploy/kubeconfig.yaml', 'serviceAccountKey.json', 'gcp-service-account.json', '.htpasswd', 'aws-credentials.ini', '.aws/config', 'vault.kdbx', 'client.ovpn', 'app.secrets.json', 'secrets', 'config/secret.env', 'auth.json'].every((p) => notRead(p) === 'may hold a secret'),
+  '.docker/config.json', 'kubeconfig', 'deploy/kubeconfig.yaml', 'serviceAccountKey.json', 'gcp-service-account.json', '.htpasswd', 'aws-credentials.ini', '.aws/config', 'vault.kdbx', 'client.ovpn', 'app.secrets.json', 'secrets', 'config/secret.env', 'auth.json', '.envrc', 'deploy/prod.env', 'docker.env', 'prod.env.enc', '.env-production'].every((p) => notRead(p) === 'may hold a secret'),
   'a file that may hold a secret (.env, a key, credentials) is never sent to the model');
 ok(notRead('node_modules/a/index.js') && notRead('web/dist/app.js') && notRead('package-lock.json') && notRead('a/b/pnpm-lock.yaml') && notRead('app.min.js') && notRead('x.snap') && notRead('logo.png') && notRead('data/export.csv') && notRead('README.md') === 'a document' && notRead('docs/plan.md') === 'a document'
   && notRead('.harness/tools/review.mjs') === 'the kit\'s own file' && notRead('.harness/core.md') === 'the kit\'s own file' && notRead('.harness/profile.json') === null,
@@ -91,6 +91,7 @@ function world(over = {}) {
     w.calls.push(`${method} ${path.split('?')[0]}`);
     const u = new URL(path, 'http://x'), page = Number(u.searchParams.get('page') || 1);
     let m;
+    if (u.pathname === '/repos/o/r' && method === 'GET') return { private: w.private !== false, ...(w.private === null ? { private: undefined } : {}) };
     if (u.pathname === '/repos/o/r/issues' && method === 'GET') return w.issues.filter((i) => i.state === 'open').slice((page - 1) * 100, page * 100);
     if (u.pathname === '/repos/o/r/issues' && method === 'POST') { const i = { number: w.nextNo++, state: 'open', title: data.title, body: data.body, ...BOT }; w.issues.unshift(i); return i; }
     if ((m = u.pathname.match(/^\/repos\/o\/r\/issues\/(\d+)$/)) && method === 'PATCH') { const i = w.issues.find((x) => x.number === Number(m[1])); i.body = data.body; return i; }
@@ -107,6 +108,10 @@ const CLEAR = { status: 200, json: says('NO FINDINGS') };
 let w = world(); let r = await w.go({ env: { REVIEW_UNTIL: '' } });
 const wPast = world({ clock: Date.parse('2026-12-01T00:00:00Z') }); const rPast = await wPast.go();
 ok(r.status === 'off' && /REVIEW_UNTIL is not set/.test(r.why) && w.calls.length === 0 && w.asked.length === 0 && rPast.status === 'off' && wPast.calls.length === 0 && wPast.asked.length === 0, 'with the reviewer switched off, or past its end, the check reads nothing, asks nothing and files nothing');
+
+// a public repository: its issues would publish the defects
+w = world({ private: false }); r = await w.go(); const wUnknown = world({ private: null }); const rUnknown = await wUnknown.go();
+ok(r.status === 'public' && /findings would be published/.test(r.why) && w.asked.length === 0 && w.issues.length === 0 && rUnknown.status === 'public' && wUnknown.asked.length === 0, 'on a public repository, or one whose visibility cannot be read, the check asks nothing and files nothing');
 
 // a whole check
 w = world({ answers: [{ status: 200, json: says(FOUND) }, CLEAR] }); w.answer = CLEAR; r = await w.go();
@@ -212,6 +217,7 @@ const srv = createServer((req, res) => {
     if (u.pathname === '/idtoken') return send(200, { value: 'JWT.FROM.GITHUB' });
     if (u.pathname === '/v1/oauth/token') return send(200, { access_token: 'SHORT-LIVED' });
     if (u.pathname === '/v1/messages') return messages === 200 ? send(200, says(FOUND)) : send(messages, { error: { type: 'billing_error' } });
+    if (u.pathname === '/repos/o/r') return send(200, { private: true });
     if (u.pathname === '/repos/o/r/issues' && req.method === 'GET') return send(200, []);
     if (u.pathname === '/repos/o/r/issues' && req.method === 'POST') return send(201, { number: 70 + seen.length, ...JSON.parse(body), ...BOT });
     if (/^\/repos\/o\/r\/issues\/\d+$/.test(u.pathname)) return send(200, { number: 71, ...JSON.parse(body), ...BOT });

@@ -27,7 +27,8 @@ credit is spent on his command, for a time he names, not as a standing rule.
   it stopped. Its own federation rule
   (`REVIEW_SWEEP_RULE`). A symbolic link is never followed and a file that may hold a secret is never
   sent. Advisory: it gates nothing.
-- `test-review`: 73 checks; `test-sweep` (new): 48 checks.
+- The full check refuses a public repository: its issues would publish the defects it finds.
+- `test-review`: 73 checks; `test-sweep` (new): 49 checks.
 ## 0.48.2 · 2026-11-20 · alerts: three steps a message, links kept, no digest promise; export on a private repository; the audit and a decision corrected in its own pull request
 
 Five findings on the kit's tools (three from projects running it). No loaded text changed; no replay needed.

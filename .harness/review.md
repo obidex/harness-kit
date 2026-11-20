@@ -113,6 +113,8 @@ pull-request workflow has another name is reviewed only when that workflow finis
 The reviewer above reads only what changes. `harness-sweep` reads what is already there, once, when
 the owner asks for it: every tracked code file of the default branch, folder by folder.
 
+- **Private repositories only.** Its issues name defects in code that is in use; on a public
+  repository it refuses to run.
 - **Started by hand only**, from the default branch (Actions → harness-sweep → Run workflow). No
   schedule and no event starts it. `estimate` (the default) reads the files and prints how many
   areas there are and the most a check could cost; it sends nothing to a model and needs no switch.

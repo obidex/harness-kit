@@ -5,6 +5,7 @@
 # every tracked code file of the default branch, folder by folder, and files ONE issue per area with
 # findings (each graded blocker, major or minor) plus one record issue with the numbers.
 # Advisory (O07): it gates nothing. The project's coordinator sorts real from false.
+# Private repositories only: on a public one the tool refuses, since its issues would publish defects.
 # Started by hand only (no schedule, no event), and only from the default branch. "estimate" (the
 # default) reads the files, prints what a check would cost and sends nothing to a model. "run" works
 # only while the reviewer's switch is open (the Actions variable REVIEW_UNTIL, K055) and stops when it

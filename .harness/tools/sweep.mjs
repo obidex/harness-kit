@@ -16,6 +16,9 @@
 // it can be wrong in both directions. The project's coordinator sorts real from false; each point
 // ends FIXED, TRACKED or DISMISSED.
 //
+// Private repositories only: its issues name defects in code that is in use, so on a public
+// repository it refuses to run.
+//
 // Started by hand only, inside the owner's window. It runs only while the reviewer's switch is open
 // (REVIEW_UNTIL, review.mjs) and stops when that time ends. No schedule and no event starts it.
 //
@@ -56,7 +59,7 @@ export const AT_ONCE = 3, TRIES = 3, RUN_MINUTES = 320;
 const GENERATED = /(^|\/)(node_modules|vendor|dist|build|out|coverage|\.next|\.nuxt|\.turbo|\.vercel|__snapshots__|__generated__|generated)\//i;
 const LOCKS = /(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lockb?|composer\.lock|Cargo\.lock|poetry\.lock|Gemfile\.lock|go\.sum|kit\.lock\.json)$|\.(lock|snap|map)$|\.min\.(js|css)$/i;
 const BINARY = /\.(png|jpe?g|gif|webp|ico|svg|pdf|woff2?|ttf|otf|eot|mp[34]|mov|webm|zip|gz|tgz|bz2|xz|7z|jar|wasm|bin|exe|dll|so|dylib|xlsx?|docx?|pptx?|sqlite|db|csv|tsv|parquet)$/i;
-const SECRET = /(^|\/)(\.env(\.[^/]*)?|\.dev\.vars|[^/]*\.(pem|key|p12|pfx|keystore|jks|kdbx|tfstate|tfvars|ovpn)(\.[^/]*)?|id_(rsa|dsa|ed25519|ecdsa)[^/]*|\.npmrc|\.pypirc|\.netrc|\.pgpass|\.htpasswd|\.git-credentials|kubeconfig[^/]*|[^/]*credentials?[^/]*\.(json|ya?ml|toml|ini|txt)|credentials|[^/]*service[-_]?account[^/]*\.json|secrets?(\.[^/]*)?|[^/]*\.secrets?(\.[^/]*)?|auth\.json)$|(^|\/)(\.docker|\.aws|\.ssh|\.gnupg|\.kube)\//i;
+const SECRET = /(^|\/)(\.env[^/]*|[^/]*\.env(\.[^/]*)?|\.dev\.vars|[^/]*\.(pem|key|p12|pfx|keystore|jks|kdbx|tfstate|tfvars|ovpn)(\.[^/]*)?|id_(rsa|dsa|ed25519|ecdsa)[^/]*|\.npmrc|\.pypirc|\.netrc|\.pgpass|\.htpasswd|\.git-credentials|kubeconfig[^/]*|[^/]*credentials?[^/]*\.(json|ya?ml|toml|ini|txt)|credentials|[^/]*service[-_]?account[^/]*\.json|secrets?(\.[^/]*)?|[^/]*\.secrets?(\.[^/]*)?|auth\.json)$|(^|\/)(\.docker|\.aws|\.ssh|\.gnupg|\.kube)\//i;
 const KIT = /^\.harness\/(?!profile\.json$)/;
 /** Why a path is not read, from its name alone; null when it is code to read. */
 export function notRead(path) {
@@ -265,6 +268,8 @@ export async function sweep({ gh, ask, repo, sha, p, env = {}, now = () => Date.
   if (p.batches.length > MAX_BATCHES) return { status: 'too-large', why: `${p.batches.length} areas, over ${MAX_BATCHES} for one check: name folders to check instead` };
   const cap = capOf(SWEEP_USD, env.REVIEW_SWEEP_USD);
   const began = now();
+  // findings name defects in code that is in use: on a public repository an issue would publish them
+  if ((await gh('GET', `/repos/${repo}`))?.private !== true) return { status: 'public', why: 'this repository is public: findings would be published as issues, so the full check does not run here' };
 
   const open = await pages(gh, `/repos/${repo}/issues?state=open&sort=created&direction=desc`, null, 10);
   if (!open) return { status: 'too-large', why: 'more than 1000 open issues; the record is not looked for in part' };
@@ -366,12 +371,12 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
         return asker(await token, api)(request);
       };
       // a set-up fault (a missing or refused rule) fails here, before any batch could count against the cap
-      if (switchOf(process.env).on && p.batches.length) { at = Date.now(); token = exchange(env, api); await token; }
+      if (switchOf(process.env).on && p.batches.length && (await github('GET', `/repos/${repo}`))?.private === true) { at = Date.now(); token = exchange(env, api); await token; }
       let out;
       try { out = await sweep({ gh: github, ask, repo, sha, p, env: process.env, log: (m) => console.log(`sweep: ${m}`) }); }
       catch (e) { if (e.out) console.log(`sweep: ${JSON.stringify(e.out)}`); throw e; }
       console.log(`sweep: ${JSON.stringify(out)}`);
-      if (out.status === 'off' || out.status === 'too-large') { console.error(`sweep: ${out.why}`); process.exit(1); }
+      if (['off', 'too-large', 'public'].includes(out.status)) { console.error(`sweep: ${out.why}`); process.exit(1); }
     }
   } catch (e) { console.error(`sweep: ${e.message}`); process.exit(1); }
 }
