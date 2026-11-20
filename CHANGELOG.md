@@ -3,6 +3,37 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.47.0 · 2026-11-20 · work in bulk; decisions one file each; control workflows travel with the pin (K051, K052, K053)
+
+The owner's 20 Nov 2026 rule for working in bulk, and three things parallel work needs.
+
+- **C20** (loaded): ready cards start now, a thread each, with no limit on threads; one waits only on a
+  running card's files or tables, or the owner. It replaces "next items start by board order when a slot
+  opens". The rest of the rule is the new lookup file `bulk.md`: subagents wherever they speed the work
+  up, the owner's signed-in browser before any owner step (limits unchanged), scarce resources protected,
+  one report at the end. Core stays under its cap (8701 of 8704 bytes, 7 more than before): C20's first
+  sentence is three words shorter, no rule removed.
+- **HI05** (new, capability host/infra): an AI agent on a project's own machine is no longer forbidden
+  where the owner lifts the ban for that machine by name; it is proposed on a card and nothing is
+  installed, signed in or started before he approves it. Supersedes K016 item 3 to that extent.
+- **Wake caps** (`wake.mjs`): 48 runs a day per repository (was 8) and 12 per issue (was 3); an issue is
+  stopped for good after 36 runs in 30 days (was 9, the same three full days). Still a loop-stopper: one
+  run at a time, the chain, stuck and failed-start stops and the backstop are unchanged, and
+  `WAKE_DAILY_CAP` may still only lower the cap. The receipts read per decision rise to 20,000 comments.
+  Cost (O13): no money; up to 48 coordinator sessions a day per repository on the owner's subscription,
+  and one job of a few seconds per wake as before. `test-wake` pins the three numbers.
+- **Decisions, one file each** (K052): new `tools/decisions.mjs` (`check`, `next`) and `decisions.md`. A
+  new decision is `decisions/<ID>.md` beside the project's register, which is closed and keeps its
+  entries; nothing is migrated. The audit's C17 runs the check and flags a decision file changed after it
+  was written. A project's next decision after installing this release is a file. New `test-decisions`.
+- **`hands-update`** (K053): the control repository's own PR now carries its workflow files as the target
+  release's templates, through the new `hands.mjs control-update`; before, only `HANDS_KIT_VERSION` moved.
+  `control-check` fails a control workflow that is missing or differs from the pinned kit's template.
+  `test-hands` covers the copy, the removal, the staged list and the check (each fails without the change).
+- The kit's own register: `DECISIONS.md` is closed at K050; K051-K053 are `decisions/K051.md` and on.
+- `project-specific.md` L17: the kit sets no thread limit; a project names only its scarce resources.
+- Replay 0.47.0 recorded (loaded text changed).
+
 ## 0.46.2 · 2026-11-19 · the control repository's main gets a check of its own (K050)
 
 - **`hands-check` template**: it also runs on each push to `main`, with every step but the pull request

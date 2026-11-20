@@ -2,7 +2,8 @@
 # Action group: approval (its changes land only behind a gate; .harness/tools/actions.mjs)
 # Weekly, or on dispatch, moves every enrolled project's pinned kit (and this repository's own
 # HANDS_KIT_VERSION) to the newest release, or to the version given (a rollback), through a PR the
-# hands App opens and sets to auto-merge; the project's required checks decide. Replaces the
+# hands App opens and sets to auto-merge; the project's required checks decide. This repository's own
+# PR carries its workflow files too, as the target release's templates (K053). Replaces the
 # per-project harness-update workflow and its token (K007). A project whose CI requires a body line
 # on such PRs names it in its profile (kit_updates.pr_body_lines); the PR body carries it verbatim.
 # While such a PR is open, hands-keep (turned on here) brings it up to date whenever its base moves (K012).
@@ -212,8 +213,12 @@ jobs:
             node "$tool" status --root .
             node "$tool" paths --root . > "$RUNNER_TEMP/paths"
           else
-            echo "$target" > HANDS_KIT_VERSION
-            echo HANDS_KIT_VERSION > "$RUNNER_TEMP/paths"
+            # the control repository: its pin and its workflow copies move together (K053). The pinned
+            # kit's tool copies the target release's templates/hands byte for byte, removes one that
+            # release dropped, and lists what to stage; other workflows here are never touched.
+            git clone --quiet --depth 1 --branch "v$target" "${HARNESS_KIT_REPO:-https://github.com/obidex/harness-kit}" "$RUNNER_TEMP/kit-target"
+            [ "$(tr -d '[:space:]' < "$RUNNER_TEMP/kit-target/.harness/VERSION")" = "$target" ] || { echo "FAIL: tag v$target does not hold kit $target"; exit 1; }
+            node "$GITHUB_WORKSPACE/kit/.harness/tools/hands.mjs" control-update --root . --kit "$RUNNER_TEMP/kit-target" --was "$GITHUB_WORKSPACE/kit" > "$RUNNER_TEMP/paths"
           fi
           id="$(gh api "/users/${SLUG}%5Bbot%5D" --jq .id)"
           git config user.name "${SLUG}[bot]"

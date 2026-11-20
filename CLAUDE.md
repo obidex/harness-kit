@@ -14,7 +14,8 @@ is no `AGENTS.md` and no profile here. What is this repository's own:
   (`replay/README.md`). Always-loaded text has byte caps (`tools/check-kit.mjs`) and must not grow.
 - **Checks.** `node tools/check-kit.mjs`, `node tools/check-version.mjs origin/main` and every
   `node tools/test-*.mjs`, as `.github/workflows/check.yml` runs them.
-- **Decisions.** `DECISIONS.md`, append-only (K…); a rule's record is its catalogue row.
+- **Decisions.** One file each, `decisions/K###.md` (`node .harness/tools/decisions.mjs next`; K052);
+  `DECISIONS.md` holds K001-K050 and is closed. A rule's record is its catalogue row.
 
 In a Claude Projects cloud thread the repository's `.claude/settings.json`, hooks, skills and
 `.mcp.json` do not load (adapter A15): set `git config user.name` and `user.email` in each clone

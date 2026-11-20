@@ -33,7 +33,7 @@ ok(decide({ event: 'labeled', label: 'bug', issue: woke(), now }).act === 'none'
   ok(decide({ event: 'labeled', label: WAKE, issue: woke(), claim: true, ledger: [], now }).clearClaim === true, 'a claim with no receipt at all is dead too');
 }
 {
-  const eight = Array.from({ length: DAILY_CAP }, (_, i) => fireAt(i + 1, 100 + i));
+  const eight = Array.from({ length: DAILY_CAP }, (_, i) => fireAt((i + 1) * 23 / DAILY_CAP, 100 + i));   // all inside 24 h, whatever the cap
   const d = decide({ event: 'labeled', label: WAKE, issue: woke(), ledger: eight, now });
   ok(d.act === 'capped' && /daily cap/.test(d.why), `the ${DAILY_CAP}th run in 24 h is the last: the next wake is capped`);
   const old = Array.from({ length: DAILY_CAP }, (_, i) => fireAt(25 + i, 100 + i));
@@ -42,6 +42,7 @@ ok(decide({ event: 'labeled', label: 'bug', issue: woke(), now }).act === 'none'
   ok(decide({ event: 'labeled', label: WAKE, issue: woke(), ledger: same, now }).act === 'capped' && decide({ event: 'labeled', label: WAKE, issue: woke(6), ledger: same, now }).act === 'fire', `one issue starts at most ${ISSUE_CAP} runs a day; another issue still can`);
   ok(decide({ event: 'labeled', label: WAKE, issue: woke(), ledger: [fireAt(1), fireAt(2)], cap: 2, now }).act === 'capped', 'a lowered cap holds');
 }
+ok(DAILY_CAP === 48 && ISSUE_CAP === 12 && ISSUE_TOTAL === 3 * ISSUE_CAP, 'the caps stop loops, they do not throttle work: 48 runs a day per repository, 12 per issue, an issue stopped for good after three full days of its cap (K051)');
 ok(capFrom('3') === 3 && capFrom('50') === DAILY_CAP && capFrom('') === DAILY_CAP && capFrom('x') === DAILY_CAP && capFrom('-1') === DAILY_CAP && capFrom(undefined) === DAILY_CAP, 'WAKE_DAILY_CAP may lower the cap, never raise it; anything else is the ceiling');
 {
   const st = { number: 1, open: true, labels: [], isState: true };
@@ -65,7 +66,7 @@ ok(capFrom('3') === 3 && capFrom('50') === DAILY_CAP && capFrom('') === DAILY_CA
   ok(decide({ event: 'schedule', claim: true, ledger: [fireAt(1)], queue: [3], now }).act === 'none', 'the backstop never starts a second run');
 }
 {
-  const tot = Array.from({ length: ISSUE_TOTAL }, (_, i) => fireAt(30 + i * 30, 5));
+  const tot = Array.from({ length: ISSUE_TOTAL }, (_, i) => fireAt(30 + i * (28 * 24 - 30) / ISSUE_TOTAL, 5));   // spread over 28 days, never ISSUE_CAP of them in one day
   const si = decide({ event: 'labeled', label: WAKE, issue: woke(), ledger: tot, now });
   ok(si.act === 'stop-item' && si.items.join() === '5', `an issue that started ${ISSUE_TOTAL} runs in 30 days is stopped for good, however they are spread`);
   ok(decide({ event: 'labeled', label: WAKE, issue: woke(5, { labels: [WAKE, STOPPED] }), now }).act === 'none', `a stopped issue (${STOPPED}) wakes nobody, even after its receipts age out`);

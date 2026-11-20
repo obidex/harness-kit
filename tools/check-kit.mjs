@@ -12,6 +12,7 @@
 // 5. Preset capability lists use only capabilities the schema knows.
 // 6. Nothing that looks like a secret is committed in the kit's text.
 // 10. Templates pin each action as the kit's own workflows do; setup-node never caches there.
+// 11. The kit's own decisions are one file each, numbers used once, the old register closed (K052).
 
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -19,6 +20,7 @@ import { validateSchema, parseYaml, plainValueProblems } from '../.harness/tools
 import { controlProblems } from '../.harness/tools/hands.mjs';
 import { tokens, DEFAULT_BUDGET } from '../.harness/tools/load.mjs';
 import { setProblems, resultProblems } from './replay.mjs';
+import { problems as decisionProblems, load as loadDecisions } from '../.harness/tools/decisions.mjs';
 
 const root = process.argv[2] || new URL('..', import.meta.url).pathname;
 const read = (p) => readFileSync(join(root, p), 'utf8');
@@ -106,7 +108,7 @@ for (const f of list('.harness/presets')) {
 
 // --- 6. nothing secret-shaped ---------------------------------------------------------------------
 const secretish = /(ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9]{20,}|eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}|[0-9]{8,10}:AA[A-Za-z0-9_-]{30,})/;
-for (const f of ['DECISIONS.md', 'README.md', ...layers.map((l) => l.file), ...recordFiles, '.harness/project-specific.md', 'examples/profile.example.json']) {
+for (const f of ['DECISIONS.md', ...list('decisions'), 'README.md', ...layers.map((l) => l.file), ...recordFiles, '.harness/project-specific.md', 'examples/profile.example.json']) {
   if (existsSync(join(root, f)) && secretish.test(read(f))) fail(`${f} contains a secret-shaped string`);
 }
 
@@ -174,6 +176,13 @@ for (const f of [...usesIn('.harness/templates/workflows'), ...usesIn('.harness/
     if (want && `${m[2]} # ${m[3]}` !== want) fail(`${f} pins ${m[1]}@${m[2]} # ${m[3]}; the kit's own workflows pin ${want}`);
   }
   if ((text.match(/uses: actions\/setup-node@/g) || []).length !== (text.match(/package-manager-cache: false/g) || []).length) fail(`${f}: every setup-node sets package-manager-cache: false`);
+}
+
+// --- 11. the kit's own decisions: one file each from K051, the old register closed (K052) ----------
+{
+  const reg = loadDecisions(root, 'DECISIONS.md');
+  for (const p of decisionProblems(reg)) fail(`decisions: ${p}`);
+  if (!Object.keys(reg.files).length) fail('decisions/ is empty: decisions after K050 are one file each (K052)');
 }
 
 const rules = worded.size;

@@ -3,12 +3,12 @@
 //
 //   node tools/test-hands.mjs        exit 0 = every case held
 
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, readdirSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, readdirSync, existsSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { createServer } from 'node:http';
 import { execFile } from 'node:child_process';
 import { tmpdir } from 'node:os';
-import { plan, covers, validate, controlProblems, unsafe, paused, keepAction, keepHours, watched } from '../.harness/tools/hands.mjs';
+import { plan, covers, validate, controlProblems, controlUpdate, controlCopyProblems, unsafe, paused, keepAction, keepHours, watched } from '../.harness/tools/hands.mjs';
 import { parseYaml, validateSchema } from '../.harness/tools/lib.mjs';
 import { spawnSync } from 'node:child_process';
 
@@ -462,6 +462,75 @@ const run = (srv, args, env = {}) => new Promise((done) => {
   ok(validate({ ...desired, interaction_limits: { ...il, renew_days: 61 } }, root).some((e) => e.includes('above 60')), 'the schema enforces maximum');
   ok(validate(withIl, root).length === 0, 'a six-month limit with the default window is valid');
   rmSync(root, { recursive: true, force: true });
+}
+
+// the control repository's workflows travel with its pin (K053): until 0.47.0 hands-update moved only
+// HANDS_KIT_VERSION, and the copies stayed at whatever release a session last copied by hand
+{
+  const kitRoot = new URL('..', import.meta.url).pathname;
+  const d = mkdtempSync(join(tmpdir(), 'hands-control-'));
+  const mk = (name, version, wfs) => {
+    const k = join(d, name);
+    mkdirSync(join(k, '.harness/templates/hands'), { recursive: true });
+    writeFileSync(join(k, '.harness/VERSION'), `${version}\n`);
+    for (const [f, t] of Object.entries(wfs)) writeFileSync(join(k, '.harness/templates/hands', f), t);
+    return k;
+  };
+  const was = mk('was', '1.0.0', { 'hands-a.yml': 'a1\n', 'hands-b.yml': 'b1\n', 'hands-gone.yml': 'gone\n' });
+  const next = mk('next', '1.1.0', { 'hands-a.yml': 'a1\n', 'hands-b.yml': 'b2\r\n', 'hands-new.yml': 'new\n', 'README.md': 'not a workflow\n', 'other.yml': 'not a control workflow\n' });
+  const ctl = join(d, 'control'), wf = join(ctl, '.github/workflows');
+  mkdirSync(wf, { recursive: true });
+  writeFileSync(join(ctl, 'HANDS_KIT_VERSION'), '1.0.0\n');
+  for (const [f, t] of Object.entries({ 'hands-a.yml': 'a1\n', 'hands-b.yml': 'b1\n', 'hands-gone.yml': 'gone\n', 'hands-own.yml': 'own\n', 'ci.yml': 'ci\n' })) writeFileSync(join(wf, f), t);
+  const r = controlUpdate(ctl, next, was);
+  const at = (f) => readFileSync(join(wf, f), 'utf8');
+  ok(r.version === '1.1.0' && readFileSync(join(ctl, 'HANDS_KIT_VERSION'), 'utf8') === '1.1.0\n' && at('hands-b.yml') === 'b2\r\n' && at('hands-new.yml') === 'new\n' && r.written.join() === 'hands-b.yml,hands-new.yml',
+    'a control repository\'s update moves the pin AND copies each changed or new control workflow byte for byte from the target kit');
+  ok(!existsSync(join(wf, 'hands-gone.yml')) && r.removed.join() === 'hands-gone.yml' && at('hands-own.yml') === 'own\n' && at('ci.yml') === 'ci\n' && !existsSync(join(wf, 'other.yml')) && !existsSync(join(wf, 'README.md')),
+    'a workflow the new kit dropped is removed; the repository\'s own workflows are never touched, and nothing but hands-*.yml is copied');
+  ok(r.paths.join() === 'HANDS_KIT_VERSION,.github/workflows/hands-a.yml,.github/workflows/hands-b.yml,.github/workflows/hands-gone.yml,.github/workflows/hands-new.yml',
+    'it lists what the update PR stages: the pin, every kit workflow and each removed one, and nothing else');
+  ok(controlUpdate(ctl, next, was).written.length === 0 && controlUpdate(ctl, next, null).removed.length === 0, 'run again it changes nothing; with no earlier kit named it removes nothing');
+  const files = () => Object.fromEntries(readdirSync(wf).map((f) => [f, readFileSync(join(wf, f))]));
+  ok(controlCopyProblems(files(), next).length === 0, 'after the update every kit workflow is the pinned kit\'s template');
+  writeFileSync(join(wf, 'hands-a.yml'), 'a1 \n');
+  rmSync(join(wf, 'hands-new.yml'));
+  const cp = controlCopyProblems(files(), next);
+  ok(cp.length === 2 && cp.some((p) => /^hands-a\.yml: differs/.test(p)) && cp.some((p) => /^hands-new\.yml: missing/.test(p)) && !cp.some((p) => /hands-own|ci\.yml/.test(p)),
+    'a copy edited in the control repository, or one the pinned kit ships that is missing, is a problem; its own workflows are not judged');
+  rmSync(join(wf, 'hands-b.yml')); symlinkSync(join(d, 'elsewhere'), join(wf, 'hands-b.yml'));
+  let threw = false; try { controlUpdate(ctl, next, was); } catch (e) { threw = /symlink/.test(e.message); }
+  ok(threw && !existsSync(join(d, 'elsewhere')), 'a copy that is a symlink is refused, never written through');
+  let none = false; try { controlUpdate(ctl, mk('empty', '1.2.0', {}), was); } catch (e) { none = /ships no control workflows/.test(e.message); }
+  ok(none, 'a kit that ships no control workflows (a wrong checkout) changes nothing and fails');
+
+  // the command line, as hands-check and hands-update call it, against the real kit
+  const tool = join(kitRoot, '.harness/tools/hands.mjs');
+  const real = join(d, 'real');
+  mkdirSync(join(real, '.github/workflows'), { recursive: true });
+  const version = readFileSync(join(kitRoot, '.harness/VERSION'), 'utf8').trim();
+  writeFileSync(join(real, 'HANDS_KIT_VERSION'), '0.0.1\n');
+  const up = spawnSync(process.execPath, [tool, 'control-update', '--root', real, '--kit', kitRoot], { encoding: 'utf8' });
+  const shipped = readdirSync(join(kitRoot, '.harness/templates/hands'));
+  ok(up.status === 0 && up.stdout.trim().split('\n').length === shipped.length + 1 && up.stdout.startsWith('HANDS_KIT_VERSION\n') && readFileSync(join(real, 'HANDS_KIT_VERSION'), 'utf8').trim() === version
+    && shipped.every((f) => readFileSync(join(real, '.github/workflows', f)).equals(readFileSync(join(kitRoot, '.harness/templates/hands', f)))),
+    'control-update prints only the paths to stage on stdout and leaves the control repository at this kit, every template copied');
+  let chk = spawnSync(process.execPath, [tool, 'control-check', real], { encoding: 'utf8' });
+  ok(chk.status === 0 && /each kit workflow is the pinned kit's template/.test(chk.stdout), 'control-check passes a control repository whose copies are the pinned kit\'s templates');
+  writeFileSync(join(real, '.github/workflows/hands-keep.yml'), `${readFileSync(join(real, '.github/workflows/hands-keep.yml'), 'utf8')}# edited here\n`);
+  chk = spawnSync(process.execPath, [tool, 'control-check', real], { encoding: 'utf8' });
+  ok(chk.status === 1 && /FAIL hands-keep\.yml: differs from the pinned kit's template/.test(chk.stdout), 'control-check fails a copy that drifted from the pinned kit\'s template (fails without K053)');
+  writeFileSync(join(real, 'HANDS_KIT_VERSION'), '0.0.1\n');
+  chk = spawnSync(process.execPath, [tool, 'control-check', real], { encoding: 'utf8' });
+  ok(chk.status === 0 && !/pinned kit's template/.test(chk.stdout), 'run from a kit other than the pinned one, control-check does not judge the copies (it cannot)');
+
+  // the workflow: the control repository's own PR stages what control-update lists, from the target tag
+  const hu = readFileSync(join(kitRoot, '.harness/templates/hands/hands-update.yml'), 'utf8');
+  const own = hu.slice(hu.indexOf('node "$tool" paths --root . > "$RUNNER_TEMP/paths"'), hu.indexOf('id="$(gh api "/users/'));
+  ok(/git clone --quiet --depth 1 --branch "v\$target" [^\n]+ "\$RUNNER_TEMP\/kit-target"/.test(own) && /hands\.mjs" control-update --root \. --kit "\$RUNNER_TEMP\/kit-target" --was "\$GITHUB_WORKSPACE\/kit" > "\$RUNNER_TEMP\/paths"/.test(own)
+    && !/echo HANDS_KIT_VERSION > /.test(hu) && /git add -A --pathspec-from-file="\$RUNNER_TEMP\/paths"/.test(hu) && /permission-workflows: write/.test(hu),
+    'hands-update: this repository\'s own PR takes the target release\'s templates through the pinned kit\'s control-update and stages exactly its list');
+  rmSync(d, { recursive: true, force: true });
 }
 
 console.log(`test-hands: OK · ${n} checks`);
