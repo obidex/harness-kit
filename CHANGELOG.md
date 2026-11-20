@@ -10,7 +10,8 @@ credit is spent on his command, for a time he names, not as a standing rule.
 
 - **Off by default.** `harness-review` now runs only while the Actions variable `REVIEW_UNTIL` holds a
   date and time with its offset that has not passed (`2026-11-30T23:59+03:00`). Not set, unreadable or
-  passed is off; no value means "on for good"; the end time switches it off by itself. **A project
+  passed is off, and so is a time more than 45 days ahead, so no value means "on for good"; the end
+  time switches it off by itself. **A project
   that had the reviewer running stops being reviewed when it takes this version**, until the owner's
   command sets `REVIEW_UNTIL`. The four identifiers stay as the set-up.
 - **Only the owner's command switches it on** ("reviewer on until <date>", "reviewer off"): no rule,
@@ -22,10 +23,11 @@ credit is spent on his command, for a time he names, not as a standing rule.
   reads every tracked code file folder by folder and files one issue per area with findings, each
   graded blocker, major or minor, plus one record issue with the numbers. `estimate` (the default)
   sends nothing and prints the most a check could cost. Caps in code: $30 a check, 250 areas, 320
-  minutes a run; a stopped run continues where it stopped. Its own federation rule
+  minutes a run; a call with no known result counts at its worst case; a stopped run continues where
+  it stopped. Its own federation rule
   (`REVIEW_SWEEP_RULE`). A symbolic link is never followed and a file that may hold a secret is never
   sent. Advisory: it gates nothing.
-- `test-review`: 72 checks; `test-sweep` (new): 42 checks.
+- `test-review`: 73 checks; `test-sweep` (new): 48 checks.
 ## 0.48.2 · 2026-11-20 · alerts: three steps a message, links kept, no digest promise; export on a private repository; the audit and a decision corrected in its own pull request
 
 Five findings on the kit's tools (three from projects running it). No loaded text changed; no replay needed.

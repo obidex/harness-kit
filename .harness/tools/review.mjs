@@ -11,8 +11,9 @@
 //
 // The switch (K055). The reviewer is OFF unless the Actions variable REVIEW_UNTIL holds a date and time
 // with its offset that has not passed. Installing the workflow and its identifiers switches nothing on;
-// the end time switches it off again by itself. Only the owner's command sets REVIEW_UNTIL: no rule,
-// schedule or agent pass does.
+// the end time switches it off again by itself, and a time more than SWITCH_DAYS days ahead is off
+// too, so no value means "on for good". Only the owner's command sets REVIEW_UNTIL: no rule, schedule
+// or agent pass does.
 //
 // What it does. One job per finished pull-request workflow reads the pull request's diff and the
 // repository's rulebook from the default branch, asks a Claude model for the problems it would block
@@ -88,15 +89,21 @@ export const docsOnly = (files, profile) => files.length > 0 && files.every((f) 
 export const pick = (files, profile) => (highRisk(files, profile).length ? RISK_MODEL : MODEL);
 
 // --- the switch -------------------------------------------------------------------------------------
-const WHEN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?(Z|[+-]\d{2}:\d{2})$/;
-/** Whether the reviewer is switched on: REVIEW_UNTIL is a date and time with its offset, still ahead.
- *  Anything else (not set, unreadable, passed) is off; `why` says which. */
+const WHEN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?(?:Z|[+-](\d{2}):(\d{2}))$/;
+export const SWITCH_DAYS = 45;
+/** Whether the reviewer is switched on: REVIEW_UNTIL is a real date and time with its offset, still
+ *  ahead and no more than SWITCH_DAYS away. Anything else (not set, unreadable, passed, too far
+ *  ahead) is off; `why` says which. */
 export function switchOf(env, now = Date.now()) {
   const v = String(env?.REVIEW_UNTIL ?? '').trim();
   if (!v) return { on: false, why: 'the reviewer is switched off (REVIEW_UNTIL is not set)' };
-  const t = WHEN.test(v) ? Date.parse(v) : NaN;
+  const m = v.match(WHEN);
+  // a day the calendar does not have (31 February) is unreadable, never rolled into the next month
+  const real = m && +m[2] >= 1 && +m[2] <= 12 && +m[3] >= 1 && +m[3] <= new Date(Date.UTC(+m[1], +m[2], 0)).getUTCDate() && +m[4] < 24 && +m[5] < 60 && +(m[6] || 0) < 60 && +(m[7] || 0) < 24 && +(m[8] || 0) < 60;
+  const t = real ? Date.parse(v) : NaN;
   if (!Number.isFinite(t)) return { on: false, why: 'the reviewer is switched off (REVIEW_UNTIL is not a date and time with its offset, like 2026-11-30T23:59+03:00)' };
   const until = new Date(t).toISOString();
+  if (t - now > SWITCH_DAYS * 86400000) return { on: false, until, why: `the reviewer is switched off (REVIEW_UNTIL is more than ${SWITCH_DAYS} days ahead: a switch is for a stated time, never for good)` };
   return now < t ? { on: true, until } : { on: false, until, why: `the reviewer is switched off (its time ended ${until})` };
 }
 

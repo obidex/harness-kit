@@ -11,7 +11,8 @@ decides when that credit is spent: it is on only between his command and the end
 
 - **On** means the Actions variable `REVIEW_UNTIL` holds a date and time with its offset that has
   not passed, for example `2026-11-30T23:59+03:00`. Anything else is off: not set, a date without a
-  time or offset, a bare `on`, a time that has passed. There is no value that means "on for good".
+  time or offset, a bare `on`, a day the calendar does not have, a time that has passed, and a time
+  more than 45 days ahead. So there is no value that means "on for good".
 - **It switches itself off** at that time: the job reads the clock, nobody has to come back.
 - **Only the owner's command sets it**: "reviewer on until <date>" or "reviewer off", said to the
   project that looks after his repositories. A session then sets or deletes `REVIEW_UNTIL` in each
@@ -121,10 +122,14 @@ the owner asks for it: every tracked code file of the default branch, folder by 
   existing code", with areas read, findings by severity and dollars spent. The project's coordinator
   sorts real from false and queues the fixes; each point ends FIXED, TRACKED or DISMISSED (O07).
 - **Not read:** documents, lock files, generated and vendored folders, binaries, the kit's own files
-  under `.harness`, a file that may hold a secret (`.env`, a key file), a symbolic link, and a file
-  over 60,000 characters (the record lists those).
+  under `.harness`, a file that may hold a secret (`.env`, a key or certificate, credentials,
+  Terraform state and variables, a cloud or registry sign-in file), a symbolic link, and a file over
+  60,000 characters (the record lists those). The list of secret-shaped names is a floor, not a
+  proof: a repository that tracks a secret under an ordinary name has a leak to fix first.
 - **Caps, in code:** $30 for one check (`REVIEW_SWEEP_USD` may only lower it), 250 areas (name
-  folders in `paths` for a larger repository), one call per area, 320 minutes a run. A run that
+  folders in `paths` for a larger repository), one call per area, 320 minutes a run. A call that
+  times out or fails on the server counts at its worst case, since it may still be billed, and a
+  batch starts only with room for all three of its tries. A run that
   stops says why in the record; starting it again continues with the areas not yet read, and reads
   an area again only if its files changed. Closing the record issue ends that check.
 - **Set-up:** the reviewer's three identifiers, plus `REVIEW_SWEEP_RULE`: one more federation rule,

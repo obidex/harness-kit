@@ -9,7 +9,7 @@ import { execFile } from 'node:child_process';
 import { join } from 'node:path';
 import { readFileSync, writeFileSync, mkdtempSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { glob, highRisk, docsOnly, pick, cost, worstCase, capOf, runUsd, record, plain, body, spent, checks, question, verdict, review, identifiers, exchange, asker, switchOf,
+import { glob, highRisk, docsOnly, pick, cost, worstCase, capOf, runUsd, record, plain, body, spent, checks, question, verdict, review, identifiers, exchange, asker, switchOf, SWITCH_DAYS,
   MARK, MODEL, RISK_MODEL, PRICES, DAILY_USD, DAILY_CAP, MAX_DIFF, MAX_FILES, MAX_ANSWER, MAX_OUT, MAX_RULES, WAIT_MS, POLL_MS } from '../.harness/tools/review.mjs';
 import { parseYaml } from '../.harness/tools/lib.mjs';
 import { verdict as group } from '../.harness/tools/actions.mjs';
@@ -104,7 +104,9 @@ ok(switchOf({ REVIEW_UNTIL: UNTIL }, NOW).on === true && switchOf({ REVIEW_UNTIL
 ok(switchOf({}, NOW).on === false && /not set/.test(switchOf({}, NOW).why) && switchOf({ REVIEW_UNTIL: '' }, NOW).on === false && switchOf(undefined, NOW).on === false, 'off by default: without REVIEW_UNTIL nothing is reviewed');
 ok(switchOf({ REVIEW_UNTIL: UNTIL }, Date.parse('2026-11-30T20:59:00Z')).on === false && /its time ended 2026-11-30T20:59:00\.000Z/.test(switchOf({ REVIEW_UNTIL: UNTIL }, Date.parse('2026-12-01T00:00:00Z')).why) && switchOf({ REVIEW_UNTIL: UNTIL }, Date.parse('2026-11-30T20:58:59Z')).on === true,
   'it switches itself off at the end time, to the second');
-ok(['true', 'on', '1', 'always', '2026-11-30', '2026-11-30T23:59', '2026-11-30 23:59+03:00', '30 Nov 2026', '9999', '2026-13-45T99:99Z', 'Infinity'].every((v) => switchOf({ REVIEW_UNTIL: v }, NOW).on === false && /not a date and time with its offset/.test(switchOf({ REVIEW_UNTIL: v }, NOW).why)),
+ok(SWITCH_DAYS === 45 && ['9999-12-31T00:00Z', '2027-01-05T10:00:01Z', '2030-01-01T00:00+03:00'].every((v) => switchOf({ REVIEW_UNTIL: v }, NOW).on === false && /more than 45 days ahead/.test(switchOf({ REVIEW_UNTIL: v }, NOW).why)) && switchOf({ REVIEW_UNTIL: '2027-01-04T10:00:00Z' }, NOW).on === true,
+  'no value means "on for good": an end time more than 45 days ahead is off');
+ok(['true', 'on', '1', 'always', '2026-11-30', '2026-11-30T23:59', '2026-11-30 23:59+03:00', '30 Nov 2026', '9999', '2026-13-45T99:99Z', 'Infinity', '2026-11-31T10:00Z', '2026-02-30T10:00Z', '2026-12-01T24:00Z', '2026-12-01T10:00+25:00', '2026-00-10T10:00Z'].every((v) => switchOf({ REVIEW_UNTIL: v }, NOW).on === false && /not a date and time with its offset/.test(switchOf({ REVIEW_UNTIL: v }, NOW).why)),
   'a value that is not a full date and time with its offset (a bare "on", a date alone, a time without its zone) is off, never "on for good"');
 
 // --- a stand-in GitHub, in memory -------------------------------------------------------------------

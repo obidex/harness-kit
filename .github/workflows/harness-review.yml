@@ -7,7 +7,8 @@
 # Advisory (O07): never a required check, never an approval, never C10's independent reviewer.
 # Off by default (K055): the job is skipped unless the Actions variable REVIEW_UNTIL holds a date and
 # time with its offset that has not passed (2026-11-30T23:59+03:00), and REVIEW_FEDERATION_RULE is set.
-# The end time switches it off again by itself. Only the owner's command sets REVIEW_UNTIL.
+# The end time switches it off again by itself; a time more than 45 days ahead is off too. Only the
+# owner's command sets REVIEW_UNTIL.
 # No stored key: GitHub's identity token for this run is swapped for an Anthropic access token that
 # lasts minutes (workload identity federation). REVIEW_FEDERATION_RULE, REVIEW_ORGANIZATION,
 # REVIEW_SERVICE_ACCOUNT and REVIEW_WORKSPACE are identifiers, not secrets. The federation rule on the

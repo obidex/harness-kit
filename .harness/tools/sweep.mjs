@@ -27,7 +27,8 @@
 // files under .harness (the kit reviews those), files that may hold a secret, and a file over
 // MAX_FILE characters (the record lists those: they stay unread, never read in part).
 //
-// Caps, in code: SWEEP_USD dollars for one check (the Actions variable REVIEW_SWEEP_USD may only lower
+// Caps, in code: SWEEP_USD dollars for one check (a call that timed out or failed on the server counts
+// at its worst case, since it may still be billed) (the Actions variable REVIEW_SWEEP_USD may only lower
 // it), MAX_BATCHES batches, one call per batch. The record issue is the state: a run that stops (the
 // cap, the window, the job's time, credit used up) says so there, and starting it again continues
 // with the batches not yet read; a batch whose files changed since is read again. Closing the record
@@ -55,7 +56,7 @@ export const AT_ONCE = 3, TRIES = 3, RUN_MINUTES = 320;
 const GENERATED = /(^|\/)(node_modules|vendor|dist|build|out|coverage|\.next|\.nuxt|\.turbo|\.vercel|__snapshots__|__generated__|generated)\//i;
 const LOCKS = /(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lockb?|composer\.lock|Cargo\.lock|poetry\.lock|Gemfile\.lock|go\.sum|kit\.lock\.json)$|\.(lock|snap|map)$|\.min\.(js|css)$/i;
 const BINARY = /\.(png|jpe?g|gif|webp|ico|svg|pdf|woff2?|ttf|otf|eot|mp[34]|mov|webm|zip|gz|tgz|bz2|xz|7z|jar|wasm|bin|exe|dll|so|dylib|xlsx?|docx?|pptx?|sqlite|db|csv|tsv|parquet)$/i;
-const SECRET = /(^|\/)(\.env(\.[^/]*)?|[^/]*\.(pem|key|p12|pfx|keystore|jks)|id_(rsa|dsa|ed25519|ecdsa)[^/]*|\.npmrc|\.netrc|\.pgpass|credentials(\.json)?|secrets?\.(json|ya?ml|toml))$/i;
+const SECRET = /(^|\/)(\.env(\.[^/]*)?|\.dev\.vars|[^/]*\.(pem|key|p12|pfx|keystore|jks|kdbx|tfstate|tfvars|ovpn)(\.[^/]*)?|id_(rsa|dsa|ed25519|ecdsa)[^/]*|\.npmrc|\.pypirc|\.netrc|\.pgpass|\.htpasswd|\.git-credentials|kubeconfig[^/]*|[^/]*credentials?[^/]*\.(json|ya?ml|toml|ini|txt)|credentials|[^/]*service[-_]?account[^/]*\.json|secrets?(\.[^/]*)?|[^/]*\.secrets?(\.[^/]*)?|auth\.json)$|(^|\/)(\.docker|\.aws|\.ssh|\.gnupg|\.kube)\//i;
 const KIT = /^\.harness\/(?!profile\.json$)/;
 /** Why a path is not read, from its name alone; null when it is code to read. */
 export function notRead(path) {
@@ -210,7 +211,11 @@ export function batchUsd(d) {
   if (PRICES[d?.m] && n.every((x) => Number.isInteger(x) && x >= 0 && x < 1e8)) return cost(d.m, { input_tokens: n[0], output_tokens: n[1] });
   return worstCase(RISK_MODEL, BATCH * 1.3 + MAX_RULES);
 }
-export const spentOf = (state) => Math.round(Object.values(state.done).reduce((n, d) => n + batchUsd(d), 0) * 1e4) / 1e4;
+/** What calls with no known result may have cost (`state.lost`): counted in full, never below zero. */
+const lostOf = (state) => (Number.isFinite(state?.lost) && state.lost > 0 ? state.lost : 0);
+export const spentOf = (state) => Math.round((Object.values(state.done).reduce((n, d) => n + batchUsd(d), 0) + lostOf(state)) * 1e4) / 1e4;
+/** A folder or file name as text an issue may carry: no mention, no HTML comment, no code-span break. */
+export const label = (s) => plain(String(s).replace(/[`<>\r\n]/g, ' '), 200);
 const totals = (state) => Object.values(state.done).reduce((t, d) => t.map((x, i) => x + (Number.isInteger(d?.f?.[i]) ? d.f[i] : 0)), [0, 0, 0, 0]);
 const FOOT = '<sub>Advisory: it gates nothing. It read these files and the rulebook only and cannot run code, so it can be wrong. This project\'s coordinator sorts real from false; each point ends FIXED, TRACKED or DISMISSED.</sub>';
 /** The record issue's body: the state, then the numbers a person reads. */
@@ -220,8 +225,8 @@ export function recordBody(state, p, cap) {
   const left = p.batches.length - done.length;
   const status = state.stopped ? `**Stopped:** ${state.stopped}. ${left} of ${p.batches.length} areas are not read yet; starting the check again continues with them.`
     : left ? `**Running:** ${done.length} of ${p.batches.length} areas read.` : `**Finished:** all ${p.batches.length} areas read.`;
-  const withFindings = done.filter((b) => state.done[b.key].i).map((b) => `- #${state.done[b.key].i} · ${b.name}`);
-  const refused = done.filter((b) => ['refused', 'unread'].includes(state.done[b.key].r)).map((b) => b.name);
+  const withFindings = done.filter((b) => state.done[b.key].i).map((b) => `- #${Number(state.done[b.key].i)} · ${label(b.name)}`);
+  const refused = done.filter((b) => ['refused', 'unread'].includes(state.done[b.key].r)).map((b) => label(b.name));
   const notRead = Object.entries(p.skipped).map(([k, n]) => `${n} ${k}`).join(', ');
   return [
     mark(MARK, state),
@@ -233,7 +238,7 @@ export function recordBody(state, p, cap) {
     `| Not read | ${notRead || 'nothing'} |`,
     ...(withFindings.length ? ['', 'Areas with findings, one issue each:', ...withFindings.slice(0, 150)] : []),
     ...(refused.length ? ['', `No answer for: ${refused.slice(0, 40).join(', ')}.`] : []),
-    ...(p.tooLarge.length ? ['', `Too large to read whole, so not read: ${p.tooLarge.slice(0, 40).map((x) => `\`${x}\``).join(', ')}${p.tooLarge.length > 40 ? ' and more' : ''}.`] : []),
+    ...(p.tooLarge.length ? ['', `Too large to read whole, so not read: ${p.tooLarge.slice(0, 40).map((x) => `\`${label(x)}\``).join(', ')}${p.tooLarge.length > 40 ? ' and more' : ''}.`] : []),
     '', 'Closing this issue ends this check: the next start is a new one.', '', FOOT,
   ].join('\n');
 }
@@ -242,9 +247,9 @@ const worstOf = (c) => (c[0] ? 'blocker' : c[1] ? 'major' : c[2] ? 'minor' : 'no
 export function findingIssue(batch, v, sha) {
   const n = v.count.reduce((x, y) => x + y, 0);
   return {
-    title: `Second review, full check: ${batch.name} (${n} finding${n === 1 ? '' : 's'}, worst: ${worstOf(v.count)})`.slice(0, 240),
+    title: `Second review, full check: ${label(batch.name)} (${n} finding${n === 1 ? '' : 's'}, worst: ${worstOf(v.count)})`.slice(0, 240),
     body: [mark(`${MARK}-finding`, { key: batch.key }),
-      `**Second review (advisory), full check of the existing code:** \`${batch.name}\` at \`${String(sha).slice(0, 7)}\`, ${batch.files.length} files.`, '',
+      `**Second review (advisory), full check of the existing code:** \`${label(batch.name)}\` at \`${String(sha).slice(0, 7)}\`, ${batch.files.length} files.`, '',
       plain(v.text, ISSUE_TEXT), ...(v.cut ? ['', 'The answer was cut at the output limit; the last point may be incomplete.'] : []), '', FOOT].join('\n'),
   };
 }
@@ -264,7 +269,8 @@ export async function sweep({ gh, ask, repo, sha, p, env = {}, now = () => Date.
   const open = await pages(gh, `/repos/${repo}/issues?state=open&sort=created&direction=desc`, null, 10);
   if (!open) return { status: 'too-large', why: 'more than 1000 open issues; the record is not looked for in part' };
   let issue = open.find((i) => i.title === TITLE && stateOf(i));
-  const state = issue ? stateOf(issue) : { v: 1, started: new Date(now()).toISOString(), sha, done: {}, stopped: null };
+  const state = issue ? stateOf(issue) : { v: 1, started: new Date(now()).toISOString(), sha, done: {}, lost: 0, stopped: null };
+  state.lost = lostOf(state);
   state.stopped = null;
   const save = async () => {
     const b = recordBody(state, p, cap);
@@ -277,6 +283,8 @@ export async function sweep({ gh, ask, repo, sha, p, env = {}, now = () => Date.
     for (let i = 1; ; i++) {
       let a;
       try { a = await ask(request); } catch (e) { a = { status: 0, json: { error: { type: String(e?.name || 'error') } } }; }
+      // a call that timed out or broke on the server may still be billed: its worst case uses the cap up
+      if (a.status === 0 || a.status >= 500) state.lost = Math.round((state.lost + batch.worst) * 1e4) / 1e4;
       if (a.status === 200 || [400, 402, 403, 413].includes(a.status) || i >= TRIES) return a;
       log(`${batch.name}: the model call answered ${a.status}; try ${i + 1} of ${TRIES}`);
       await sleep(20000 * i);
@@ -289,7 +297,8 @@ export async function sweep({ gh, ask, repo, sha, p, env = {}, now = () => Date.
     if (now() - began > RUN_MINUTES * 60000) { state.stopped = 'this run\'s time is used up'; break; }
     const group = [];
     let room = cap - spentOf(state);
-    while (todo.length && group.length < AT_ONCE && todo[0].worst <= room) { room -= todo[0].worst; group.push(todo.shift()); }
+    // room for every try of every batch in the group, since a try with no known result counts in full
+    while (todo.length && group.length < AT_ONCE && todo[0].worst * TRIES <= room) { room -= todo[0].worst * TRIES; group.push(todo.shift()); }
     if (!group.length) { state.stopped = `the cap for one check is reached ($${spentOf(state).toFixed(2)} of $${cap.toFixed(2)} spent)`; break; }
     const answers = await Promise.all(group.map(one));
     for (const [i, batch] of group.entries()) {
@@ -298,7 +307,11 @@ export async function sweep({ gh, ask, repo, sha, p, env = {}, now = () => Date.
       if (a.status === 200) {
         const v = verdict(a.json);
         const d = { m: batch.model, in: Number(a.json.usage?.input_tokens || 0) + Number(a.json.usage?.cache_creation_input_tokens || 0) + Number(a.json.usage?.cache_read_input_tokens || 0), out: Number(a.json.usage?.output_tokens || 0), r: v.result, f: v.count };
-        if (v.result === 'findings') d.i = (await gh('POST', `/repos/${repo}/issues`, findingIssue(batch, v, sha))).number;
+        if (v.result === 'findings') {
+          // the answer is paid for whether or not its issue can be filed: count it, read the batch again later
+          try { d.i = (await gh('POST', `/repos/${repo}/issues`, findingIssue(batch, v, sha))).number; }
+          catch (e) { state.lost = Math.round((state.lost + batchUsd(d)) * 1e4) / 1e4; failed = failed || `a findings issue could not be filed (${String(e?.message || e).slice(0, 80)})`; continue; }
+        }
         state.done[batch.key] = d;
         log(`${batch.name}: ${v.result} ${v.count.join('/')} model=${batch.model} usd=${batchUsd(d)}`);
       } else if (a.status === 400 || a.status === 413) {
