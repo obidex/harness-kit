@@ -419,7 +419,9 @@ const checks = {
       problems.push(...decisionProblems(reg));
       // "written" means on the default branch: its history, plus what this checkout changes against it as a
       // whole (the merge base to HEAD). A file a pull request adds and corrects in a later commit reaches the
-      // default branch as one addition, so it is not an edit; without that branch, this checkout's own history
+      // default branch as one addition (a squash merge; a project that merges every commit keeps the
+      // correction in its history and still fails afterwards), so it is not an edit; without that branch,
+      // this checkout's own history
       const names = (out) => (out || '').split('\n').filter(Boolean);
       const base = [`origin/${defaultBranch}`, defaultBranch].find((r) => git('rev-parse', '--verify', '--quiet', `${r}^{commit}`));
       const touched = base

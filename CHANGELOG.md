@@ -10,8 +10,8 @@ Five findings on the kit's tools (three from projects running it). No loaded tex
 - **`notify.mjs`, the last STILL OPEN reply** of a capped problem no longer promises "a line in the
   daily digest" (retired, K039). It says nothing more is sent until it is resolved.
 - **`notify.mjs`, one "Needs you" message carries at most three steps** (O02): the most urgent, then
-  the oldest. The rest follow as the next message once those are sorted or an hour has passed, never
-  in the same tick. Before, every step due together went into one message, however many.
+  the oldest. The rest follow as the next message once those are sorted or an hour has passed, not
+  in the same tick (unless the joined text fails the plain-words check and each step goes alone, as before). Before, every step due together went into one message, however many.
 - **`notify.mjs`, a batched message keeps each step's link**, beside its place on the `Where:` line.
   Before, the links were dropped whenever two or more steps went together.
 - **`hands.mjs export`** no longer fails on a private repository, where GitHub answers 405 for

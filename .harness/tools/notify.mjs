@@ -622,6 +622,7 @@ export async function raise(st, tg, o, board = opsBoard()) {
     const others = kind === 'needs_you' && now0 ? waitingNeeds(st, list, t).filter((i) => i.key !== inc.key) : [];
     if (now0) try { sent = others.length ? await deliverNeeds(st, tg, [inc, ...others], list, t, r) : await deliver(st, tg, board, inc, list, t, r); } catch (e) { err = e; }
     for (const o2 of others) if (o2.msg) await st.save(o2);
+    if (others.length && !inc.msg) sent = false; // a full message of more urgent steps went without this one
     await st.save(inc);
     if (err) throw err;
     return { status: sent ? 'sent' : !now0 ? 'held' : kind === 'ops' && !board ? 'recorded' : kind === 'ops' || tg.ready ? 'capped' : 'queued', inc };
