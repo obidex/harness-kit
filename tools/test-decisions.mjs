@@ -68,4 +68,39 @@ rmSync(d, { recursive: true, force: true });
   rmSync(copy, { recursive: true, force: true });
 }
 
+// audit C17: "a written decision is never edited" is judged against the default branch, not a pull request's own commits
+{
+  const prof = JSON.parse(readFileSync(join(kit, 'examples/profile.example.json'), 'utf8'));
+  const main = prof.branches?.default || 'main';
+  const a = mkdtempSync(join(tmpdir(), 'decisions-audit-'));
+  const put = (p, text) => { mkdirSync(join(a, p, '..'), { recursive: true }); writeFileSync(join(a, p), text); };
+  const g = (...x) => spawnSync('git', ['-C', a, ...x], { encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' } });
+  const folder = folderFor(prof.canon.decisions);
+  put('CLAUDE.md', '# x\n');
+  put(prof.canon.decisions, '# d\n\n## K001 · first\n');
+  put('.harness/profile.json', JSON.stringify({ ...prof, canon: { ...prof.canon, caps: {}, generated: [] } }));
+  put(`${folder}/K002.md`, f('K002'));
+  g('init', '-q', '-b', main); g('add', '-A'); g('commit', '-qm', 'fixture');
+  const c17 = () => {
+    spawnSync(process.execPath, [join(kit, '.harness/tools/audit.mjs'), a, '--json', join(a, '..', 'decisions-audit-out.json')], { encoding: 'utf8' });
+    const out = JSON.parse(readFileSync(join(a, '..', 'decisions-audit-out.json'), 'utf8'));
+    return (out.results || out).find((x) => x.id === 'C17');
+  };
+  ok(c17().result === 'PASS', 'audit C17 passes a project whose decision files were only ever added');
+  g('checkout', '-qb', 'card');
+  put(`${folder}/K003.md`, f('K003', 'draft')); g('add', '-A'); g('commit', '-qm', 'a new decision');
+  put(`${folder}/K003.md`, f('K003', 'after the review')); g('add', '-A'); g('commit', '-qm', 'review fix');
+  let r = c17();
+  ok(r.result === 'PASS', `a decision added on a branch and corrected by a later commit there is not an edit: it reaches the default branch as one addition (${r.evidence})`);
+  g('mv', `${folder}/K003.md`, `${folder}/K004.md`); put(`${folder}/K004.md`, f('K004', 'after the review')); g('add', '-A'); g('commit', '-qm', 'the number was taken');
+  ok(c17().result === 'PASS', 'nor is renaming it there when its number was taken');
+  put(`${folder}/K002.md`, f('K002', 'rewritten')); g('add', '-A'); g('commit', '-qm', 'edit a written decision');
+  r = c17();
+  ok(r.result === 'FAIL' && r.evidence.includes(`${folder}/K002.md changed after it was written`) && !r.evidence.includes('K004'), 'a branch that edits a decision already on the default branch still fails, naming that file only');
+  g('checkout', '-q', main); g('merge', '-q', '--squash', 'card'); g('commit', '-qm', 'squash');
+  r = c17();
+  ok(r.result === 'FAIL' && r.evidence.includes(`${folder}/K002.md changed after it was written`), 'and once such an edit is on the default branch, its history fails the check');
+  rmSync(a, { recursive: true, force: true }); rmSync(join(a, '..', 'decisions-audit-out.json'), { force: true });
+}
+
 console.log(`test-decisions: OK · ${n} checks`);
