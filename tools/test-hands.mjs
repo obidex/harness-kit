@@ -193,7 +193,7 @@ const serve = (state, { sticky = true } = {}) => new Promise((done) => {
       if (rest.startsWith('/contents/')) return send(404, {});
       if (rest === '/rulesets') return send(200, r.rulesets.map(({ id, name, target, source_type }) => ({ id, name, target, source_type })));
       if (rest.startsWith('/rulesets/')) return send(200, r.rulesets.find((x) => String(x.id) === rest.split('/')[2]));
-      if (rest === '/interaction-limits' && req.method === 'GET') return send(200, r.interaction || {});
+      if (rest === '/interaction-limits' && req.method === 'GET') return r.private ? send(405, { message: 'Interaction limits cannot be set on private repositories' }) : send(200, r.interaction || {});
       if (rest === '/labels' && req.method === 'GET') return send(200, u.searchParams.get('page') === '1' ? r.labels : []);
       if (rest === '/labels' && req.method === 'POST') { const l = JSON.parse(body); if (sticky) r.labels.push(l); return send(201, l); }
       return send(404, {});
@@ -204,6 +204,22 @@ const serve = (state, { sticky = true } = {}) => new Promise((done) => {
 const run = (srv, args, env = {}) => new Promise((done) => {
   execFile(process.execPath, [join(new URL('..', import.meta.url).pathname, '.harness/tools/hands.mjs'), ...args], { env: { ...process.env, GITHUB_API_URL: `http://127.0.0.1:${srv.address().port}`, GH_TOKEN: 't', GITHUB_STEP_SUMMARY: '', GITHUB_REPOSITORY: '', HANDS_PAUSED: '', ...env } }, (err, stdout, stderr) => done({ code: err ? err.code : 0, stdout, stderr }));
 });
+{
+  // export: a private repository answers 405 for interaction limits (it has none): the field is left out, not a failure
+  const state = { ...world(), 'o/private': { private: true, file: null, repository: { ...matching.repository }, rulesets: [liveRuleset(true)], labels: [...matching.labels] },
+    'o/limited': { file: null, repository: { ...matching.repository }, rulesets: [], labels: [], interaction: { limit: 'existing_users', origin: 'repository', expires_at: '2027-01-01T00:00:00Z' } } };
+  const srv = await serve(state);
+  const ex = await run(srv, ['export', '--repo', 'o/private']);
+  let exported = null; try { exported = JSON.parse(ex.stdout); } catch { /* fails below */ }
+  ok(ex.code === 0 && exported && !('interaction_limits' in exported) && exported.rulesets.length === 1 && exported.labels.length === matching.labels.length && /o\/private: interaction limits cannot be read here \(405/.test(ex.stderr),
+    `export of a private repository leaves interaction limits out and says so, and exports the rest (exit ${ex.code})`);
+  const lim = await run(srv, ['export', '--repo', 'o/limited']);
+  ok(lim.code === 0 && JSON.parse(lim.stdout).interaction_limits?.limit === 'existing_users', 'export still writes an interaction limit a repository has');
+  state['o/private'].file = { ...desired, interaction_limits: { limit: 'existing_users', expiry: 'six_months' } };
+  const pl = await run(srv, ['plan', '--repo', 'o/private']);
+  ok(pl.code !== 0 && /interaction-limits answered 405/.test(pl.stderr), 'a plan whose file names interaction limits on such a repository still fails: it could not apply them');
+  srv.close();
+}
 {
   const state = world();
   const srv = await serve(state);

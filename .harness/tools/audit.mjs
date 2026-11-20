@@ -417,7 +417,14 @@ const checks = {
     {
       const reg = loadDecisions(root, d);
       problems.push(...decisionProblems(reg));
-      const touched = (git('log', '-200', '--diff-filter=MDR', '--name-only', '--format=', '--', reg.folder) || '').split('\n').filter(Boolean);
+      // "written" means on the default branch: its history, plus what this checkout changes against it as a
+      // whole (the merge base to HEAD). A file a pull request adds and corrects in a later commit reaches the
+      // default branch as one addition, so it is not an edit; without that branch, this checkout's own history
+      const names = (out) => (out || '').split('\n').filter(Boolean);
+      const base = [`origin/${defaultBranch}`, defaultBranch].find((r) => git('rev-parse', '--verify', '--quiet', `${r}^{commit}`));
+      const touched = base
+        ? [...names(git('log', '-200', '--diff-filter=MDR', '--name-only', '--format=', base, '--', reg.folder)), ...names(git('diff', '--diff-filter=MDR', '--name-only', `${base}...HEAD`, '--', reg.folder))]
+        : names(git('log', '-200', '--diff-filter=MDR', '--name-only', '--format=', '--', reg.folder));
       if (touched.length) problems.push(`${[...new Set(touched)].slice(0, 5).join(', ')} changed after it was written: a decision is superseded by a new file, never edited (needs judgment)`);
     }
     for (const g of profile.canon.generated || []) if (!has(g)) problems.push(`generated ${g} missing`);

@@ -306,7 +306,7 @@ ok(c.code === 0 && /bot @example_alerts_bot/.test(c.out) && /group "Owner alerts
   ok(r.status === 'reminded' && since(m0).length === 2 && since(m0)[1].reply_parameters.message_id === p0.message_id && /^🟠 STILL OPEN after 21 h 0 min \(alert 2 of 3\) · sql-live: last run 4 days ago$/.test(since(m0)[1].text) && since(m0)[1].disable_notification === true,
     'the next morning: one STILL OPEN reply, silent, alert 2 of 3, saying how it stands now');
   at('2026-10-13T06:30:00Z'); r = await problem(cs, tg, k);
-  ok(r.status === 'reminded' && since(m0).length === 3 && /\(alert 3 of 3, the last: from now on only a line in the daily digest until it clears\)/.test(since(m0)[2].text), 'the next day, alert 3 of 3, the last');
+  ok(r.status === 'reminded' && since(m0).length === 3 && /\(alert 3 of 3, the last: nothing more is sent until it is resolved\)/.test(since(m0)[2].text) && !/digest/i.test(since(m0)[2].text), 'the next day, alert 3 of 3, the last: it promises nothing more until resolved, and no digest (retired, K039)');
   for (const iso of ['2026-10-13T21:00:00Z', '2026-10-14T21:00:00Z', '2026-10-15T09:00:00Z']) { at(iso); r = await problem(cs, tg, k); await tick(cs, tg); }
   ok(r.status === 'capped-out' && since(m0).length === 3 && /\(alerted 3 of 3\)/.test(await digestText([cs])), 'after that, nothing more from the sender or tick: one digest line, marked alerted 3 of 3');
   at('2026-10-15T10:00:00Z'); r = await resolveKey(cs, tg, { key: k.key, text: 'sql-live ran' });
@@ -422,6 +422,32 @@ ok(c.code === 0 && /bot @example_alerts_bot/.test(c.out) && /group "Owner alerts
     at('2026-11-08T13:11:00Z'); await raise(bs, tg, { kind: 'needs_you', key: 'b/5', what: 'And another.', step: 'do 5', where: 'ERP chat', when: 'today' }, ob);
     at('2026-11-08T13:21:00Z'); await raise(bs, tg, { kind: 'needs_you', key: 'b/5', what: 'And another.', step: 'do 5', where: 'ERP chat', when: 'today' }, ob);
     ok(since(mb).length === 2 && /^🛑 2 things need you: One more thing; And another\.\nWho: you\nDo: 1\) do 4 2\) do 5\n/.test(since(mb)[1].text), 'needs_you batch: one due on a raise takes the other one already due with it, oldest first');
+    // at most three steps in one message (O02), each place with its link; the rest follow, never in the same tick
+    {
+      const fs = store(`file:${join(dir, 'batch-five.json')}`), mf = mark();
+      at('2026-11-09T09:00:00Z');
+      const five = [['f/1', 'First thing.', 'ERP chat', 'this week', 'https://example.com/one'], ['f/2', 'Second thing.', 'website chat', 'this week', 'https://example.com/two'], ['f/3', 'Third thing.', 'ERP chat', 'today', null],
+        ['f/4', 'Fourth thing.', 'ERP chat', 'this week', 'https://example.com/four'], ['f/5', 'Fifth thing.', 'board', 'now', 'https://example.com/five']];
+      for (const [k, what, where, when, link] of five) { await raise(fs, tg, { kind: 'needs_you', key: k, what, step: `do ${k.slice(2)}`, where, when, ...(link ? { link } : {}) }, ob); process.env.ALERTS_NOW = new Date(new Date(process.env.ALERTS_NOW).getTime() + 1000).toISOString(); }
+      at('2026-11-09T09:11:00Z'); const tf = await tick(fs, tg, ob);
+      const fm = since(mf);
+      ok(fm.length === 1 && fm[0].text === '🛑 3 things need you: First thing; Third thing; Fifth thing.\nWho: you\nDo: 1) do 1 2) do 3 3) do 5\nWhere: ERP chat https://example.com/one; ERP chat; board https://example.com/five\nWhen: now'
+        && tf.filter((x) => /^sent f\//.test(x)).length === 3 && (await fs.list()).filter((i) => i.msg).length === 3,
+      'needs_you batch: five due at once send ONE message of three steps (the most urgent, then the oldest), each place keeping its link; the other two are not sent in that tick');
+      at('2026-11-09T09:30:00Z'); await tick(fs, tg, ob);
+      const late = await raise(fs, tg, { kind: 'needs_you', key: 'f/2', what: 'Second thing.', step: 'do 2', where: 'website chat', when: 'this week', link: 'https://example.com/two' }, ob);
+      ok(since(mf).length === 1 && late.status !== 'sent', 'needs_you batch: while the full message is open and under an hour old, the rest wait (a tick and a repeat send nothing)');
+      at('2026-11-09T10:12:00Z'); await tick(fs, tg, ob);
+      ok(since(mf).length === 2 && since(mf)[1].text === '🛑 2 things need you: Second thing; Fourth thing.\nWho: you\nDo: 1) do 2 2) do 4\nWhere: website chat https://example.com/two; ERP chat https://example.com/four\nWhen: this week',
+        'needs_you batch: after an hour the rest go as the next message, with their links');
+      const es = store(`file:${join(dir, 'batch-early.json')}`), me = mark();
+      at('2026-11-09T12:00:00Z');
+      for (const k of ['1', '2', '3', '4']) { await raise(es, tg, { kind: 'needs_you', key: `e/${k}`, what: `Thing ${k}.`, step: `do ${k}`, where: 'ERP chat', when: 'today' }, ob); process.env.ALERTS_NOW = new Date(new Date(process.env.ALERTS_NOW).getTime() + 1000).toISOString(); }
+      at('2026-11-09T12:11:00Z'); await tick(es, tg, ob);
+      for (const k of ['1', '2', '3']) await resolveKey(es, tg, { key: `e/${k}` }, ob);
+      at('2026-11-09T12:15:00Z'); await tick(es, tg, ob);
+      ok(since(me).length === 2 && /^🛑 Thing 4\.\nWho: you\nDo: do 4\n/.test(since(me)[1].text), 'needs_you batch: once the three are sorted the fourth goes at the next tick, without waiting the hour');
+    }
     // two pastes that pass alone but whose quotes pair across items when joined: each goes alone, and the tick goes on
     {
       const qs = store(`file:${join(dir, 'batch-q.json')}`), mq = mark();

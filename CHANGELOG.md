@@ -3,6 +3,29 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.48.2 · 2026-11-20 · alerts: three steps a message, links kept, no digest promise; export on a private repository; the audit and a decision corrected in its own pull request
+
+Five findings on the kit's tools (three from projects running it). No loaded text changed; no replay needed.
+
+- **`notify.mjs`, the last STILL OPEN reply** of a capped problem no longer promises "a line in the
+  daily digest" (retired, K039). It says nothing more is sent until it is resolved.
+- **`notify.mjs`, one "Needs you" message carries at most three steps** (O02): the most urgent, then
+  the oldest. The rest follow as the next message once those are sorted or an hour has passed, never
+  in the same tick. Before, every step due together went into one message, however many.
+- **`notify.mjs`, a batched message keeps each step's link**, beside its place on the `Where:` line.
+  Before, the links were dropped whenever two or more steps went together.
+- **`hands.mjs export`** no longer fails on a private repository, where GitHub answers 405 for
+  interaction limits: the field is left out and a line says so. A plan or apply whose settings file
+  names interaction limits there still fails, as it could not apply them.
+- **`audit.mjs` C17** ("a written decision is never edited", K052) read the checked-out branch's own
+  commits, so a decision file a pull request added and then corrected in a review-fix commit failed
+  `harness-audit`, although the squash puts it on the default branch as one addition. It now reads the
+  default branch's history plus the checkout's change against it as a whole (merge base to HEAD):
+  adding, correcting or renaming a new file in one pull request passes; editing a decision already on
+  the default branch still fails, before and after the merge.
+- `test-notify`: 161 cases; `test-hands`: 125 checks; `test-decisions`: 22 checks. Each new one fails
+  without its fix.
+
 ## 0.48.1 · 2026-11-20 · the second reviewer no longer skips a pull request whose check was replaced
 
 Found on the first two repositories after the kit (the rollout, roadmap #31): neither got its comment.
