@@ -53,8 +53,8 @@ ok(/no blockers found/.test(body([], { sha: SHA, result: 'clear' })) && /too lar
   && /the API refused the call \(402 billing_error\)\. Merges go on/.test(body([], { sha: SHA, result: 'unavailable', why: '402 billing_error' })) && /the model declined/.test(body([], { sha: SHA, result: 'refused' })) && !/claude|anthropic|generated/i.test(body([run1], run1, 'x').split('\n').slice(1).join('\n')),
   'each outcome has one plain headline, and the visible text carries no attribution (O09)');
 const yesterday = { ...run1, at: '2026-11-19T23:59:00.000Z' };
-ok(['_@octocat_', '`@octocat', '-@octocat', 'x.@octocat', 'foo/@octocat', '(@org/team)', '@octocat'].every((x) => !/@[A-Za-z0-9]/.test(plain(x))) && plain('a@b.co uses: x/y@abc123') === 'a@b.co uses: x/y@abc123',
-  'no form of mention survives (after a mark, a dot, a dash, a slash, a bracket or at the start); an address and an action pin read as before');
+ok(['_@octocat_', '`@octocat', '-@octocat', 'x.@octocat', 'foo/@octocat', '(@org/team)', '@octocat', '&#64;octocat', '&#x40;octocat', '&commat;octocat', '&#064octocat'].every((x) => !/@[A-Za-z0-9]/.test(plain(x)) && !/&(#0*64|#x0*40|commat)/i.test(plain(x))) && plain('a@b.co uses: x/y@abc123') === 'a@b.co uses: x/y@abc123',
+  'no form of mention survives (after a mark, a dot, a dash, a slash, a bracket, at the start, or written as an HTML entity); an address and an action pin read as before');
 const forged = (runs) => spent([{ ...BOT, body: `<!-- ${MARK} ${JSON.stringify({ runs })} -->` }], NOW).usd;
 const dearest = worstCase(RISK_MODEL, MAX_DIFF + MAX_RULES + 4000);
 ok(forged([{ sha: 'x', at: '2026-11-20T01:00:00Z', model: MODEL, usd: -1000, in: 25000, out: 4000 }]) === 0.09 && forged([{ sha: 'x', at: '2026-11-20T01:00:00Z', model: 'm', usd: -1000 }]) === dearest

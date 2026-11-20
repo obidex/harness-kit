@@ -101,7 +101,7 @@ export function record(c) {
 }
 /** The model's answer as text a comment may carry: no HTML comment, no mention, no more than MAX_ANSWER. */
 export function plain(text) {
-  let s = String(text || '').replace(/<!--/g, '< !--').replace(/(^|[^A-Za-z0-9])@(?=[A-Za-z0-9])/g, '$1@\u200b').trim();
+  let s = String(text || '').replace(/<!--/g, '< !--').replace(/&(?:#0*64|#x0*40|commat);?/gi, '@\u200b').replace(/(^|[^A-Za-z0-9])@(?=[A-Za-z0-9])/g, '$1@\u200b').trim();
   if (s.length > MAX_ANSWER) s = `${s.slice(0, MAX_ANSWER)}\n\n(cut at ${MAX_ANSWER} characters)`;
   return s;
 }
