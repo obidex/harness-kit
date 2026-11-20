@@ -132,6 +132,41 @@ ok(/notify\.mjs ops --key "hands\/\$JOB"/.test(files['hands-report.yml']) && !/n
   const hs2 = parseYaml(files['hands-settings.yml']).jobs.discover;
   ok(hs2.steps.filter((x) => /notify\.mjs (tick|digest)/.test(x.run || '')).every((x) => x.if === "always() && github.event_name == 'schedule'" && String(x['continue-on-error']) === 'true'), 'the daily tick and digest ride the drift check, scheduled runs only, and never fail it');
 }
+// hands-report's write log, as GitHub runs it (bash -e): download-artifact unpacks one artifact straight
+// into logs/ and several into a folder each (v5 and later), and the step reads both
+{
+  ok(parseYaml("a:\n  run: |\n    grep -oE '[0-9]+$' x\n    echo \"$&\"\n").a.run === "grep -oE '[0-9]+$' x\necho \"$&\"\n", 'the YAML reader keeps a block\'s dollar signs as written');
+  const step = parseYaml(files['hands-report.yml']).jobs.report.steps.find((x) => x.name === 'Log every write');
+  const run = step.run.replace(/\$\{\{ github\.server_url \}\}/g, 'https://github.invalid').replace(/\$\{\{ github\.repository \}\}/g, 'o/hands').replace(/\$\{\{ github\.run_id \}\}/g, '99');
+  const logged = async (layout) => {
+    const dir = mkdtempSync(join(tmpdir(), 'hands-log-'));
+    mkdirSync(join(dir, 'bin'));
+    // a stand-in gh: the month's log issue exists as #7; a comment's body is kept
+    writeFileSync(join(dir, 'bin/gh'), '#!/usr/bin/env bash\nif [ "$1 $2" = "issue list" ]; then echo 7; elif [ "$1 $2" = "issue comment" ]; then cat > "$OUT"; fi\n', { mode: 0o755 });
+    for (const [f, text] of Object.entries(layout)) { mkdirSync(join(dir, f, '..'), { recursive: true }); writeFileSync(join(dir, f), text); }
+    writeFileSync(join(dir, 'step.sh'), run);
+    const out = join(dir, 'comment');
+    const code = await new Promise((done) => execFile('bash', ['-e', join(dir, 'step.sh')], { cwd: dir, env: { ...process.env, PATH: `${join(dir, 'bin')}:${process.env.PATH}`, OUT: out, JOB: 'hands-update', GITHUB_STEP_SUMMARY: join(dir, 'sum') } }, (err) => done(err ? err.code : 0)));
+    const body = existsSync(out) ? readFileSync(out, 'utf8') : '';
+    rmSync(dir, { recursive: true, force: true });
+    return { code, body };
+  };
+  const one = await logged({ 'logs/log.txt': 'o/a: opened PR #1\no/a: nothing to do\n' });
+  ok(one.code === 0 && /o\/a: opened PR #1/.test(one.body) && !/nothing to do/.test(one.body), 'hands-report logs the writes of a run with one log artifact (unpacked straight into logs/)');
+  const two = await logged({ 'logs/log-a/log.txt': 'o/a: applied ruleset\n', 'logs/log-b/log.txt': 'o/b: opened PR #2\n' });
+  ok(two.code === 0 && /o\/a: applied ruleset/.test(two.body) && /o\/b: opened PR #2/.test(two.body), 'hands-report logs the writes of a run with several log artifacts (a folder each)');
+  const none = await logged({});
+  ok(none.code === 0 && none.body === '', 'hands-report with no log artifact comments nothing and passes');
+}
+// every action in the control workflows is pinned by full commit, one commit per action across the files
+{
+  const uses = Object.values(files).flatMap((t) => [...t.matchAll(/uses: ([\w.-]+\/[\w./-]+)@(\S+)/g)].map((m) => [m[1], m[2]]));
+  const pins = new Map();
+  for (const [a, sha] of uses) pins.set(a, (pins.get(a) || new Set()).add(sha));
+  ok(uses.length > 0 && uses.every(([, sha]) => /^[0-9a-f]{40}$/.test(sha)) && [...pins.values()].every((s) => s.size === 1), 'every control workflow action is pinned by full commit, the same commit in every file');
+  // v2 of the token action removed the underscore inputs; v3 still takes app-id
+  ok(!Object.values(files).some((t) => /^\s+(app_id|private_key|skip_token_revoke):/m.test(t)), 'no control workflow passes an input the App token action removed');
+}
 // the emergency stop
 ok(paused('o/r', 'x/y, o/r') && paused('O/R', '*') && !paused('o/r', 'o/rr x/y') && !paused('o/r', ''), 'HANDS_PAUSED names repositories (or *) exactly');
 
