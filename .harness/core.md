@@ -78,9 +78,9 @@
 
 ## Finishing and waiting
 
-- **C20 Finish line.** A coordinator finishes the approved initiative or batch with its fixes,
-  reviews, merges and dependent cards; no improvement rounds after it. Next items start by board
-  order when a slot opens; owner-ready, Ideas and Later items wait.
+- **C20 Finish line.** A coordinator finishes the approved batch with its fixes, reviews, merges and
+  dependent cards; no improvement rounds after. Ready cards start now, a thread each (`bulk.md`);
+  one waits only on a running card's files or tables, or the owner.
 - **C21 Full handoff.** A CI result is read (C25) → check the current commit and its required review
   (re-review after later commits) → clear the gate → merge → close the card → tell the coordinator →
   continue the batch.

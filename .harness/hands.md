@@ -59,6 +59,18 @@ and appends the rest, each on its own line at column 1, to the update or rollbac
 PR for that version is already open without them, it edits that PR's body, so the guard re-runs. The line is the project's standing
 authorization: record the decision that grants it in the project, not in the kit.
 
+## The control repository's own update
+
+The control repository pins a kit version (`HANDS_KIT_VERSION`) and runs byte copies of that kit's
+`templates/hands/` workflows. `hands-update` moves both in one PR (K053): the pinned kit's
+`hands.mjs control-update` copies the target release's templates into `.github/workflows/`, removes
+one that release dropped, and lists exactly what the PR stages; any other workflow there is the
+repository's own and is never touched. Until 0.47.0 only the pin moved and the copies went stale
+until a session copied them by hand. `hands-check` (`control-check`) now fails a copy that differs
+from the pinned kit's template or is missing, so a control workflow changes only in the kit. A
+Dependabot PR against a copy therefore fails its check by design: the pin moves in the kit's
+templates, and the next update carries it.
+
 ## Kit update PRs keep themselves current
 
 Under a strict required-checks rule a PR falls "behind" whenever its base branch moves, and GitHub's

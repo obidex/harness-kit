@@ -65,5 +65,7 @@ jobs:
         run: node tools/test-load.mjs
       - name: Agent metrics (the health page's numbers)
         run: node tools/test-metrics.mjs
+      - name: Decisions, one file each
+        run: node tools/test-decisions.mjs
       - name: Replay set and its grader
         run: node tools/test-replay.mjs

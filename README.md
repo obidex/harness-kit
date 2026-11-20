@@ -5,7 +5,8 @@ and installed as a pinned copy in every project. Public: generic rules, tools an
 examples only.
 
 - `.harness/` — the kit's layers; start with `.harness/README.md`.
-- `DECISIONS.md` — append-only register; `K001` is the founding decision.
+- `DECISIONS.md` — the register up to `K050`, closed; `K001` is the founding decision. Each later
+  decision is its own file in `decisions/` (K052, `.harness/decisions.md`).
 - `examples/` — a sanitized profile and a `CLAUDE.md` entry file.
 - `.harness/tools/` — what projects run: `harness.mjs` (install, update, roll back) and `audit.mjs`
   (the structural audit); `.harness/audit/README.md` explains the audit.

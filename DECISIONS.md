@@ -4,6 +4,7 @@
 > entry that names the one it supersedes; never edit an entry's rule. Each entry: the rule, its
 > source, its status (`LOCKED` settled · `STANDING` live rule · `BOUNDARY` a deliberate limit for now).
 > This repository is public: entries hold only generic rules, never business data or private excerpts.
+> **Closed at K050 (K052).** A later decision is its own file, `decisions/K###.md`; nothing is appended here.
 
 ## K001 · 2026-10-04 · LOCKED — the owner's founding message
 
