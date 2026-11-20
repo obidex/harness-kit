@@ -3,6 +3,33 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.48.0 · 2026-11-20 · a second reviewer on every pull request, with no key (K054)
+
+- **`harness-review.yml`** (new, installed in every project) and **`review.mjs`**: when a pull-request
+  workflow finishes green and every check on the head commit is green, one job asks a model what it
+  would block the merge for (C10's question) and keeps one comment on the pull request: the findings, or
+  "no blockers found". A later commit rewrites the comment. New lookup file `review.md`.
+- **Advisory** (O07): never a required check, never an approval, never in place of C10's reviewer.
+- **Off until set up.** The job is skipped until the Actions variable `REVIEW_FEDERATION_RULE` is set,
+  so this update changes nothing by itself. Setup is in `review.md`: a reviews workspace with its own
+  spend limit, one federation rule per repository pinned to this workflow on the default branch, four
+  variables. No API key exists (workload identity federation).
+- **Models:** Sonnet by default, Opus on high-risk paths (the profile's `risk.tier3_paths`; workflows
+  and agent configuration everywhere); Haiku never reviews (O06).
+- **The pull request is data:** `workflow_run` only, nothing of the pull request checked out or run,
+  input tagged as data, the answer posted as text with no HTML comment and no mention. A fork's pull
+  request, a bot's, a draft and a documents-only change are never sent to the model.
+- **Caps, per repository and UTC day:** $1 and 40 reviews, one per commit, 5 minutes a run;
+  `REVIEW_DAILY_USD` and `REVIEW_DAILY_CAP` may only lower them. Over a cap or out of credit: one line
+  on the pull request, and merges go on.
+- **Cost (O13):** about $0.09 a typical review on the default model, $0.18 on the high-risk one, from
+  the API credit; one short job per finished pull-request workflow on the project's `RUNNER` lane
+  (GitHub-hosted minutes only on a private repository without one).
+- **The kit reviews itself:** `.github/workflows/harness-review.yml` is the template, byte for byte.
+- New `test-review` (59 checks: the skips, the caps, the wait for checks, the exchange, the workflow's
+  permissions and trigger; each cap and skip fails without its code).
+- No loaded text changed; no replay needed.
+
 ## 0.47.1 · 2026-11-20 · the control workflows' three action pins move, in the templates
 
 Since 0.47.0 a control repository's workflows must equal the pinned kit's templates, so Dependabot there

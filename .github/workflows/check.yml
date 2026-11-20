@@ -67,5 +67,7 @@ jobs:
         run: node tools/test-metrics.mjs
       - name: Decisions, one file each
         run: node tools/test-decisions.mjs
+      - name: Second review (the advisory reviewer)
+        run: node tools/test-review.mjs
       - name: Replay set and its grader
         run: node tools/test-replay.mjs
