@@ -19,7 +19,8 @@ at its source before the pin (these workflows hold the App key).
   matter. Since v5 a run's only matching artifact unpacks straight into `path`, not into a folder named
   after it: `hands-report` read `logs/*/log.txt` and would have logged no write for every run with one
   log artifact, without failing. It now reads both layouts. Since v8 a digest mismatch fails the step
-  (it was a warning); the step keeps `continue-on-error`, so such a run logs no writes and still alerts.
+  (it was a warning), after the files are unpacked; the step keeps `continue-on-error`, so the run still
+  logs the writes it downloaded and still alerts.
 - **`lib.mjs` `parseYaml`**: a block scalar holding `$'` or `$&` lost those characters (a replacement
   pattern); it is kept as written. Found by the new check below; no workflow was affected, only readers.
 - **`test-hands`**: the write-log step runs as GitHub runs it against one artifact, several and none;
