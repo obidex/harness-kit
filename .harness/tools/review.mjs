@@ -103,7 +103,7 @@ export function switchOf(env, now = Date.now()) {
   const t = real ? Date.parse(v) : NaN;
   if (!Number.isFinite(t)) return { on: false, why: 'the reviewer is switched off (REVIEW_UNTIL is not a date and time with its offset, like 2026-11-30T23:59+03:00)' };
   const until = new Date(t).toISOString();
-  if (t - now > SWITCH_DAYS * 86400000) return { on: false, until, why: `the reviewer is switched off (REVIEW_UNTIL is more than ${SWITCH_DAYS} days ahead: a switch is for a stated time, never for good)` };
+  if (t - now > SWITCH_DAYS * 86400000) return { on: false, until, why: `the reviewer is switched off (REVIEW_UNTIL is more than ${SWITCH_DAYS} days ahead, so it stays off until it is within them: a switch is for a stated time, never for good)` };
   return now < t ? { on: true, until } : { on: false, until, why: `the reviewer is switched off (its time ended ${until})` };
 }
 

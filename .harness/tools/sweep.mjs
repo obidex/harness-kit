@@ -365,6 +365,8 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
         if (!token || Date.now() - at > 240000) { at = Date.now(); token = exchange(env, api); token.catch(() => { token = null; }); }
         return asker(await token, api)(request);
       };
+      // a set-up fault (a missing or refused rule) fails here, before any batch could count against the cap
+      if (switchOf(process.env).on && p.batches.length) { at = Date.now(); token = exchange(env, api); await token; }
       let out;
       try { out = await sweep({ gh: github, ask, repo, sha, p, env: process.env, log: (m) => console.log(`sweep: ${m}`) }); }
       catch (e) { if (e.out) console.log(`sweep: ${JSON.stringify(e.out)}`); throw e; }
