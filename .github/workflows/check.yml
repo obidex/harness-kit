@@ -69,5 +69,7 @@ jobs:
         run: node tools/test-decisions.mjs
       - name: Second review (the advisory reviewer)
         run: node tools/test-review.mjs
+      - name: Full check of existing code (the reviewer's sweep)
+        run: node tools/test-sweep.mjs
       - name: Replay set and its grader
         run: node tools/test-replay.mjs

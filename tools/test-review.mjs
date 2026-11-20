@@ -9,7 +9,7 @@ import { execFile } from 'node:child_process';
 import { join } from 'node:path';
 import { readFileSync, writeFileSync, mkdtempSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { glob, highRisk, docsOnly, pick, cost, worstCase, capOf, runUsd, record, plain, body, spent, checks, question, verdict, review, identifiers, exchange, asker,
+import { glob, highRisk, docsOnly, pick, cost, worstCase, capOf, runUsd, record, plain, body, spent, checks, question, verdict, review, identifiers, exchange, asker, switchOf,
   MARK, MODEL, RISK_MODEL, PRICES, DAILY_USD, DAILY_CAP, MAX_DIFF, MAX_FILES, MAX_ANSWER, MAX_OUT, MAX_RULES, WAIT_MS, POLL_MS } from '../.harness/tools/review.mjs';
 import { parseYaml } from '../.harness/tools/lib.mjs';
 import { verdict as group } from '../.harness/tools/actions.mjs';
@@ -63,6 +63,11 @@ ok(forged([{ sha: 'x', at: '2026-11-20T01:00:00Z', model: MODEL, usd: -1000, in:
 const sp = spent([{ ...BOT, body: body([yesterday, run1], run1, 'x') }, { ...BOT, body: body([{ ...run1, model: RISK_MODEL }, { sha: SHA2, at: '2026-11-20T09:30:00Z', result: 'capped' }], run1, 'x') }, { user: { login: 'o', type: 'User' }, body: body([{ ...run1, usd: 50 }], run1, 'x') }], NOW);
 ok(sp.reviews === 2 && sp.usd === 0.27 && sp.day === '2026-11-20', 'today\'s spend is the sum of today\'s model calls in the job\'s own comments: not yesterday\'s, not a capped notice, not a record someone else wrote');
 
+const old = { ...run1, at: '2026-11-12T10:00:00.000Z' };
+const since = spent([{ ...BOT, body: body([old, yesterday, run1], run1, 'x') }], NOW, '2026-11-19');
+ok(since.reviews === 2 && since.usd === 0.18 && since.since === '2026-11-19' && spent([{ ...BOT, body: body([old, yesterday, run1], run1, 'x') }], NOW, '2026-11-01').reviews === 3, 'for a report, the spend from a given day on is the same sum over more days');
+ok(plain('y'.repeat(9000), 20000).length === 9000 && /cut at 100 characters/.test(plain('y'.repeat(200), 100)), 'a longer answer may be kept where a caller allows it (the full check\'s issues)');
+
 // --- the checks -------------------------------------------------------------------------------------
 const cr = (name, status, conclusion = null) => ({ name, status, conclusion });
 ok(checks([cr('ci-ok', 'completed', 'success'), cr('lint', 'completed', 'skipped')], { statuses: [] }, ['ci-ok']) === 'green'
@@ -92,6 +97,16 @@ ok(verdict({ stop_reason: 'end_turn', content: [{ type: 'thinking', thinking: ''
   && verdict({ stop_reason: 'max_tokens', content: [{ type: 'text', text: 'a.ts:1 wr' }] }).cut === true && verdict({ stop_reason: 'refusal', stop_details: { category: 'cyber' }, content: [] }).why === 'cyber' && verdict({ stop_reason: 'end_turn', content: [] }).result === 'refused' && verdict({ stop_reason: 'end_turn', content: [{ type: 'text', text: '**NO BLOCKERS.**' }] }).result === 'clear' && /ran out of room/.test(verdict({ stop_reason: 'max_tokens', content: [{ type: 'thinking', thinking: '' }] }).why),
   'the answer is clear only when it is exactly NO BLOCKERS; a refusal and an empty answer are said, never taken for a pass');
 
+// --- the switch (K055) ------------------------------------------------------------------------------
+const UNTIL = '2026-11-30T23:59+03:00';
+ok(switchOf({ REVIEW_UNTIL: UNTIL }, NOW).on === true && switchOf({ REVIEW_UNTIL: UNTIL }, NOW).until === '2026-11-30T20:59:00.000Z' && switchOf({ REVIEW_UNTIL: ' 2026-11-30T20:59:00Z ' }, NOW).on === true,
+  'the reviewer is on while REVIEW_UNTIL, a date and time with its offset, is still ahead');
+ok(switchOf({}, NOW).on === false && /not set/.test(switchOf({}, NOW).why) && switchOf({ REVIEW_UNTIL: '' }, NOW).on === false && switchOf(undefined, NOW).on === false, 'off by default: without REVIEW_UNTIL nothing is reviewed');
+ok(switchOf({ REVIEW_UNTIL: UNTIL }, Date.parse('2026-11-30T20:59:00Z')).on === false && /its time ended 2026-11-30T20:59:00\.000Z/.test(switchOf({ REVIEW_UNTIL: UNTIL }, Date.parse('2026-12-01T00:00:00Z')).why) && switchOf({ REVIEW_UNTIL: UNTIL }, Date.parse('2026-11-30T20:58:59Z')).on === true,
+  'it switches itself off at the end time, to the second');
+ok(['true', 'on', '1', 'always', '2026-11-30', '2026-11-30T23:59', '2026-11-30 23:59+03:00', '30 Nov 2026', '9999', '2026-13-45T99:99Z', 'Infinity'].every((v) => switchOf({ REVIEW_UNTIL: v }, NOW).on === false && /not a date and time with its offset/.test(switchOf({ REVIEW_UNTIL: v }, NOW).why)),
+  'a value that is not a full date and time with its offset (a bare "on", a date alone, a time without its zone) is off, never "on for good"');
+
 // --- a stand-in GitHub, in memory -------------------------------------------------------------------
 function world(over = {}) {
   const w = {
@@ -118,7 +133,7 @@ function world(over = {}) {
   };
   w.ask = async (request) => { w.asked.push(request); return w.answer; };
   w.run = { event: 'pull_request', conclusion: 'success', head_sha: SHA, head_branch: 'feat', head_repository: { full_name: 'o/r' }, pull_requests: [{ number: 7, head: { sha: SHA } }] };
-  w.go = (o = {}) => review({ gh: w.gh, ask: w.ask, repo: 'o/r', run: w.run, now: () => w.clock, sleep: async () => { w.slept = (w.slept || 0) + 1; if (w.onSleep) w.onSleep(w); }, ...o });
+  w.go = (o = {}) => review({ gh: w.gh, ask: w.ask, repo: 'o/r', run: w.run, now: () => w.clock, sleep: async () => { w.slept = (w.slept || 0) + 1; if (w.onSleep) w.onSleep(w); }, ...o, env: { REVIEW_UNTIL: UNTIL, ...(o.env || {}) } });
   return w;
 }
 
@@ -148,6 +163,13 @@ ok(await skipped({}, (x) => { x.run.head_sha = SHA2; x.run.pull_requests = [{ nu
 ok(await skipped({ checkRuns: [cr('ci-ok', 'completed', 'failure')] }, null, /not green/) && await rejects(world().go({ repo: 'o/r; x' }), /owner\/name/) && await rejects(world({}).go({ run: { event: 'pull_request', head_sha: 'x' } }), /head commit/), 'red checks are skipped; a repository or commit that is not one is refused');
 w = world({ files: ['AGENTS.md'] }); r = await w.go();
 ok(r.status === 'blockers' && w.asked[0].model === RISK_MODEL, 'a rule file is not "documents only": it is reviewed, on the high-risk model');
+
+// the switch: off means no call to GitHub or to the model at all
+w = world(); r = await w.go({ env: { REVIEW_UNTIL: '' } });
+const wPast = world(); wPast.clock = Date.parse('2026-12-01T00:00:00Z'); const rPast = await wPast.go();
+const wBad = world(); const rBad = await wBad.go({ env: { REVIEW_UNTIL: 'on' } });
+ok(r.status === 'skipped' && /switched off \(REVIEW_UNTIL is not set\)/.test(r.why) && w.calls.length === 0 && w.asked.length === 0 && rPast.status === 'skipped' && /its time ended/.test(rPast.why) && wPast.calls.length === 0 && wPast.asked.length === 0 && rBad.status === 'skipped' && wBad.asked.length === 0 && wBad.comments.length === 0,
+  'switched off (not set, past its end, or unreadable): nothing is read, asked or posted');
 
 // checks still running: a short wait, then left to the next finished workflow
 w = world({ checkRuns: [cr('ci-ok', 'in_progress')] });
@@ -249,21 +271,28 @@ const tmp = mkdtempSync(join(tmpdir(), 'harness-review-'));
 writeFileSync(join(tmp, 'event.json'), JSON.stringify({ workflow_run: world().run }));
 const cli = (args, env) => new Promise((done) => execFile('node', [join(ROOT, '.harness/tools/review.mjs'), ...args], { env: { PATH: process.env.PATH, GITHUB_API_URL: base, GH_TOKEN: 'T', GITHUB_REPOSITORY: 'o/r', GITHUB_EVENT_PATH: join(tmp, 'event.json'), ...env } }, (e, out, err) => done({ code: e ? e.code : 0, out: String(out), err: String(err) })));
 const before = seen.length;
-const c1 = await cli(['run'], { ...ENV, REVIEW_API_URL: base });
+const SOON = new Date(Date.now() + 3600e3).toISOString().replace(/\.\d+Z$/, 'Z'), GONE = new Date(Date.now() - 60e3).toISOString().replace(/\.\d+Z$/, 'Z');
+const c0 = await cli(['run'], { ...ENV, REVIEW_API_URL: base }), c0b = await cli(['run'], { ...ENV, REVIEW_API_URL: base, REVIEW_UNTIL: GONE });
+ok(c0.code === 0 && /"status":"skipped"/.test(c0.out) && /REVIEW_UNTIL is not set/.test(c0.out) && c0b.code === 0 && /its time ended/.test(c0b.out) && seen.length === before, 'the command line, with the identifiers set but the switch off or past its end, reaches neither GitHub nor the API');
+const c1 = await cli(['run'], { ...ENV, REVIEW_API_URL: base, REVIEW_UNTIL: SOON });
 const posted = seen.slice(before).find((s) => s.path === '/repos/o/r/issues/7/comments' && s.body);
 ok(c1.code === 0 && /"status":"clear"/.test(c1.out) && posted && /no blockers found/.test(JSON.parse(posted.body).body) && /usd=/.test(c1.out) && !/SHORT-LIVED|JWT\.FROM/.test(c1.out.replace(/^::add-mask::.*$/gm, '')), 'the command line reviews the run in its event file and logs the tokens used and the cost, never a token');
 const c2 = await cli(['run'], { ...ENV });
-const c3 = await cli(['run'], { ...ENV, GITHUB_ACTIONS: 'true', REVIEW_API_URL: base, ACTIONS_ID_TOKEN_REQUEST_URL: '', REVIEW_DAILY_CAP: '0' });
+const c3 = await cli(['run'], { ...ENV, REVIEW_UNTIL: SOON, GITHUB_ACTIONS: 'true', REVIEW_API_URL: base, ACTIONS_ID_TOKEN_REQUEST_URL: '', REVIEW_DAILY_CAP: '0' });
 ok(c2.code === 1 && /only in GitHub Actions/.test(c2.err) && c3.code === 0 && /"status":"capped"/.test(c3.out), 'run works only in Actions, where the API\'s address cannot be changed; over a cap it ends well without asking for a token');
-ok((await cli(['spent', '--repo', 'o/r'], {})).out.includes('"reviews":0') && (await cli(['nope'], {})).code === 2, 'spent reports today\'s reviews and the caps');
+ok((await cli(['spent', '--repo', 'o/r'], {})).out.includes('"reviews":0') && (await cli(['nope'], {})).code === 2 && /"since":"2026-11-01"/.test((await cli(['spent', '--repo', 'o/r', '--since', '2026-11-01'], {})).out) && (await cli(['spent', '--repo', 'o/r', '--since', 'last week'], {})).code === 1, 'spent reports today\'s reviews and the caps, or the reviews since a day');
+const s1 = await cli(['switch', '--until', SOON], {}), s2 = await cli(['switch', '--until', 'on'], {}), s3 = await cli(['switch'], {});
+ok(s1.code === 0 && JSON.parse(s1.out).on === true && JSON.parse(s1.out).variable === 'REVIEW_UNTIL' && s2.code === 1 && JSON.parse(s2.out).on === false && s3.code === 0 && JSON.parse(s3.out).on === false, 'switch checks a value for REVIEW_UNTIL and says when it ends; it sets nothing, and a bad value fails');
 srv.close();
 rmSync(tmp, { recursive: true, force: true });
 
 // --- the workflow -----------------------------------------------------------------------------------
 const text = readFileSync(join(ROOT, '.harness/templates/workflows/harness-review.yml'), 'utf8');
-const wf = parseYaml(text), job = wf.jobs.review;
+const wf = parseYaml(text), job = wf.jobs.review, step0env = job.steps.at(-1).env;
 ok(Object.keys(wf.on).join() === 'workflow_run' && wf.on.workflow_run.types === '[completed]' && /harness-guard/.test(wf.on.workflow_run.workflows) && /harness-scrub/.test(wf.on.workflow_run.workflows) && !/harness-review/.test(wf.on.workflow_run.workflows) && !/pull_request_target|^\s+pull_request:/m.test(text),
   'harness-review starts only when another workflow finishes, so it always runs the default branch\'s file, never a pull request\'s; it never starts itself');
+ok(/vars\.REVIEW_UNTIL != ''/.test(job.if) && step0env.REVIEW_UNTIL === '${{ vars.REVIEW_UNTIL }}' && !/REVIEW_UNTIL:\s*['"]?\d/.test(text) && /Off by default \(K055\)/.test(text),
+  'the job is off by default: it needs REVIEW_UNTIL, which the file passes on from the Actions variable and never sets itself');
 ok(/vars\.REVIEW_FEDERATION_RULE != ''/.test(job.if) && /workflow_run\.event == 'pull_request'/.test(job.if) && /workflow_run\.conclusion == 'success'/.test(job.if) && /workflow_run\.head_repository\.full_name == github\.repository/.test(job.if),
   'the job is off until the federation rule\'s variable is set, and skips a fork\'s run before any step');
 ok(wf.permissions.contents === 'read' && Object.keys(wf.permissions).length === 1 && job.permissions['id-token'] === 'write' && job.permissions['pull-requests'] === 'write' && Object.entries(job.permissions).every(([k, v]) => ['id-token', 'pull-requests'].includes(k) || v === 'read') && !('contents' in job.permissions && job.permissions.contents !== 'read') && !('actions' in job.permissions),

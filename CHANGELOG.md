@@ -3,6 +3,30 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.49.0 · 2026-11-20 · the second reviewer is off by default, on only until a time the owner names; a full check of existing code (K055)
+
+The owner, on hearing a project report its reviewer as "on": the set-up should be everywhere, but the
+credit is spent on his command, for a time he names, not as a standing rule.
+
+- **Off by default.** `harness-review` now runs only while the Actions variable `REVIEW_UNTIL` holds a
+  date and time with its offset that has not passed (`2026-11-30T23:59+03:00`). Not set, unreadable or
+  passed is off; no value means "on for good"; the end time switches it off by itself. **A project
+  that had the reviewer running stops being reviewed when it takes this version**, until the owner's
+  command sets `REVIEW_UNTIL`. The four identifiers stay as the set-up.
+- **Only the owner's command switches it on** ("reviewer on until <date>", "reviewer off"): no rule,
+  schedule or agent pass sets, extends or re-creates the variable (`review.md`).
+- **`review.mjs`:** `switch --until <value>` checks a value and says when it ends (it sets nothing);
+  `spent --since <day>` adds up a period for the report after it.
+- **`harness-sweep.yml`** (new, installed in every project) and **`sweep.mjs`**: one full check of the
+  code that already exists, started by hand from the default branch, inside the owner's window. It
+  reads every tracked code file folder by folder and files one issue per area with findings, each
+  graded blocker, major or minor, plus one record issue with the numbers. `estimate` (the default)
+  sends nothing and prints the most a check could cost. Caps in code: $30 a check, 250 areas, 320
+  minutes a run; a stopped run continues where it stopped. Its own federation rule
+  (`REVIEW_SWEEP_RULE`). A symbolic link is never followed and a file that may hold a secret is never
+  sent. Advisory: it gates nothing.
+- `test-review`: 72 checks; `test-sweep` (new): 42 checks.
+
 ## 0.48.1 · 2026-11-20 · the second reviewer no longer skips a pull request whose check was replaced
 
 Found on the first two repositories after the kit (the rollout, roadmap #31): neither got its comment.
