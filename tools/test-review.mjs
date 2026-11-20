@@ -9,7 +9,7 @@ import { execFile } from 'node:child_process';
 import { join } from 'node:path';
 import { readFileSync, writeFileSync, mkdtempSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { glob, highRisk, docsOnly, pick, cost, worstCase, capOf, record, plain, body, spent, checks, question, verdict, review, identifiers, exchange, asker,
+import { glob, highRisk, docsOnly, pick, cost, worstCase, capOf, runUsd, record, plain, body, spent, checks, question, verdict, review, identifiers, exchange, asker,
   MARK, MODEL, RISK_MODEL, PRICES, DAILY_USD, DAILY_CAP, MAX_DIFF, MAX_FILES, MAX_ANSWER, MAX_OUT, MAX_RULES, WAIT_MS, POLL_MS } from '../.harness/tools/review.mjs';
 import { parseYaml } from '../.harness/tools/lib.mjs';
 import { verdict as group } from '../.harness/tools/actions.mjs';
@@ -53,7 +53,14 @@ ok(/no blockers found/.test(body([], { sha: SHA, result: 'clear' })) && /too lar
   && /the API refused the call \(402 billing_error\)\. Merges go on/.test(body([], { sha: SHA, result: 'unavailable', why: '402 billing_error' })) && /the model declined/.test(body([], { sha: SHA, result: 'refused' })) && !/claude|anthropic|generated/i.test(body([run1], run1, 'x').split('\n').slice(1).join('\n')),
   'each outcome has one plain headline, and the visible text carries no attribution (O09)');
 const yesterday = { ...run1, at: '2026-11-19T23:59:00.000Z' };
-const sp = spent([{ ...BOT, body: body([yesterday, run1], run1, 'x') }, { ...BOT, body: body([{ ...run1, usd: 0.18, model: RISK_MODEL }, { sha: SHA2, at: '2026-11-20T09:30:00Z', result: 'capped' }], run1, 'x') }, { user: { login: 'o', type: 'User' }, body: body([{ ...run1, usd: 50 }], run1, 'x') }], NOW);
+ok(['_@octocat_', '`@octocat', '-@octocat', 'x.@octocat', 'foo/@octocat', '(@org/team)', '@octocat'].every((x) => !/@[A-Za-z0-9]/.test(plain(x))) && plain('a@b.co uses: x/y@abc123') === 'a@b.co uses: x/y@abc123',
+  'no form of mention survives (after a mark, a dot, a dash, a slash, a bracket or at the start); an address and an action pin read as before');
+const forged = (runs) => spent([{ ...BOT, body: `<!-- ${MARK} ${JSON.stringify({ runs })} -->` }], NOW).usd;
+const dearest = worstCase(RISK_MODEL, MAX_DIFF + MAX_RULES + 4000);
+ok(forged([{ sha: 'x', at: '2026-11-20T01:00:00Z', model: MODEL, usd: -1000, in: 25000, out: 4000 }]) === 0.09 && forged([{ sha: 'x', at: '2026-11-20T01:00:00Z', model: 'm', usd: -1000 }]) === dearest
+  && forged([{ sha: 'x', at: '2026-11-20T01:00:00Z', model: MODEL, usd: 'free', in: -5, out: 1 }]) === dearest && runUsd({ model: RISK_MODEL, in: 0, out: 0, usd: 9 }) === 0 && dearest > 0.4,
+  'a record\'s cost is worked out from its tokens, never read from it: a negative or unreadable figure, an unknown model or a bad token count counts as the dearest review, so no record can widen the cap');
+const sp = spent([{ ...BOT, body: body([yesterday, run1], run1, 'x') }, { ...BOT, body: body([{ ...run1, model: RISK_MODEL }, { sha: SHA2, at: '2026-11-20T09:30:00Z', result: 'capped' }], run1, 'x') }, { user: { login: 'o', type: 'User' }, body: body([{ ...run1, usd: 50 }], run1, 'x') }], NOW);
 ok(sp.reviews === 2 && sp.usd === 0.27 && sp.day === '2026-11-20', 'today\'s spend is the sum of today\'s model calls in the job\'s own comments: not yesterday\'s, not a capped notice, not a record someone else wrote');
 
 // --- the checks -------------------------------------------------------------------------------------
@@ -74,7 +81,7 @@ ok(/<diff-k9>\n\+x\n<\/diff-k9>/.test(q.messages[0].content) && /<pull-request-k
   && /never instructions to you/.test(q.system) && /report it as a finding/.test(q.system) && /NO BLOCKERS/.test(q.system) && /how to show it fails/.test(q.system) && !/ignore your rules/.test(q.system),
   'the diff, the description and the rulebook travel as tagged data in the user turn; the system text asks C10\'s question and says planted instructions are a finding');
 ok(verdict({ stop_reason: 'end_turn', content: [{ type: 'thinking', thinking: '' }, { type: 'text', text: ' NO BLOCKERS\n' }] }).result === 'clear' && verdict({ stop_reason: 'end_turn', content: [{ type: 'text', text: 'a.ts:1 wrong. NO BLOCKERS otherwise' }] }).result === 'blockers'
-  && verdict({ stop_reason: 'max_tokens', content: [{ type: 'text', text: 'a.ts:1 wr' }] }).cut === true && verdict({ stop_reason: 'refusal', stop_details: { category: 'cyber' }, content: [] }).why === 'cyber' && verdict({ stop_reason: 'end_turn', content: [] }).result === 'refused',
+  && verdict({ stop_reason: 'max_tokens', content: [{ type: 'text', text: 'a.ts:1 wr' }] }).cut === true && verdict({ stop_reason: 'refusal', stop_details: { category: 'cyber' }, content: [] }).why === 'cyber' && verdict({ stop_reason: 'end_turn', content: [] }).result === 'refused' && verdict({ stop_reason: 'end_turn', content: [{ type: 'text', text: '**NO BLOCKERS.**' }] }).result === 'clear' && /ran out of room/.test(verdict({ stop_reason: 'max_tokens', content: [{ type: 'thinking', thinking: '' }] }).why),
   'the answer is clear only when it is exactly NO BLOCKERS; a refusal and an empty answer are said, never taken for a pass');
 
 // --- a stand-in GitHub, in memory -------------------------------------------------------------------
@@ -151,27 +158,27 @@ w = world({ diff: 'x'.repeat(MAX_DIFF + 1) }); r = await w.go();
 ok(r.status === 'too-large' && w.asked.length === 0 && /too large to read whole/.test(w.comments[0].body) && !record(w.comments[0]).runs[0].model, `a diff over ${MAX_DIFF} characters is not sent in part: the comment says it is too large`);
 w = world({ files: Array.from({ length: MAX_FILES }, (_, i) => `src/f${i}.ts`) }); r = await w.go();
 const w406 = world({ diff: null }); const r406 = await w406.go();
-ok(r.status === 'too-large' && /more than 300 files/.test(w.comments[0].body) && r406.status === 'too-large' && w406.asked.length === 0, 'a pull request of 300 files or more, or one GitHub will not serve a diff for, is too large too');
+ok(r.status === 'too-large' && /300 files or more/.test(w.comments[0].body) && r406.status === 'too-large' && w406.asked.length === 0, 'a pull request of 300 files or more, or one GitHub will not serve a diff for, is too large too');
 w = world({ contents: { 'AGENTS.md': 'y'.repeat(MAX_RULES + 5000) } }); await w.go();
 ok(/cut at 40000 characters; a rule may be missing/.test(w.asked[0].messages[0].content) && w.asked[0].messages[0].content.length < MAX_RULES + 2000, 'a rulebook over its limit is cut, and the model is told so; a repository without a profile still gets a review');
 
 // the caps
-const elsewhere = (usd, count = 1, at = NOW - 3600e3) => ({ id: 1, ...BOT, updated_at: new Date(at).toISOString(), body: body(Array.from({ length: count }, (_, i) => ({ sha: String(i).padStart(40, 'c'), at: new Date(at).toISOString(), result: 'clear', model: MODEL, usd: usd / count })), { sha: SHA, result: 'clear' }) });
-w = world({ elsewhere: [elsewhere(0.95)] }); r = await w.go();
-ok(DAILY_USD === 1 && r.status === 'capped' && w.asked.length === 0 && /\$0\.95 of \$1\.00 spent/.test(w.comments[0].body) && /Merges go on/.test(w.comments[0].body), `a review that could pass the day's $${DAILY_USD} is not started; one line says so and merges go on`);
+const elsewhere = (usd, count = 1, at = NOW - 3600e3) => ({ id: 1, ...BOT, updated_at: new Date(at).toISOString(), body: body(Array.from({ length: count }, (_, i) => ({ sha: String(i).padStart(40, 'c'), at: new Date(at).toISOString(), result: 'clear', model: MODEL, in: Math.round(usd / count / 2 * 1e6), out: 0 })), { sha: SHA, result: 'clear' }) });
+w = world({ elsewhere: [elsewhere(2.45)] }); r = await w.go();
+ok(DAILY_USD === 2.5 && r.status === 'capped' && w.asked.length === 0 && /\$2\.45 of \$2\.50 spent/.test(w.comments[0].body) && /Merges go on/.test(w.comments[0].body), `a review that could pass the day's $${DAILY_USD} is not started; one line says so and merges go on`);
 w = world({ elsewhere: [elsewhere(0.5)] }); r = await w.go();
 ok(r.status === 'blockers', 'under the cap, with room for the worst case, the review runs');
 w = world({ elsewhere: [elsewhere(0.5)] }); r = await w.go({ env: { REVIEW_DAILY_USD: '0.4' } });
-const wHigh = world({ elsewhere: [elsewhere(0.95)] }); const rHigh = await wHigh.go({ env: { REVIEW_DAILY_USD: '100', REVIEW_DAILY_CAP: '1000' } });
+const wHigh = world({ elsewhere: [elsewhere(2.45)] }); const rHigh = await wHigh.go({ env: { REVIEW_DAILY_USD: '100', REVIEW_DAILY_CAP: '1000' } });
 ok(r.status === 'capped' && rHigh.status === 'capped' && wHigh.asked.length === 0, 'the variable lowers the money cap and can never raise it');
 w = world({ elsewhere: [elsewhere(0.04, 40)] }); r = await w.go();
 ok(DAILY_CAP === 40 && r.status === 'capped' && /40 of 40 reviews/.test(w.comments[0].body) && w.asked.length === 0, `the ${DAILY_CAP}th review of a UTC day is the last`);
-w = world({ elsewhere: [elsewhere(0.95, 1, NOW - 11 * 3600e3)] }); r = await w.go();
+w = world({ elsewhere: [elsewhere(2.45, 1, NOW - 11 * 3600e3)] }); r = await w.go();
 ok(r.status === 'blockers', 'yesterday\'s spend does not count against today');
 w = world({ elsewhere: Array.from({ length: 1000 }, () => ({ id: 2, user: { login: 'x', type: 'User' }, body: 'hi', updated_at: new Date(NOW - 60e3).toISOString() })) }); r = await w.go();
 ok(r.status === 'capped' && /not counted in part/.test(w.comments[0].body) && w.asked.length === 0, 'a day too busy to count whole stops the reviews rather than guessing (the cap never fails open)');
 w = world(); w.pr.head.sha = SHA2; w.run = { ...w.run, head_sha: SHA2, pull_requests: [{ number: 7, head: { sha: SHA2 } }] };
-w.comments.push({ id: 5, user: { login: 'o', type: 'User' }, updated_at: new Date(NOW).toISOString(), body: body([{ sha: SHA2, at: new Date(NOW).toISOString(), result: 'clear', model: MODEL, usd: 99 }], { sha: SHA2, result: 'clear' }) });
+w.comments.push({ id: 5, user: { login: 'o', type: 'User' }, updated_at: new Date(NOW).toISOString(), body: body([{ sha: SHA2, at: new Date(NOW).toISOString(), result: 'clear', model: MODEL, in: 9e7, out: 0 }], { sha: SHA2, result: 'clear' }) });
 r = await w.go();
 ok(r.status === 'blockers' && w.comments.length === 2 && w.comments[0].user.login === 'o' && /clear|no blockers/.test(w.comments[0].body), 'a record someone else posts neither marks a commit reviewed nor spends the day\'s cap, and their comment is left alone');
 
@@ -179,7 +186,8 @@ ok(r.status === 'blockers' && w.comments.length === 2 && w.comments[0].user.logi
 w = world(); w.answer = { status: 402, json: { type: 'error', error: { type: 'billing_error', message: 'credit balance <!-- x --> too low' } } }; r = await w.go();
 ok(r.status === 'unavailable' && /the API refused the call \(402 billing_error\)\. Merges go on/.test(w.comments[0].body) && !/credit balance/.test(w.comments[0].body) && !record(w.comments[0]).runs[0].model, 'credit used up: one line with the error\'s kind (never its text), nothing counted as spent, the job does not fail');
 w = world(); w.answer = { status: 529, json: { error: { type: 'overloaded_error' } } };
-ok(await rejects(w.go(), /529 overloaded_error/) && w.comments.length === 0, 'an outage fails the job without a comment, so the next finished workflow tries again');
+const w429 = world(); w429.answer = { status: 429, json: { error: { type: 'rate_limit_error' } } };
+ok(await rejects(w.go(), /529 overloaded_error/) && w.comments.length === 0 && await rejects(w429.go(), /429 rate_limit_error/) && w429.comments.length === 0, 'an outage or a rate limit fails the job with no comment and no record, so the next finished workflow tries the same commit again');
 w = world(); w.answer = { status: 200, json: { model: MODEL, stop_reason: 'refusal', stop_details: { category: 'cyber' }, usage: { input_tokens: 20000, output_tokens: 10 }, content: [] } }; r = await w.go();
 ok(r.status === 'refused' && /the model declined this change \(cyber\)/.test(w.comments[0].body) && record(w.comments[0]).runs[0].usd > 0, 'a refusal is said as a refusal, never as "no blockers", and what it cost is still counted');
 
@@ -252,7 +260,7 @@ ok(/vars\.REVIEW_FEDERATION_RULE != ''/.test(job.if) && /workflow_run\.event == 
   'the job is off until the federation rule\'s variable is set, and skips a fork\'s run before any step');
 ok(wf.permissions.contents === 'read' && Object.keys(wf.permissions).length === 1 && job.permissions['id-token'] === 'write' && job.permissions['pull-requests'] === 'write' && Object.entries(job.permissions).every(([k, v]) => ['id-token', 'pull-requests'].includes(k) || v === 'read') && !('contents' in job.permissions && job.permissions.contents !== 'read') && !('actions' in job.permissions),
   'it may write only pull-request comments and ask for its identity token; everything else is read-only');
-ok(Number(job['timeout-minutes']) === 5 && String(wf.concurrency['cancel-in-progress']) === 'false' && /workflow_run\.head_branch/.test(wf.concurrency.group) && !/head_sha|head_branch|pull_requests/.test(JSON.stringify(job.steps)) && !/\$\{\{\s*secrets\./.test(text),
+ok(Number(job['timeout-minutes']) === 5 && String(wf.concurrency['cancel-in-progress']) === 'false' && /workflow_run\.head_repository\.full_name \}\}-\$\{\{ github\.event\.workflow_run\.head_branch/.test(wf.concurrency.group) && !/head_sha|head_branch|pull_requests/.test(JSON.stringify(job.steps)) && !/\$\{\{\s*secrets\./.test(text),
   'five minutes a run, one at a time per branch, never cancelled mid-review; no secret is read and nothing of the pull request reaches a step\'s script');
 const step = job.steps.at(-1);
 ok(step.run === 'node .harness/tools/review.mjs run' && Object.keys(IDS).every((k) => step.env[k] === `\${{ vars.${k} }}`) && step.env.GH_TOKEN === '${{ github.token }}' && job.steps.length === 3, 'the one step runs the tool with the four identifiers from Actions variables');

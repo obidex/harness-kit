@@ -19,14 +19,14 @@ Each version is the tag `v<version>` on this repository, never moved (K003). Pro
 - **The pull request is data:** `workflow_run` only, nothing of the pull request checked out or run,
   input tagged as data, the answer posted as text with no HTML comment and no mention. A fork's pull
   request, a bot's, a draft and a documents-only change are never sent to the model.
-- **Caps, per repository and UTC day:** $1 and 40 reviews, one per commit, 5 minutes a run;
+- **Caps, per repository and UTC day:** $2.50 and 40 reviews, one per commit, 5 minutes a run;
   `REVIEW_DAILY_USD` and `REVIEW_DAILY_CAP` may only lower them. Over a cap or out of credit: one line
   on the pull request, and merges go on.
 - **Cost (O13):** about $0.09 a typical review on the default model, $0.18 on the high-risk one, from
   the API credit; one short job per finished pull-request workflow on the project's `RUNNER` lane
   (GitHub-hosted minutes only on a private repository without one).
 - **The kit reviews itself:** `.github/workflows/harness-review.yml` is the template, byte for byte.
-- New `test-review` (59 checks: the skips, the caps, the wait for checks, the exchange, the workflow's
+- New `test-review` (61 checks: the skips, the caps, the wait for checks, the exchange, the workflow's
   permissions and trigger; each cap and skip fails without its code).
 - No loaded text changed; no replay needed.
 

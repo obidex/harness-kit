@@ -14,7 +14,7 @@
 # default branch's .harness/tools, never the pull request, and its only output is the comment. A
 # fork's pull request, a bot's and a draft are skipped. Safe on a self-hosted runner for that reason;
 # the access token stays in the job's memory.
-# Caps, in review.mjs: $1 and 40 reviews a UTC day per repository (REVIEW_DAILY_USD and
+# Caps, in review.mjs: $2.50 and 40 reviews a UTC day per repository (REVIEW_DAILY_USD and
 # REVIEW_DAILY_CAP may only lower them), one review per commit, 5 minutes a run.
 # Cost (O13): the API calls, about $0.10 a review on the default model and twice that on high-risk
 # paths; and one short job per finished workflow listed below, GitHub-hosted minutes only on a private
@@ -32,7 +32,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: harness-review-${{ github.event.workflow_run.head_branch }}
+  group: harness-review-${{ github.event.workflow_run.head_repository.full_name }}-${{ github.event.workflow_run.head_branch }}
   cancel-in-progress: false
 
 jobs:

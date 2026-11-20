@@ -36,8 +36,10 @@
 // Caps, in code, per repository and UTC day, counted from this tool's own comments (each records the
 // model's reported token use): DAILY_USD dollars and DAILY_CAP reviews. A review that could pass the
 // day's money cap is not started. One review per commit. The Actions variables REVIEW_DAILY_USD and
-// REVIEW_DAILY_CAP may only lower them. Over a cap, or when the API refuses (credit used up, a
-// limit): one line on the pull request, and merges go on.
+// REVIEW_DAILY_CAP may only lower them. Over a cap, or when the API refuses (credit used up, a spend
+// limit): one line on the pull request, and merges go on. The worst case is an estimate (2.5
+// characters a token), and two pull requests reviewed at the same moment each count without the
+// other, so a day can end slightly over; the reviews workspace's own spend limit is the hard stop.
 
 import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -47,7 +49,7 @@ export const MARK = 'harness-review';
 export const MODEL = 'claude-sonnet-5-5', RISK_MODEL = 'claude-opus-5-5';
 /** US dollars per million tokens, in and out. A model missing here is never called. */
 export const PRICES = Object.freeze({ 'claude-sonnet-5-5': [2, 10], 'claude-opus-5-5': [4, 20] });
-export const DAILY_USD = 1, DAILY_CAP = 40;
+export const DAILY_USD = 2.5, DAILY_CAP = 40;
 export const MAX_DIFF = 150000, MAX_FILES = 300, MAX_RULES = 40000, MAX_PR_TEXT = 4000, MAX_OUT = 8000, MAX_ANSWER = 6000;
 export const WAIT_MS = 90000, POLL_MS = 15000;
 const BOT = 'github-actions[bot]';
@@ -99,7 +101,7 @@ export function record(c) {
 }
 /** The model's answer as text a comment may carry: no HTML comment, no mention, no more than MAX_ANSWER. */
 export function plain(text) {
-  let s = String(text || '').replace(/<!--/g, '< !--').replace(/(^|[^\w`/.-])@(?=[A-Za-z0-9])/g, '$1@\u200b').trim();
+  let s = String(text || '').replace(/<!--/g, '< !--').replace(/(^|[^A-Za-z0-9])@(?=[A-Za-z0-9])/g, '$1@\u200b').trim();
   if (s.length > MAX_ANSWER) s = `${s.slice(0, MAX_ANSWER)}\n\n(cut at ${MAX_ANSWER} characters)`;
   return s;
 }
@@ -121,6 +123,14 @@ export function body(runs, r, text = '') {
   lines.push('', FOOT);
   return lines.join('\n');
 }
+/** What one recorded run counts for: its tokens at the model's price, worked out again here, never the
+ *  figure written in the record. A record that names a model but not a readable token count (a forged
+ *  or damaged one) counts as the dearest review there can be, so a record can only ever use the cap up. */
+export function runUsd(r) {
+  const n = [r?.in, r?.out];
+  if (PRICES[r?.model] && n.every((x) => Number.isInteger(x) && x >= 0 && x < 1e8)) return cost(r.model, { input_tokens: n[0], output_tokens: n[1] });
+  return worstCase(RISK_MODEL, MAX_DIFF + MAX_RULES + MAX_PR_TEXT);
+}
 /** Today's reviews in a repository's comments: how many called a model, and what they cost. */
 export function spent(comments, now = Date.now()) {
   const day = new Date(now).toISOString().slice(0, 10);
@@ -128,7 +138,7 @@ export function spent(comments, now = Date.now()) {
   for (const c of comments) for (const r of record(c)?.runs || []) {
     if (String(r.at || '').slice(0, 10) !== day || !r.model) continue;
     reviews++;
-    usd += Number(r.usd) || 0;
+    usd += runUsd(r);
   }
   return { day, reviews, usd: Math.round(usd * 1e4) / 1e4 };
 }
@@ -172,8 +182,8 @@ export function question({ model, tag, rules, cutRules, pr, files, diff }) {
 export function verdict(msg) {
   const text = (msg?.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('\n').trim();
   if (msg?.stop_reason === 'refusal') return { result: 'refused', why: String(msg.stop_details?.category || '').replace(/[^\w-]/g, '').slice(0, 40), text: '' };
-  if (!text) return { result: 'refused', why: 'an empty answer', text: '' };
-  if (/^NO BLOCKERS\.?$/i.test(text)) return { result: 'clear', text: '' };
+  if (!text) return { result: 'refused', why: msg?.stop_reason === 'max_tokens' ? 'the answer ran out of room' : 'an empty answer', text: '' };
+  if (/^[\s*_`.]*NO BLOCKERS[\s*_`.]*$/i.test(text)) return { result: 'clear', text: '' };
   return { result: 'blockers', text, cut: msg?.stop_reason === 'max_tokens' };
 }
 
@@ -243,7 +253,7 @@ export async function review({ gh, ask, repo, run, env = {}, now = () => Date.no
   const at = new Date(now()).toISOString();
 
   const listed = await pages(gh, `/repos/${repo}/pulls/${n}/files`, null, MAX_FILES / 100);
-  if (!listed) return post({ sha, at, result: 'too-large', why: `more than ${MAX_FILES} files` });
+  if (!listed) return post({ sha, at, result: 'too-large', why: `${MAX_FILES} files or more` });
   const files = listed.map((f) => String(f.filename));
   if (docsOnly(files, profile)) return { status: 'skipped', pr: n, why: 'documents only' };
   let diff;
@@ -278,8 +288,9 @@ export async function review({ gh, ask, repo, run, env = {}, now = () => Date.no
   if (a.status !== 200) {
     const type = String(a.json?.error?.type || 'error').replace(/[^\w-]/g, '').slice(0, 40);
     log(`the model call answered ${a.status} ${type}`);
-    // the credit, a limit or the request itself: said once on the pull request; anything else fails the job
-    if (![400, 402, 403, 413, 429].includes(a.status)) throw new Error(`the model call answered ${a.status} ${type}`);
+    // the credit, a spend limit or the request itself: said once on the pull request. Anything else (an
+    // outage, a rate limit) fails the job with no record, so the next finished workflow tries again
+    if (![400, 402, 403, 413].includes(a.status)) throw new Error(`the model call answered ${a.status} ${type}`);
     return post({ sha, at, result: 'unavailable', why: `${a.status} ${type}` });
   }
   const usd = cost(model, a.json.usage);

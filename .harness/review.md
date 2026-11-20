@@ -62,9 +62,10 @@ nothing. Deleting that variable is the off switch.
 
 ## Caps and cost (O13)
 
-Per repository and UTC day, in code: **$1** of reviews and **40** reviews, counted from the job's own
-comments, which record the tokens the API reported. A review whose worst case would pass the money
-cap is not started. One review per commit. `REVIEW_DAILY_USD` and `REVIEW_DAILY_CAP` may only lower
+Per repository and UTC day, in code: **$2.50** of reviews and **40** reviews, counted from the job's own
+comments, which record the tokens the API reported (the cost is worked out again from those tokens, and a
+record without them counts as the dearest review). A review whose estimated worst case would pass
+the money cap is not started; two reviews at the same moment can end a day slightly over. One review per commit. `REVIEW_DAILY_USD` and `REVIEW_DAILY_CAP` may only lower
 the caps; raising one is a kit release. Over a cap, or when the API refuses the call (credit used
 up, a workspace limit), the pull request gets one line and merges go on. The workspace's spend limit
 is the stop across repositories; the in-code caps stop one repository from using it up in a day.
@@ -91,6 +92,6 @@ pull-request workflow has another name is reviewed only when that workflow finis
 | no blockers found | the model found nothing it would block for | nothing; it is not evidence |
 | it would block the merge for the points below | findings | each ends FIXED, TRACKED or DISMISSED (O07) |
 | not reviewed, too large | over the size limits | split the change, or rely on C10's reviewer |
-| not reviewed, today's review cap is used up | a cap in code | nothing; tomorrow's commits are reviewed |
+| not reviewed, today's review cap is used up | a cap in code | nothing; that commit stays unreviewed, later commits are reviewed once the day turns |
 | not reviewed, the API refused the call | credit or a limit | the coordinator checks the credit |
 | not reviewed, the model declined | a safety classifier | nothing; C10 still applies where required |
