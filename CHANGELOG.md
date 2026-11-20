@@ -3,6 +3,34 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.47.1 · 2026-11-20 · the control workflows' three action pins move, in the templates
+
+Since 0.47.0 a control repository's workflows must equal the pinned kit's templates, so Dependabot there
+can no longer move a pin the templates hold. This release moves the three that were behind, each read
+at its source before the pin (these workflows hold the App key).
+
+- **`actions/create-github-app-token`** v1.12.0 to v3.3.0 (`64ab729a`), nine uses. v2 removed the
+  underscore inputs (none used here); v3 runs on Node 24 and reads a proxy only with
+  `NODE_USE_ENV_PROXY` (hosted runners use none). `app-id` still works and is marked deprecated in favour
+  of `client-id`; it stays, since moving needs a new variable in each control repository.
+- **`actions/upload-artifact`** v4.6.2 to v7.0.2 (`cf430e03`), three uses. Node 24; the new `archive`
+  input defaults to zipping as before. No input the templates pass changed.
+- **`actions/download-artifact`** v4.3.0 to v8.0.2 (`9000827c`), one use, in `hands-report`. Two changes
+  matter. Since v5 a run's only matching artifact unpacks straight into `path`, not into a folder named
+  after it: `hands-report` read `logs/*/log.txt` and would have logged no write for every run with one
+  log artifact, without failing. It now reads both layouts. Since v8 a digest mismatch fails the step
+  (it was a warning), after the files are unpacked; the step keeps `continue-on-error`, so the run still
+  logs the writes it downloaded and still alerts.
+- **`lib.mjs` `parseYaml`**: a block scalar holding `$'` or `$&` lost those characters (a replacement
+  pattern); it is kept as written. Found by the new check below; no workflow was affected, only readers.
+- **`test-hands`**: the write-log step runs as GitHub runs it against one artifact, several and none;
+  every control workflow action is pinned by full commit, the same commit in every file; no removed
+  token input is passed. The one-artifact and YAML checks fail without their fixes.
+- **The kit's own Dependabot** also watches `.harness/templates/hands` (monthly, 3-day cooldown, one
+  grouped PR). Its PR is the signal: a template is kit content, so the pin ships in a release PR and the
+  bot's is closed.
+- No loaded text changed; no replay needed.
+
 ## 0.47.0 · 2026-11-20 · work in bulk; decisions one file each; control workflows travel with the pin (K051, K052, K053)
 
 The owner's 20 Nov 2026 rule for working in bulk, and three things parallel work needs.

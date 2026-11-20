@@ -9,3 +9,17 @@ updates:
     cooldown:
       default-days: 3
     open-pull-requests-limit: 2
+  # The control workflows' templates. A control repository's copies must equal them (control-check), so
+  # Dependabot there cannot move a pin; it is watched here instead. Its pull request is the signal, not
+  # the change: a template is kit content, so the pin ships in a release PR (VERSION, CHANGELOG, the
+  # action's release notes read) and the bot's is closed.
+  - package-ecosystem: github-actions
+    directory: /.harness/templates/hands
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 3
+    groups:
+      hands-templates:
+        patterns: ["*"]
+    open-pull-requests-limit: 1
