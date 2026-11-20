@@ -393,6 +393,9 @@ for (const f of readdirSync(dir)) {
       && lane({ github: pr(null), vars: self }).every((x) => x === 'ubuntu-latest')
       && lane({ github: pr({ full_name: 'fork/r', fork: null }), vars: self }).every((x) => x === 'ubuntu-latest'), `${f}: it runs a PR's code, so a fork's PR, or one whose fork was deleted (head.repo null), never reaches the self-hosted runner`);
   }
+  // the full check (K055) is the one workflow whose work is the default branch's whole tree: it reads those files and runs none of them
+  else if (f === 'harness-sweep.yml') ok(/ref: \$\{\{ github\.event\.repository\.default_branch \}\}\n\s+persist-credentials: false/.test(text) && !/sparse-checkout/.test(text) && Object.keys(wf.on).join() === 'workflow_dispatch' && (text.match(/^\s+run: .*$/gm) || []).join() .trim() === 'run: node .harness/tools/sweep.mjs run',
+    `${f}: checks out the default branch only (never another ref), without persisted credentials, started by hand, and its one script is the kit's tool`);
   else ok(/ref: \$\{\{ github\.event\.repository\.default_branch \}\}\n\s+sparse-checkout: \.harness\/tools\n\s+persist-credentials: false/.test(text), `${f}: checks out only the default branch's .harness/tools, without persisted credentials`);
   ok(/persist-credentials: false/.test(text), `${f}: no persisted git credentials`);
 }
