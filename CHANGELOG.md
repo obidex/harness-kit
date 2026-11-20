@@ -3,6 +3,19 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.48.1 · 2026-11-20 · the second reviewer no longer skips a pull request whose check was replaced
+
+Found on the first two repositories after the kit (the rollout, roadmap #31): neither got its comment.
+
+- **`review.mjs`:** a check run cancelled because a newer run of the same check replaced it (a
+  workflow's own `cancel-in-progress`, on a quick second push or an edited description) counted as a
+  failed check for good, so that commit was never reviewed. It is now left out and the newer run
+  decides. A cancelled run with no newer run of its name, and a failed run, still stop the review.
+- **`harness-review.yml`:** `harness-scrub` joins the workflows that start it. On a runner lane with
+  one runner the review job held the runner while `harness-scrub` for the same pull request waited
+  behind it, the 90-second wait ran out, and nothing started the review again.
+- `test-review`: 62 checks; the new one fails without the fix.
+
 ## 0.48.0 · 2026-11-20 · a second reviewer on every pull request, with no key (K054)
 
 - **`harness-review.yml`** (new, installed in every project) and **`review.mjs`**: when a pull-request
