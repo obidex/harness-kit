@@ -9,7 +9,7 @@
 //                                         the run's session link as the receipt
 //   node .harness/tools/wake.mjs status --repo owner/name
 //                                         the state the next decision reads (JSON; reads only)
-//   node .harness/tools/wake.mjs handoff --repo owner/name [--issue <n>] [--from owner/name] [--dry]
+//   node .harness/tools/wake.mjs handoff --repo owner/name [--issue <n>] [--from owner/name] [--task <trig id>] [--dry]
 //                                         in a session (K056, wake.md "Hand-off between projects"): the
 //                                         sender finished something that repository's project waits on.
 //                                         The same decision as the job's, read from that repository; its
@@ -18,6 +18,8 @@
 //                                             written: call fire_trigger once with that id
 //                                           HANDOFF: QUEUED …            no start now (a run is on, a cap, a
 //                                             stop): the `wake` label is on the issue and waits
+//                                         --task names the receiver's run task only while that repository
+//                                         names none itself (.github/wake.json); its own file always wins
 //                                           HANDOFF: NOTHING …           nothing there to start or to queue
 //   node .harness/tools/wake.mjs handoff --repo owner/name [--issue <n>] --failed <why>
 //                                         the fire_trigger call after a START failed: releases the claim,
@@ -375,7 +377,7 @@ export function handoffPlan(d, { task, issue = null }) {
   const can = !!issue && issue.open && !issue.isState && !issue.labels.includes(STOPPED);   // an issue the label may wait on
   if (d.act === 'fire') {
     if (task) return { say: 'START', why: d.why, claim: true, label: false };
-    return { say: can ? 'QUEUED' : 'NOTHING', why: `the repository names no coordinator-run task (${RUN_TASK_FILE})`, claim: false, label: can };
+    return { say: can ? 'QUEUED' : 'NOTHING', why: `the repository names no coordinator-run task (${RUN_TASK_FILE}) and --task gave none`, claim: false, label: can };
   }
   // a stop is a person's to lift and the job's to set: a hand-off sets none and waits behind every one
   if (d.act === 'stop-item') return { say: 'NOTHING', why: d.why, claim: false, label: false };
@@ -393,7 +395,7 @@ async function handoffState(repo) {
 
 const SLUG = /^[\w.-]+\/[\w.-]+$/;
 
-async function runHandoff(repo, { issue, from, failed, dry }) {
+async function runHandoff(repo, { issue, from, failed, dry, task: given }) {
   const who = SLUG.test(String(from || '')) ? from : 'another project';
   const done = (say, why) => console.log(`HANDOFF: ${say} ${String(why).replace(/\s+/g, ' ').slice(0, 300)}`);
   const st = await handoffState(repo);
@@ -424,6 +426,8 @@ async function runHandoff(repo, { issue, from, failed, dry }) {
   let task = null;
   if (d.act === 'fire') {
     try { task = runTaskOf(Buffer.from((await gh('GET', `/repos/${repo}/contents/${RUN_TASK_FILE}`)).content || '', 'base64').toString('utf8')); } catch { /* no file: no task */ }
+    // the sender may name the task only while the receiver names none: the receiver's own word wins
+    if (!task) task = runTaskOf(JSON.stringify({ runTask: given }));
   }
   const p = handoffPlan(d, { task, issue: it });
   if (p.label) await queueIt();
@@ -448,7 +452,7 @@ async function main() {
   const issue = opt('--issue') ? Number(opt('--issue')) : null;
   if (issue !== null && !Number.isInteger(issue)) throw new Error('--issue must be a number');
   if (cmd === 'fire') return runFire(repo, { event: opt('--event'), issue, label: opt('--label') });
-  if (cmd === 'handoff') return runHandoff(repo, { issue, from: opt('--from'), failed: argv.includes('--failed') ? String(opt('--failed') ?? '') : undefined, dry: argv.includes('--dry') });
+  if (cmd === 'handoff') return runHandoff(repo, { issue, from: opt('--from'), failed: argv.includes('--failed') ? String(opt('--failed') ?? '') : undefined, dry: argv.includes('--dry'), task: opt('--task') });
   if (cmd === 'status') {
     const st = await stateIssue(repo, { open: false });
     if (!st) { console.log(JSON.stringify({ state: null })); return; }

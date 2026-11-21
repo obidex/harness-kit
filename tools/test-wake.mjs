@@ -249,7 +249,11 @@ ok(s.state === st.number && s.emptyStreak === 0 && s.cap === DAILY_CAP && s.clai
   add({ number: 21, body: 'answered: the sender waits on this' });
   const n0 = await handoff(['--issue', '21', '--from', 'o/sender']);
   ok(n0.code === 0 && /HANDOFF: QUEUED .*names no coordinator-run task/.test(n0.out) && issues.get(21).labels.includes(WAKE) && !st.labels.includes(CLAIM) && marks(HANDOFF_MARK) === 0, 'a repository that names no run task: the wake label is set and waits; no claim, no receipt');
-  issues.get(21).labels = []; taskFile = '{"runTask":"trig_01RECV"}';
+  issues.get(21).labels = [];
+  const byHand = await handoff(['--issue', '21', '--task', 'trig_01SENDER', '--dry']), badTask = await handoff(['--issue', '21', '--task', 'https://evil.test/fire', '--dry']);
+  taskFile = '{"runTask":"trig_01RECV"}';
+  const own = await handoff(['--issue', '21', '--task', 'trig_01SENDER', '--dry']);
+  ok(/HANDOFF: START trig_01SENDER/.test(byHand.out) && /HANDOFF: QUEUED/.test(badTask.out) && /HANDOFF: START trig_01RECV/.test(own.out), 'the sender may name the run task only while the receiver names none, and only as a task id: the receiver\'s own file wins');
   const dry = await handoff(['--issue', '21', '--dry']);
   ok(/HANDOFF: START trig_01RECV/.test(dry.out) && !st.labels.includes(CLAIM) && marks(HANDOFF_MARK) === 0, '--dry prints the decision and writes nothing');
   const h1 = await handoff(['--issue', '21', '--from', 'o/sender']);

@@ -103,7 +103,9 @@ blocked, a blocker closed, an action proven.
 3. The run started this way is an ordinary run under the contract below; it removes the claim last.
 
 **What the receiver provides.** `.github/wake.json` on its default branch, `{ "runTask": "trig_…" }`:
-the id of its coordinator-run scheduled task (Setup, step 1). Without it a hand-off only queues.
+the id of its coordinator-run scheduled task (Setup, step 1). Until it has one, the sender may
+name the task with `--task <trig id>`; the receiver's own file always wins. With neither, a
+hand-off only queues.
 A repository whose coordinator keeps its STATE issue by hand is read through the label
 `coordinator-state`; one with no STATE issue gets `NOTHING`.
 

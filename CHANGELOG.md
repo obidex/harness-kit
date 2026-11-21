@@ -19,7 +19,8 @@ project's coordinator run directly, so the one that hands work over does it in t
 - **`inbox.mjs`** prints the hand-off line after `send` and after `state --to done` or `blocked`
   (the project named in the request's Source), and the `inbox` skill makes it a step of both.
 - **A receiving project adds `.github/wake.json`**, `{ "runTask": "trig_…" }`, naming its
-  coordinator-run scheduled task. Until it does, a hand-off to it only queues.
+  coordinator-run scheduled task. Until it does, the sender names it with `--task <trig id>`, or the
+  hand-off only queues.
 - No new workflow, schedule, secret or permission; nothing runs on GitHub for a hand-off.
 
 ## 0.49.0 · 2026-11-20 · the second reviewer is off by default, on only until a time the owner names; a full check of existing code (K055)
