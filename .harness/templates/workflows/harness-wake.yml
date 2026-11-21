@@ -11,6 +11,9 @@
 # 30 days or made no progress (`wake-stopped`); 3 failed starts or 8 hand-offs in a row (`wake-paused`).
 # Inert until the project sets the Actions variable WAKE_ROUTINE_URL and the secret WAKE_ROUTINE_TOKEN
 # (.harness/wake.md "Setup"): with no URL every job is skipped and costs nothing.
+# With the Actions variable WAKE_START set to `label` (K057) the job calls nothing outside GitHub and
+# needs no URL and no token: the claim label it sets on the STATE issue starts the project's scheduled
+# task, which has a GitHub trigger on that label (.harness/wake.md "Start by label").
 # Safe on a self-hosted runner: it runs only the default branch's .harness/tools, never PR scripts, and
 # never for a pull request from a fork or Dependabot (no secret there). Like any workflow, a same-repo
 # PR runs this file as the PR has it; harness-guard limits who may change .github/.
@@ -45,7 +48,7 @@ concurrency:
 jobs:
   wake:
     if: >-
-      vars.WAKE_ROUTINE_URL != '' && (
+      (vars.WAKE_ROUTINE_URL != '' || vars.WAKE_START == 'label') && (
       (github.event.action == 'labeled' && github.event.label.name == 'wake' &&
        (github.event_name == 'issues' || (github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]'))) ||
       (github.event.action == 'unlabeled' && github.event.label.name == 'coordinator-running') ||
@@ -73,6 +76,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           WAKE_ROUTINE_URL: ${{ vars.WAKE_ROUTINE_URL }}
           WAKE_ROUTINE_TOKEN: ${{ secrets.WAKE_ROUTINE_TOKEN }}
+          WAKE_START: ${{ vars.WAKE_START }}
           WAKE_DAILY_CAP: ${{ vars.WAKE_DAILY_CAP }}
           EVENT: ${{ github.event_name == 'issues' && github.event.action || github.event_name == 'pull_request' && 'labeled' || github.event_name }}
           ISSUE: ${{ github.event.issue.number || github.event.pull_request.number || inputs.issue }}

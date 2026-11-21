@@ -8,7 +8,7 @@ import { createServer } from 'node:http';
 import { execFile } from 'node:child_process';
 import { join } from 'node:path';
 import { readFileSync } from 'node:fs';
-import { capOf, keepsStart, handoffPlan, runTaskOf, HANDOFF_MARK, HANDOFF_FAIL_MARK, RUN_TASK_FILE, decide, ledger, capFrom, fireUrlOk, isState, payload, signature, failStreak, chainLength, MOVABLE, WAKE, CLAIM, STOPPED, PAUSED, BACKSTOP_OFF, CHAIN_STOP, STATE, STATE_MARK, FIRE_MARK, FAIL_MARK, STUCK_MARK, EMPTY_MARK, DAILY_CAP, ISSUE_CAP, ISSUE_TOTAL, EMPTY_STOP, STUCK_STOP } from '../.harness/tools/wake.mjs';
+import { capOf, keepsStart, handoffPlan, runTaskOf, HANDOFF_MARK, HANDOFF_FAIL_MARK, RUN_TASK_FILE, decide, ledger, capFrom, fireUrlOk, isState, payload, signature, failStreak, chainLength, MOVABLE, WAKE, CLAIM, STOPPED, PAUSED, BACKSTOP_OFF, CHAIN_STOP, STATE, STATE_MARK, FIRE_MARK, FAIL_MARK, STUCK_MARK, EMPTY_MARK, START_MARK, USED_MARK, startByLabel, startOk, usedSince, START_WINDOW_MIN, DAILY_CAP, ISSUE_CAP, ISSUE_TOTAL, EMPTY_STOP, STUCK_STOP } from '../.harness/tools/wake.mjs';
 import { parseYaml } from '../.harness/tools/lib.mjs';
 
 let n = 0;
@@ -111,11 +111,16 @@ ok(fireUrlOk('https://api.anthropic.com/v1/claude_code/routines/trig_01AbC/fire'
 ok(/#7/.test(payload({ repo: 'o/r', why: 'w', target: 7, stateIssue: 1 })) && /remove `coordinator-running` from #1 as the very last step/.test(payload({ repo: 'o/r', why: 'w', target: null, stateIssue: 1 })), 'the run is told the issue, the STATE issue and to release the claim last');
 
 // --- the job, end to end against stand-ins -------------------------------------------------------------
+let commentId = 100, raceUsed = false, postAs = null, hideUsedOnce = 0, hideNewest = false, failAtUnclaim = null;   // hideNewest: the repository listing lags one comment behind
+// raceUsed: another run's record lands just before this run's own
 const issues = new Map();   // number -> { number, state, labels: [names], body, user, comments: [{ user, body, created_at }] }
 const fires = [];
-let commentId = 100, rival = null;   // rival: a second start's receipt, written right after the next hand-off receipt
+let rival = null, rivalBefore = false;   // rival: a second start's receipt, written right after the next hand-off receipt (rivalBefore: dated just before it)
 let taskFile = null;   // the receiving repository's .github/wake.json, when it has one
 let fireStatus = 200;
+const labelEvents = [];   // `<issue>:<label>` for each label GitHub would send a `labeled` event for
+let labelsRefused = false;
+let receiptAtClaim = null;   // receipts already on the issue at the moment its claim label was set
 const add = (i) => { issues.set(i.number, { state: 'open', labels: [], comments: [], user: { login: 'owner', type: 'User' }, body: '', ...i }); return issues.get(i.number); };
 const view = (i) => ({ number: i.number, state: i.state, body: i.body, user: i.user, labels: i.labels.map((name) => ({ name })), html_url: `https://gh.test/o/r/issues/${i.number}` });
 const srv = createServer((q, res) => {
@@ -134,16 +139,16 @@ const srv = createServer((q, res) => {
       return send(200, l.map(view));
     }
     if (u.pathname === '/repos/o/r/issues' && q.method === 'POST') { const j = JSON.parse(data); const i = add({ number: Math.max(0, ...issues.keys()) + 1, body: j.body, labels: j.labels, user: bot }); return send(201, view(i)); }
-    if (u.pathname === '/repos/o/r/issues/comments') return send(200, u.searchParams.get('page') === '1' && u.searchParams.get('since') ? [...issues.values()].flatMap((i) => i.comments).sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at)) : []);
+    if (u.pathname === '/repos/o/r/issues/comments') return send(200, u.searchParams.get('page') === '1' && u.searchParams.get('since') ? [...issues.values()].flatMap((i) => i.comments).sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at)).slice(0, hideNewest ? -1 : undefined).filter((c) => { if (hideUsedOnce !== 2) return true; return !c.body.startsWith(USED_MARK); }).concat((hideUsedOnce === 2 ? (hideUsedOnce = 0, []) : [])) : []);
     if (u.pathname === `/repos/o/r/contents/${RUN_TASK_FILE}`) return taskFile == null ? send(404, {}) : send(200, { content: Buffer.from(taskFile).toString('base64') });
     if (u.pathname === '/repos/o/r/pulls' || u.pathname.startsWith('/repos/o/r/commits')) return send(200, []);
     const m = u.pathname.match(/^\/repos\/o\/r\/issues\/(\d+)(\/comments|\/labels(?:\/([\w-]+))?)?$/);
     const i = m && issues.get(Number(m[1]));
     if (!i) return send(404, {});
     if (m[2] === '/comments' && q.method === 'GET') return send(200, u.searchParams.get('page') === '1' ? i.comments : []);
-    if (m[2] === '/comments') { const c = { id: ++commentId, user: bot, author_association: 'OWNER', body: JSON.parse(data).body, created_at: new Date().toISOString() }; i.comments.push(c); if (rival && c.body.startsWith(HANDOFF_MARK)) { i.comments.push({ ...c, id: ++commentId, body: rival }); rival = null; } return send(201, { id: c.id }); }
-    if (m[2]?.startsWith('/labels') && q.method === 'DELETE') { if (!i.labels.includes(m[3])) return send(404, {}); i.labels = i.labels.filter((x) => x !== m[3]); return send(200, []); }
-    if (m[2]?.startsWith('/labels')) { i.labels = [...new Set([...i.labels, ...JSON.parse(data).labels])]; return send(200, []); }
+    if (m[2] === '/comments') { const body = JSON.parse(data).body; if (raceUsed && body.startsWith(USED_MARK)) i.comments.push({ id: ++commentId, user: bot, body, created_at: new Date(Date.now() - 1).toISOString() }); const c = { id: ++commentId, user: bot, author_association: 'OWNER', ...(postAs || {}), body, created_at: new Date().toISOString() }; i.comments.push(c); if (hideUsedOnce === 1 && body.startsWith(USED_MARK)) hideUsedOnce = 2; if (rival && body.startsWith(HANDOFF_MARK)) { i.comments.push({ ...c, id: ++commentId, body: rival, ...(rivalBefore ? { created_at: new Date(Date.parse(c.created_at) - 1).toISOString() } : {}) }); rival = null; } return send(201, c); }
+    if (m[2]?.startsWith('/labels') && q.method === 'DELETE') { if (!i.labels.includes(m[3])) return send(404, {}); if (m[3] === CLAIM) failAtUnclaim = i.comments.some((c) => c.body.startsWith(FAIL_MARK)); i.labels = i.labels.filter((x) => x !== m[3]); return send(200, []); }
+    if (m[2]?.startsWith('/labels')) { if (labelsRefused === 'error') return send(500, {}); if (labelsRefused === 'lost') { i.labels = [...new Set([...i.labels, ...JSON.parse(data).labels])]; return send(500, {}); } if (labelsRefused) return send(200, []); const add = JSON.parse(data).labels; labelEvents.push(...add.filter((x) => !i.labels.includes(x)).map((x) => `${i.number}:${x}`)); if (add.includes(CLAIM)) receiptAtClaim = i.comments.filter((c) => c.body.startsWith(FIRE_MARK)).length; i.labels = [...new Set([...i.labels, ...add])]; return send(200, i.labels.map((name) => ({ name }))); }
     if (q.method === 'PATCH') { const j = JSON.parse(data); if (j.state) i.state = j.state; if (j.labels) i.labels = j.labels; return send(200, view(i)); }
     return send(200, view(i));
   });
@@ -210,6 +215,114 @@ ok(r8.code === 0 && /rests/.test(r8.out) && st.labels.includes(BACKSTOP_OFF) && 
   ok(h.code === 0 && !st.labels.includes(PAUSED) && !st.labels.includes(BACKSTOP_OFF), 'a run started by hand lifts the pause and re-arms the backstop');
   st.labels = [];
 }
+{
+  // K057: with WAKE_START=label nothing outside GitHub is called; the claim label is the start
+  const LABEL = { WAKE_START: 'label', WAKE_ROUTINE_URL: '', WAKE_ROUTINE_TOKEN: '', WAKE_DAILY_CAP: '' };
+  ok(startByLabel('label') && !startByLabel(' label ') && startByLabel('Label') && !startByLabel('') && !startByLabel(undefined) && !startByLabel('labels') && !startByLabel('true'), 'only the one word switches the start to the label, in any case, as the workflow reads it');
+  for (const i of issues.values()) { if (!isState(view(i))) i.labels = i.labels.filter((x) => x !== WAKE); i.comments = []; }
+  st.labels = [];
+  add({ number: 40, labels: [WAKE], body: 'by label' });
+  const before = fires.length, at = labelEvents.length;
+  receiptAtClaim = null;
+  const r = await fire('labeled', 40, WAKE, LABEL);
+  const marks = st.comments.map((c) => c.body);
+  ok(r.code === 0 && fires.length === before && st.labels.includes(CLAIM) && labelEvents.slice(at).join() === `${st.number}:${CLAIM}`, 'label start: no /fire call, no URL and no token needed; the claim label is set once, which is the event the task listens for');
+  ok(receiptAtClaim === 1 && marks.findIndex((b) => b.startsWith(FIRE_MARK)) === 0 && marks.some((b) => b.startsWith(START_MARK)) && issues.get(40).comments.some((c) => /signalled/.test(c.body)) && ledger(st.comments).filter((e) => e.kind === 'fire').length === 1, 'label start: the receipt is already on the STATE issue when the claim label is set, so no run starts uncounted; it counts like any run and the woken issue is told');
+  const started = () => run(['started', '--repo', 'o/r'], { GITHUB_ACTIONS: '', WAKE_REREAD_MS: '1' });
+  const okd = await started();
+  ok(okd.code === 0 && /^WAKE-START: OK/m.test(okd.out) && st.comments.filter((c) => c.body.startsWith(USED_MARK)).length === 1, 'label start: a run the job signalled is told it may work, and its start is recorded as taken on the STATE issue');
+  {
+    // one start, one run: the claim set again by anyone (after the run ended, or while it works) starts nothing that works
+    const second = await started();
+    ok(second.code === 4 && /^WAKE-START: REFUSED/m.test(second.out) && /already took/.test(second.out), 'label start: a second run on the same receipt is refused while the claim is held');
+    st.labels = []; st.labels = [CLAIM];
+    const readded = await started();
+    ok(readded.code === 4 && /^WAKE-START: REFUSED/m.test(readded.out) && st.comments.filter((c) => c.body.startsWith(USED_MARK)).length === 1, 'label start: the claim label put back within the window by anyone but the job is refused: the receipt was spent');
+    const keep = st.comments;
+    st.comments = keep.filter((c) => !c.body.startsWith(USED_MARK));
+    raceUsed = true;
+    const raced = await started();
+    raceUsed = false;
+    ok(raced.code === 4 && /another run took this start first/.test(raced.out), 'label start: of two runs racing for one receipt, only the one whose record is the oldest works');
+    // the job's fresh, unspent receipt without the claim on the STATE issue (taken off, or set on another issue) lets nothing work
+    st.comments = keep.filter((c) => !c.body.startsWith(USED_MARK)); st.labels = []; issues.get(40).labels.push(CLAIM);
+    const noClaim = await started();
+    ok(noClaim.code === 4 && /does not carry/.test(noClaim.out) && !st.comments.some((c) => c.body.startsWith(USED_MARK)), 'label start: a fresh receipt without the claim on the STATE issue is refused and spends nothing');
+    issues.get(40).labels = issues.get(40).labels.filter((x) => x !== CLAIM); st.labels = [CLAIM];
+    // a rival's older record that the first listing does not show yet is still found: the run reads again
+    st.comments = keep.filter((c) => !c.body.startsWith(USED_MARK));
+    raceUsed = true; hideUsedOnce = 1;
+    const lagRace = await started();
+    raceUsed = false; hideUsedOnce = 0;
+    ok(lagRace.code === 4 && /another run took this start first/.test(lagRace.out), 'label start: a listing that lags is read again, so an older record from a racing run still wins');
+    // a run whose own record would not count (its account cannot write) may not work: it could take the start again and again
+    st.comments = keep.filter((c) => !c.body.startsWith(USED_MARK));
+    postAs = { user: { login: 'reader', type: 'User' }, author_association: 'NONE' };
+    const reader = await started();
+    postAs = null;
+    ok(reader.code === 4 && /could not be recorded/.test(reader.out), 'label start: a run that cannot leave a record that counts is refused');
+    // a stranger's comment on a public repository is no record: it cannot refuse the run
+    st.comments = keep.filter((c) => !c.body.startsWith(USED_MARK));
+    issues.get(40).comments.push({ id: 5, user: { login: 'stranger', type: 'User' }, author_association: 'NONE', body: `${USED_MARK}\nx`, created_at: new Date().toISOString() });
+    const stranger = await started();
+    ok(stranger.code === 0 && /^WAKE-START: OK/m.test(stranger.out), 'label start: a marked comment from an account that cannot write to the repository refuses nothing');
+    issues.get(40).comments = issues.get(40).comments.filter((c) => c.id !== 5);
+    // a listing that lags behind the run's own comment does not waste the start
+    st.comments = keep.filter((c) => !c.body.startsWith(USED_MARK));
+    hideNewest = true;
+    const lag = await started();
+    hideNewest = false;
+    ok(lag.code === 0 && /^WAKE-START: OK/m.test(lag.out) && (await started()).code === 4, 'label start: a listing that does not show the run\'s own record yet still lets that run work, once');
+    st.comments = keep;
+  }
+  const again = await fire('labeled', 40, WAKE, LABEL);
+  ok(again.code === 0 && labelEvents.length === at + 1 && /a run is on/.test(again.out), 'label start: while the claim is held, a second wake sets no second label');
+  st.labels = []; st.comments = [];
+  labelsRefused = true;
+  const bad = await fire('labeled', 40, WAKE, LABEL);
+  labelsRefused = false;
+  ok(bad.code === 1 && st.comments.some((c) => c.body.startsWith(FAIL_MARK)) && failStreak(ledger(st.comments)) === 1, 'label start: a label GitHub did not confirm is a failed start, recorded and counted');
+  st.labels = []; st.comments = []; issues.get(40).comments = [];
+  labelsRefused = 'error';
+  const lost = await fire('labeled', 40, WAKE, LABEL);
+  labelsRefused = false;
+  ok(lost.code === 1 && !st.labels.includes(CLAIM) && failStreak(ledger(st.comments)) === 1 && issues.get(40).comments.some((c) => /No coordinator run started/.test(c.body)), 'label start: a label GitHub refuses with an error is a failed start too: recorded, counted, no claim left, the woken issue told');
+  {
+    // GitHub set the label but its answer was lost: a run may already be starting. The failure is on record
+    // before the claim goes, so that run is refused and none works without a claim.
+    st.labels = []; st.comments = []; issues.get(40).comments = []; failAtUnclaim = null;
+    labelsRefused = 'lost';
+    const gone = await fire('labeled', 40, WAKE, LABEL);
+    labelsRefused = false;
+    st.labels = [CLAIM];   // as the run that the lost label started would still see it for a moment
+    const late = await started();
+    ok(gone.code === 1 && failAtUnclaim === true && failStreak(ledger(st.comments)) === 1 && late.code === 4 && /not a start/.test(late.out), 'label start: when the label was set but its answer lost, the failure is recorded before the claim is removed, and the run it started is refused');
+    st.labels = []; st.comments = []; issues.get(40).comments = [];
+  }
+  {
+    // a claim label set by anyone but the job has no receipt: that run must not work, so the caps hold
+    st.labels = [CLAIM]; st.comments = [];
+    const forged = await started();
+    ok(forged.code === 4 && /^WAKE-START: REFUSED/m.test(forged.out), 'label start: a claim label with no receipt from the job is refused, whoever set it');
+    st.comments = [{ user: { login: 'owner', type: 'User' }, body: `${FIRE_MARK}{"issue":40,"via":"label","sig":""} -->\nStarting a run.`, created_at: new Date().toISOString() }];
+    ok((await started()).code === 4, 'label start: a receipt a person posted does not count');
+    const M = 60000, f = (min, kind = 'fire') => ({ kind, at: now - min * M, issue: 40 });
+    ok(startOk({ ledger: [f(1)], stateClaimed: true, now }).ok && !startOk({ ledger: [f(1)], stateClaimed: false, now }).ok
+      && !startOk({ ledger: [f(START_WINDOW_MIN + 1)], stateClaimed: true, now }).ok && !startOk({ ledger: [f(2), f(1, 'fail')], stateClaimed: true, now }).ok
+      && !startOk({ ledger: [], stateClaimed: true, now }).ok && startOk({ ledger: [f(3, 'fail'), f(1)], stateClaimed: true, now }).ok
+      && !startOk({ ledger: [f(1)], stateClaimed: true, used: 1, now }).ok
+      && !startOk({ ledger: [{ ...f(1), at: now - 3000, id: 50 }, { kind: 'fire', at: now - 2000, issue: 7, via: 'handoff', id: 51 }], stateClaimed: true, now }).ok
+      && startOk({ ledger: [{ ...f(1), at: now - 3000, id: 50 }, { kind: 'fire', at: now - 2000, issue: 7, via: 'handoff', id: 51, seen: 49 }], stateClaimed: true, now }).issue === 40
+      && !startOk({ ledger: [{ ...f(1), at: now - 3000, id: 50 }, { kind: 'fire', at: now - 2000, issue: 7, via: 'handoff', id: 51, seen: 50 }], stateClaimed: true, now }).ok
+      && !startOk({ ledger: [f(2), { kind: 'fire', at: now - 1000, issue: 7, via: 'handoff' }], stateClaimed: true, now }).ok
+      && !startOk({ ledger: [{ ...f(0), at: now - START_WINDOW_MIN * 60000 - 20000 }], stateClaimed: true, now }).ok
+      && usedSince([{ id: 2, user: bot, body: `${USED_MARK}\nx`, created_at: new Date(now).toISOString() }, { id: 1, author_association: 'OWNER', body: `${USED_MARK}\nx`, created_at: new Date(now).toISOString() }, { id: 3, user: bot, body: `${USED_MARK}\nold`, created_at: new Date(now - 5 * M).toISOString() }, { id: 4, user: bot, body: 'no mark', created_at: new Date(now).toISOString() }, { id: 0, author_association: 'CONTRIBUTOR', user: { type: 'User' }, body: `${USED_MARK}\nx`, created_at: new Date(now).toISOString() }], now).map((c) => c.id).join() === '1,2',
+      `label start: only a claim on the STATE issue with the job's own start receipt as its newest, at most ${START_WINDOW_MIN} minutes old and not yet taken by a run, lets a run work`);
+    st.labels = []; st.comments = [];
+  }
+  ok((await fire('labeled', 40, WAKE, { ...LABEL, WAKE_START: 'yes' })).code === 1, 'any other value of WAKE_START still needs the /fire URL and token');
+  issues.get(40).labels = []; st.labels = []; st.comments = [];
+}
 const s = JSON.parse((await run(['status', '--repo', 'o/r'])).out);
 ok(s.state === st.number && s.emptyStreak === 0 && s.cap === DAILY_CAP && s.claim.length === 0 && s.failStreak === 0, 'status shows what the next decision reads');
 
@@ -270,6 +383,10 @@ ok(s.state === st.number && s.emptyStreak === 0 && s.cap === DAILY_CAP && s.clai
   const h1 = await handoff(['--issue', '21', '--from', 'o/sender']);
   ok(h1.code === 0 && /HANDOFF: START trig_01RECV \(o\/r #21\)/.test(h1.out.trim().split('\n').at(-1)) && /with this id and no text/.test(h1.out) && !/hint:/.test(h1.out) && st.labels.includes(CLAIM) && st.comments.at(-1).body.startsWith(HANDOFF_MARK) && /o\/sender/.test(st.comments.at(-1).body)
     && fires.length === before && !issues.get(21).labels.includes(WAKE), 'START: the claim and the receipt are written first, the last line names the task for fire_trigger, and no outside /fire call is made');
+  // K057: in a project that starts by label, this claim fires the label trigger too; the hand-off starts its own run
+  const byLabel = await run(['started', '--repo', 'o/r'], { GITHUB_ACTIONS: '', WAKE_REREAD_MS: '1' });
+  ok(byLabel.code === 4 && /^WAKE-START: REFUSED .*hand-off/m.test(byLabel.out) && !st.comments.some((c) => c.body.startsWith(USED_MARK)) && st.labels.includes(CLAIM),
+    'label start: a run the hand-off\'s claim label started is refused and writes nothing, so a hand-off is one working run (the one fire_trigger starts)');
   add({ number: 22 });
   const h2 = await handoff(['--issue', '22']);
   ok(/HANDOFF: QUEUED a run is on/.test(h2.out) && issues.get(22).labels.includes(WAKE) && marks(HANDOFF_MARK) === 1, 'a second hand-off while that run is on starts nothing: its wake label waits for the run\'s end (one run at a time)');
@@ -295,8 +412,33 @@ ok(s.state === st.number && s.emptyStreak === 0 && s.cap === DAILY_CAP && s.clai
     rival = `${FIRE_MARK}{"issue":9,"via":"label","sig":""} -->\nStarting a run (wake label).`;
     const lost = await handoff(['--issue', '21']);
     ok(/HANDOFF: QUEUED another start was written at the same moment/.test(lost.out) && !/HANDOFF: START/.test(lost.out) && issues.get(21).labels.includes(WAKE) && st.labels.includes(CLAIM), 'two starts at the same moment: the hand-off that does not keep the run starts nothing, leaves the claim with the other and queues its item');
+    // K057: in a label project that job receipt's claim started a run; the hand-off that yielded must not refuse it
+    const jobRun = await run(['started', '--repo', 'o/r'], { GITHUB_ACTIONS: '', WAKE_REREAD_MS: '1' });
+    ok(jobRun.code === 0 && /^WAKE-START: OK/m.test(jobRun.out), 'label start: a hand-off that yielded to a job receipt written after its own does not refuse the job\'s run');
     st.labels = []; issues.get(21).labels = [];
-    for (const i of issues.values()) i.comments = i.comments.filter((c) => !c.body.startsWith(HANDOFF_MARK) && !c.body.startsWith(FIRE_MARK));
+    for (const i of issues.values()) i.comments = i.comments.filter((c) => !c.body.startsWith(HANDOFF_MARK) && !c.body.startsWith(FIRE_MARK) && !c.body.startsWith(USED_MARK));
+  }
+  {
+    // K057: the same yield with the job's receipt dated just before the hand-off's (written while it settled, unread when it decided)
+    rivalBefore = true;
+    rival = `${FIRE_MARK}{"issue":9,"via":"label","sig":""} -->\nStarting a run (wake label).`;
+    const lost2 = await handoff(['--issue', '21']);
+    const jobRun2 = await run(['started', '--repo', 'o/r'], { GITHUB_ACTIONS: '', WAKE_REREAD_MS: '1' });
+    rivalBefore = false;
+    ok(/HANDOFF: QUEUED another start/.test(lost2.out) && jobRun2.code === 0 && /^WAKE-START: OK/m.test(jobRun2.out), 'label start: a hand-off that yielded to a job receipt dated just before its own, unread when it decided, does not refuse the job\'s run');
+    st.labels = []; issues.get(21).labels = [];
+    for (const i of issues.values()) i.comments = i.comments.filter((c) => !c.body.startsWith(HANDOFF_MARK) && !c.body.startsWith(FIRE_MARK) && !c.body.startsWith(USED_MARK));
+  }
+  {
+    // K057: the job's receipt is written, the hand-off reads it before the job's claim lands and keeps its
+    // start (fire_trigger); the job's claim then starts a label run, which must not work as well
+    st.comments.push({ id: ++commentId, user: bot, author_association: 'OWNER', body: `${FIRE_MARK}{"issue":9,"via":"label","sig":""} -->\nRun signalled (wake label).`, created_at: new Date(Date.now() - 1000).toISOString() });
+    const kept = await handoff(['--issue', '21']);
+    const labelRun = await run(['started', '--repo', 'o/r'], { GITHUB_ACTIONS: '', WAKE_REREAD_MS: '1' });
+    ok(/HANDOFF: START/.test(kept.out) && labelRun.code === 4 && /hand-off, which starts its own run/.test(labelRun.out) && !st.comments.some((c) => c.body.startsWith(USED_MARK)),
+      'label start: a hand-off that read the job\'s receipt and kept its start leaves the job\'s label run refused: one working run');
+    st.labels = []; issues.get(21).labels = [];
+    for (const i of issues.values()) i.comments = i.comments.filter((c) => !c.body.startsWith(HANDOFF_MARK) && !c.body.startsWith(FIRE_MARK) && !c.body.startsWith(USED_MARK));
   }
   {
     // two senders hand off to the same project in the same moment: exactly one of them starts the run
@@ -322,7 +464,7 @@ srv.close();
 const text = readFileSync(join(new URL('..', import.meta.url).pathname, '.harness/templates/workflows/harness-wake.yml'), 'utf8');
 const wf = parseYaml(text);
 const job = wf.jobs.wake, p = job.permissions;
-ok(/vars\.WAKE_ROUTINE_URL != ''/.test(job.if) && /label\.name == 'wake'/.test(job.if) && /label\.name == 'coordinator-running'/.test(job.if), 'the job is skipped without the routine URL, and runs only for the wake label or the claim leaving');
+ok(/\(vars\.WAKE_ROUTINE_URL != '' \|\| vars\.WAKE_START == 'label'\) &&/.test(job.if) && /label\.name == 'wake'/.test(job.if) && /label\.name == 'coordinator-running'/.test(job.if) && /WAKE_START: \$\{\{ vars\.WAKE_START \}\}/.test(text), 'the job is skipped with neither the routine URL nor the label start, and runs only for the wake label or the claim leaving');
 ok(job['timeout-minutes'] <= 3 && Object.entries(p).filter(([, v]) => v === 'write').map(([k]) => k).join() === 'issues' && p.contents === 'read', 'it is short and writes only issues (labels and comments), never code');
 ok(!/pull_request_target/.test(text) && /sparse-checkout: \.harness\/tools/.test(text) && /default_branch/.test(text) && /secrets\.WAKE_ROUTINE_TOKEN/.test(text), 'it never runs PR code: only the default branch\'s tools, and the token comes from a secret');
 ok(String(wf.on.schedule?.[0]?.cron || wf.on.schedule).includes('* * *') && wf.concurrency?.group === 'harness-wake', 'one daily backstop, one decision at a time');

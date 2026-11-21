@@ -136,8 +136,14 @@ person lifts the pause: every stop holds for it too.
 
 The scheduled task's saved prompt says this. Each run:
 
-1. Reads the fire payload (a hint only), then the STATE issue, then the board and the queue (open
-   issues labelled `wake`). It acts on what GitHub shows, never on the payload alone.
+1. Reads the fire payload (a hint only; a run started by label, K057, gets none), then the STATE
+   issue, then the board and the queue (open issues labelled `wake`). It acts on what GitHub shows,
+   never on the payload alone. A run started by label (its first messages show a GitHub trigger
+   context) first runs `wake.mjs started --repo <repository>` and obeys the first word after
+   `WAKE-START:`. On `REFUSED` it writes nothing and ends: the job did not signal this start, or
+   another run already took it. `OK` is given once per start: the command itself writes the run's
+   first comment on the STATE issue ("Run started"), which spends the start and is the only proof
+   that it arrived.
 2. Works the queue under the project's rules (`core.md`, the rulebook). It removes `wake` from each
    issue it has handled. It may set `wake` on an issue to hand work to the next run. That counts
    against the same caps.
@@ -146,7 +152,9 @@ The scheduled task's saved prompt says this. Each run:
    cannot finish writes why in STATE and still removes the claim. A run never opens a new issue only
    to continue its own work past the per-issue cap.
 
-A run never changes its own scheduled task, the workflow or the caps. It never removes
+A run never changes its own scheduled task, the workflow or the caps. It never sets
+`coordinator-running`, on any issue: only the job claims (and `wake.mjs handoff`, K056), and with the
+label start a claim set by anyone else would start a run that no receipt counts. It never removes
 `wake-stopped`, `wake-paused` or `backstop-off`, never edits the job's comments, never starts the
 workflow by hand, and never touches any permission or secret.
 
@@ -165,6 +173,55 @@ workflow by hand, and never touches any permission or secret.
 
 Until the variable is set, every `harness-wake` job is skipped.
 
+## Start by label (K057): no token, no call outside GitHub
+
+The job can start the run without `/fire`. Set the Actions variable `WAKE_START` to `label`. The job
+then decides, counts and posts its receipt exactly as before, and its last step is the claim label
+`coordinator-running` on the STATE issue. That label is the start: the project's scheduled task has a
+GitHub trigger on it.
+
+1. **The scheduled task** (an agent can do this in the owner's signed-in browser; tools cannot set a
+   GitHub trigger). In the task's Edit dialog, Trigger, choose **GitHub event**, the project's
+   repository, the event **Issue: Labeled**, and a filter so that only the label
+   `coordinator-running` matches (and only the STATE issue, where the filter can say so). Read the saved page back: the trigger line must say "Issue:
+   Labeled". The Claude GitHub App must be installed on the repository. Turn the task's notifications
+   off, or every run reaches the owner's phone.
+2. **The switch.** Set `WAKE_START` to `label`. Delete the Actions variable `WAKE_ROUTINE_URL` and the
+   secret `WAKE_ROUTINE_TOKEN`: nothing reads them any more. The task's API trigger may go too, but a
+   hand-off (K056) still starts the task with `fire_trigger`: after removing it, prove one hand-off
+   start, and add the API trigger back if that start fails.
+3. **Prove it once.** Set `wake` on a test issue. The STATE issue gets the receipt, "Run signalled",
+   and then the run's own first comment; the run removes the claim as its last step.
+
+What differs from `/fire`:
+
+- **No session link.** The job cannot see the run start. The proof that it started is the run's first
+  comment on the STATE issue, so the run's contract makes that comment its first write.
+- **A start that never comes** leaves the claim in place. After 6 hours it counts as a run that died:
+  the next decision clears it and starts again, and a run that keeps dying pauses wakes, as before.
+  Only a label GitHub refused or did not confirm is a failed start the job itself sees.
+- **A hand-off** (K056) sets the same claim, so it fires the label trigger too. The hand-off still
+  starts its run with `fire_trigger`; `wake.mjs started` refuses a start whose newest receipt is a
+  hand-off's, so the run the label began ends at once and one hand-off is one working run. A hand-off
+  that yielded to a job receipt it had not read (its receipt names the newest it read, `seen`) started
+  nothing: `started` passes over it and the job's start works.
+- **The run needs GitHub write access** to run `started` (it writes the "Run started" comment): in a
+  cloud session, the repository attached with push access. Without it every label start is refused.
+- **A label set by the job's own token does start the task.** GitHub starts no workflow for such a
+  label, but it still tells the Apps installed on the repository. Measured: a run 2 seconds after a
+  job's label, and 3 seconds after a label set by a person's account.
+- **A claim label is not a way around the caps.** The trigger cannot tell who set the label, so a
+  claim set by a person, an App or an agent starts a session. That session may not work: `wake.mjs
+  started` passes only when the job's newest receipt is a start at most 15 minutes old, the claim
+  sits on the STATE issue, and no run has taken that start yet (its "Run started" comment; of two
+  runs racing, the older comment wins; only a comment from an account that may write to the
+  repository counts, so a stranger's comment refuses nothing). The command needs a token that may
+  comment. So one receipt is one working run, also when the claim is
+  put back inside the 15 minutes. A forged claim costs one session that ends in seconds, and it blocks
+  further runs like any claim until it is removed or 6 hours pass.
+- **Check the trigger's event before believing a failed proof.** A task whose trigger says "Pull
+  request: Opened" never starts on a label, and its silence looks like "labels start nothing".
+
 ## Cost (O13)
 
 - **GitHub minutes:** each wake label, claim release and backstop day runs one job of a few seconds.
@@ -172,6 +229,7 @@ Until the variable is set, every `harness-wake` job is skipped.
   and none with one or on a public repository.
 - **Claude usage:** each run started is one Claude Code session on the owner's subscription. That is
   usage, never money, and at most 48 a day per repository.
+- **Start by label:** the same job and the same session per run; no extra job and no extra session.
 - **Rate limits:** the `/fire` limits are 30 fires an hour per task and 100 an hour per account.
   They are far above the caps.
 
