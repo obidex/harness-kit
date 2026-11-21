@@ -8,7 +8,7 @@ import { createServer } from 'node:http';
 import { execFile } from 'node:child_process';
 import { join } from 'node:path';
 import { readFileSync } from 'node:fs';
-import { decide, ledger, capFrom, fireUrlOk, isState, payload, signature, failStreak, chainLength, MOVABLE, WAKE, CLAIM, STOPPED, PAUSED, BACKSTOP_OFF, CHAIN_STOP, STATE, STATE_MARK, FIRE_MARK, FAIL_MARK, STUCK_MARK, EMPTY_MARK, START_MARK, startByLabel, startOk, START_WINDOW_MIN, DAILY_CAP, ISSUE_CAP, ISSUE_TOTAL, EMPTY_STOP, STUCK_STOP } from '../.harness/tools/wake.mjs';
+import { decide, ledger, capFrom, fireUrlOk, isState, payload, signature, failStreak, chainLength, MOVABLE, WAKE, CLAIM, STOPPED, PAUSED, BACKSTOP_OFF, CHAIN_STOP, STATE, STATE_MARK, FIRE_MARK, FAIL_MARK, STUCK_MARK, EMPTY_MARK, START_MARK, USED_MARK, startByLabel, startOk, usedSince, START_WINDOW_MIN, DAILY_CAP, ISSUE_CAP, ISSUE_TOTAL, EMPTY_STOP, STUCK_STOP } from '../.harness/tools/wake.mjs';
 import { parseYaml } from '../.harness/tools/lib.mjs';
 
 let n = 0;
@@ -111,6 +111,7 @@ ok(fireUrlOk('https://api.anthropic.com/v1/claude_code/routines/trig_01AbC/fire'
 ok(/#7/.test(payload({ repo: 'o/r', why: 'w', target: 7, stateIssue: 1 })) && /remove `coordinator-running` from #1 as the very last step/.test(payload({ repo: 'o/r', why: 'w', target: null, stateIssue: 1 })), 'the run is told the issue, the STATE issue and to release the claim last');
 
 // --- the job, end to end against stand-ins -------------------------------------------------------------
+let commentId = 100, usedIdLie = null;   // usedIdLie: the stand-in answers a comment POST with another id (a start someone else took)
 const issues = new Map();   // number -> { number, state, labels: [names], body, user, comments: [{ user, body, created_at }] }
 const fires = [];
 let fireStatus = 200;
@@ -141,7 +142,7 @@ const srv = createServer((q, res) => {
     const i = m && issues.get(Number(m[1]));
     if (!i) return send(404, {});
     if (m[2] === '/comments' && q.method === 'GET') return send(200, u.searchParams.get('page') === '1' ? i.comments : []);
-    if (m[2] === '/comments') { i.comments.push({ user: bot, body: JSON.parse(data).body, created_at: new Date().toISOString() }); return send(201, { id: 1 }); }
+    if (m[2] === '/comments') { const c = { id: ++commentId, user: bot, body: JSON.parse(data).body, created_at: new Date().toISOString() }; i.comments.push(c); return send(201, { id: usedIdLie ?? c.id }); }
     if (m[2]?.startsWith('/labels') && q.method === 'DELETE') { if (!i.labels.includes(m[3])) return send(404, {}); i.labels = i.labels.filter((x) => x !== m[3]); return send(200, []); }
     if (m[2]?.startsWith('/labels')) { if (labelsRefused === 'error') return send(500, {}); if (labelsRefused) return send(200, []); const add = JSON.parse(data).labels; labelEvents.push(...add.filter((x) => !i.labels.includes(x)).map((x) => `${i.number}:${x}`)); if (add.includes(CLAIM)) receiptAtClaim = i.comments.filter((c) => c.body.startsWith(FIRE_MARK)).length; i.labels = [...new Set([...i.labels, ...add])]; return send(200, i.labels.map((name) => ({ name }))); }
     if (q.method === 'PATCH') { const j = JSON.parse(data); if (j.state) i.state = j.state; if (j.labels) i.labels = j.labels; return send(200, view(i)); }
@@ -225,7 +226,22 @@ ok(r8.code === 0 && /rests/.test(r8.out) && st.labels.includes(BACKSTOP_OFF) && 
   ok(receiptAtClaim === 1 && marks.findIndex((b) => b.startsWith(FIRE_MARK)) === 0 && marks.some((b) => b.startsWith(START_MARK)) && issues.get(40).comments.some((c) => /signalled/.test(c.body)) && ledger(st.comments).filter((e) => e.kind === 'fire').length === 1, 'label start: the receipt is already on the STATE issue when the claim label is set, so no run starts uncounted; it counts like any run and the woken issue is told');
   const started = () => run(['started', '--repo', 'o/r'], { GITHUB_ACTIONS: '' });
   const okd = await started();
-  ok(okd.code === 0 && /^WAKE-START: OK/m.test(okd.out), 'label start: a run the job signalled is told it may work');
+  ok(okd.code === 0 && /^WAKE-START: OK/m.test(okd.out) && st.comments.filter((c) => c.body.startsWith(USED_MARK)).length === 1, 'label start: a run the job signalled is told it may work, and its start is recorded as taken on the STATE issue');
+  {
+    // one start, one run: the claim set again by anyone (after the run ended, or while it works) starts nothing that works
+    const second = await started();
+    ok(second.code === 4 && /^WAKE-START: REFUSED/m.test(second.out) && /already took/.test(second.out), 'label start: a second run on the same receipt is refused while the claim is held');
+    st.labels = []; st.labels = [CLAIM];
+    const readded = await started();
+    ok(readded.code === 4 && /^WAKE-START: REFUSED/m.test(readded.out) && st.comments.filter((c) => c.body.startsWith(USED_MARK)).length === 1, 'label start: the claim label put back within the window by anyone but the job is refused: the receipt was spent');
+    const keep = st.comments;
+    st.comments = keep.filter((c) => !c.body.startsWith(USED_MARK));
+    usedIdLie = 7;
+    const raced = await started();
+    usedIdLie = null;
+    ok(raced.code === 4 && /another run took this start first/.test(raced.out), 'label start: of two runs racing for one receipt, only the one whose record is the oldest works');
+    st.comments = keep;
+  }
   const again = await fire('labeled', 40, WAKE, LABEL);
   ok(again.code === 0 && labelEvents.length === at + 1 && /a run is on/.test(again.out), 'label start: while the claim is held, a second wake sets no second label');
   st.labels = []; st.comments = [];
@@ -248,8 +264,10 @@ ok(r8.code === 0 && /rests/.test(r8.out) && st.labels.includes(BACKSTOP_OFF) && 
     const M = 60000, f = (min, kind = 'fire') => ({ kind, at: now - min * M, issue: 40 });
     ok(startOk({ ledger: [f(1)], stateClaimed: true, now }).ok && !startOk({ ledger: [f(1)], stateClaimed: false, now }).ok
       && !startOk({ ledger: [f(START_WINDOW_MIN + 1)], stateClaimed: true, now }).ok && !startOk({ ledger: [f(2), f(1, 'fail')], stateClaimed: true, now }).ok
-      && !startOk({ ledger: [], stateClaimed: true, now }).ok && startOk({ ledger: [f(3, 'fail'), f(1)], stateClaimed: true, now }).ok,
-      `label start: only a claim on the STATE issue with the job's own start receipt as its newest, at most ${START_WINDOW_MIN} minutes old, lets a run work`);
+      && !startOk({ ledger: [], stateClaimed: true, now }).ok && startOk({ ledger: [f(3, 'fail'), f(1)], stateClaimed: true, now }).ok
+      && !startOk({ ledger: [f(1)], stateClaimed: true, used: 1, now }).ok
+      && usedSince([{ id: 2, body: `${USED_MARK}\nx`, created_at: new Date(now).toISOString() }, { id: 1, body: `${USED_MARK}\nx`, created_at: new Date(now).toISOString() }, { id: 3, body: `${USED_MARK}\nold`, created_at: new Date(now - 5 * M).toISOString() }, { id: 4, body: 'no mark', created_at: new Date(now).toISOString() }], now).map((c) => c.id).join() === '1,2',
+      `label start: only a claim on the STATE issue with the job's own start receipt as its newest, at most ${START_WINDOW_MIN} minutes old and not yet taken by a run, lets a run work`);
     st.labels = []; st.comments = [];
   }
   ok((await fire('labeled', 40, WAKE, { ...LABEL, WAKE_START: 'yes' })).code === 1, 'any other value of WAKE_START still needs the /fire URL and token');

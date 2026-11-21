@@ -12,7 +12,9 @@
 //   node .harness/tools/wake.mjs started --repo owner/name
 //                                         for a run that a label started (K056): prints `WAKE-START: OK`
 //                                         only when the job itself signalled this start (its receipt, the
-//                                         claim on the STATE issue); else `WAKE-START: REFUSED` and exit 4
+//                                         claim on the STATE issue) and no run took it yet; OK writes one
+//                                         "Run started" comment that spends the start (needs a token that
+//                                         may comment); else `WAKE-START: REFUSED` and exit 4
 //   node .harness/tools/wake.mjs status --repo owner/name
 //                                         the state the next decision reads (JSON; reads only)
 //
@@ -64,6 +66,7 @@ export const CLAIM_TTL_H = 6;        // a claim older than this belongs to a run
 export const EMPTY_STOP = 3;         // empty backstops in a row, then the backstop stops
 export const STUCK_STOP = 3;         // backstop runs in a row for the same work, or failed fires in a row: stop
 export const CHAIN_STOP = 8;         // hand-off runs in a row with no outside wake between, then pause
+export const USED_MARK = '<!-- wake-start-used -->';   // K056: the run's own "started" comment; it spends the job's receipt
 export const START_WINDOW_MIN = 15;  // K056: a label-started run works only within this long of the job's receipt
 export const LEDGER_DAYS = 30;       // how far back the receipts are read
 const HOUR = 3600e3, DAY = 24 * HOUR;
@@ -190,17 +193,23 @@ export function decide({ event, label, issue = null, claim = false, paused = fal
 export const startByLabel = (v) => String(v ?? '').trim().toLowerCase() === 'label';   // case as the workflow's `==` reads it
 
 /** K056: is a run that a label started one the job itself signalled? Only then may it work: the claim
- *  sits on the STATE issue, and the job's newest receipt is a start no older than START_WINDOW_MIN
- *  with no failure after it. A claim label set by anyone else has no such receipt, so that run ends
- *  at once and the caps hold for work, whoever can set a label. */
-export function startOk({ ledger: led = [], stateClaimed = false, now = Date.now() }) {
+ *  sits on the STATE issue, the job's newest receipt is a start no older than START_WINDOW_MIN with no
+ *  failure after it, and no run has spent that receipt yet (`used`: the USED_MARK comments since it).
+ *  A claim label set by anyone else, or set again after a run took the start, has no unspent receipt,
+ *  so that run ends at once and the caps hold for work, whoever can set a label. */
+export function startOk({ ledger: led = [], stateClaimed = false, used = 0, now = Date.now() }) {
   if (!stateClaimed) return { ok: false, why: `the STATE issue does not carry \`${CLAIM}\`` };
   const last = led.filter((e) => e.kind === 'fire' || e.kind === 'fail').at(-1);
   if (!last || last.kind !== 'fire') return { ok: false, why: 'the job\'s newest receipt is not a start' };
   const min = Math.round((now - last.at) / 60000);
   if (min > START_WINDOW_MIN) return { ok: false, why: `the job's newest start receipt is ${min} minutes old (more than ${START_WINDOW_MIN})` };
-  return { ok: true, why: `the job signalled this start ${min} minute(s) ago`, issue: last.issue };
+  if (used > 0) return { ok: false, why: 'a run already took the job\'s newest start (one start, one run)' };
+  return { ok: true, why: `the job signalled this start ${min} minute(s) ago`, issue: last.issue, at: last.at };
 }
+
+/** The USED_MARK comments made at or after a receipt's time, oldest first (anyone's: one can only refuse a run). */
+export const usedSince = (comments, at) => comments.filter((c) => String(c.body || '').startsWith(USED_MARK) && Date.parse(c.created_at) >= at - 1000)
+  .sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at) || a.id - b.id);
 
 /** The fire URL must be a scheduled task's /fire endpoint, nothing else. */
 export function fireUrlOk(url, base = process.env.WAKE_FIRE_BASE || 'https://api.anthropic.com') {
@@ -246,11 +255,12 @@ const names = (i) => (i.labels || []).map((l) => l.name ?? l);
 
 /** The job's receipts in the whole repository, LEDGER_DAYS back, so no edit to the STATE issue changes
  *  a count. If the listing is cut off, the decision fails closed: no run starts on an unread count. */
-async function receipts(repo, now = Date.now()) {
+async function receipts(repo, now = Date.now()) { return ledger(await recentComments(repo, now)); }
+async function recentComments(repo, now = Date.now()) {
   const since = new Date(now - LEDGER_DAYS * DAY).toISOString();
   const max = 200, l = await pages(`/repos/${repo}/issues/comments?since=${since}&sort=created&direction=asc`, max);
   if (l.length >= max * 100) throw new Error(`more than ${max * 100} comments in ${LEDGER_DAYS} days: the receipts cannot all be read, so no run starts`);
-  return ledger(l);
+  return l;
 }
 
 /** The STATE issue: the first open one this job opened with the marker; else the first closed one,
@@ -399,11 +409,21 @@ async function main() {
   if (issue !== null && !Number.isInteger(issue)) throw new Error('--issue must be a number');
   if (cmd === 'fire') return runFire(repo, { event: opt('--event'), issue, label: opt('--label') });
   if (cmd === 'started') {
-    // reads only; any token. The run obeys the first word of the line.
+    // The run obeys the first word of the line. OK is given once per receipt: this command spends the
+    // start with one comment on the STATE issue, and the oldest such comment since the receipt wins.
     const st = await stateIssue(repo, { open: false });
-    const r = st ? startOk({ ledger: await receipts(repo), stateClaimed: st.state === 'open' && names(st).includes(CLAIM) }) : { ok: false, why: 'there is no STATE issue' };
-    console.log(`WAKE-START: ${r.ok ? 'OK' : 'REFUSED'} — ${r.why}`);
-    if (!r.ok) process.exitCode = 4;
+    const refuse = (why) => { console.log(`WAKE-START: REFUSED — ${why}`); process.exitCode = 4; };
+    if (!st) return refuse('there is no STATE issue');
+    const all = await recentComments(repo), led = ledger(all);
+    const lastFire = led.filter((e) => e.kind === 'fire').at(-1);
+    const r = startOk({ ledger: led, stateClaimed: st.state === 'open' && names(st).includes(CLAIM), used: lastFire ? usedSince(all, lastFire.at).length : 0 });
+    if (!r.ok) return refuse(r.why);
+    let mine;
+    try { mine = await gh('POST', `/repos/${repo}/issues/${st.number}/comments`, { body: `${USED_MARK}\nRun started (label start${r.issue != null ? `, woken by #${r.issue}` : ''}).` }); }
+    catch (e) { return refuse(`the start could not be recorded on #${st.number} (${String(e.message).slice(0, 120)})`); }
+    const first = usedSince(await recentComments(repo), r.at)[0];
+    if (!first || first.id !== mine?.id) return refuse('another run took this start first');
+    console.log(`WAKE-START: OK — ${r.why}`);
     return;
   }
   if (cmd === 'status') {

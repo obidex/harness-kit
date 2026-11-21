@@ -12,8 +12,9 @@ A label on an issue does start a scheduled task that has a GitHub trigger for it
   label `coordinator-running` on the STATE issue, and that label starts the task. Decision, caps,
   receipts and stops are unchanged. Without the variable nothing changes: `/fire` as before.
 - **`wake.mjs started`**: a run that a label started runs it first and works only on `WAKE-START:
-  OK` (the job's own fresh receipt and the claim on the STATE issue), so a claim label set by anyone
-  else starts nothing that works.
+  OK` (the job's own fresh receipt, the claim on the STATE issue, and no run having taken that start
+  yet: OK writes the "Run started" comment that spends it), so a claim label set by anyone else, or
+  set again on a spent receipt, starts nothing that works.
 - **`harness-wake.yml`** runs with either the routine URL or the label start, and passes the variable.
 - **`wake.md`** "Start by label": the trigger to set (Issue: Labeled, filtered to the claim label),
   what to delete after the switch (URL variable, token secret, API trigger), and what differs (no
