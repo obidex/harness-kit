@@ -160,7 +160,7 @@ async function event(name, t) {
 // --- the sweep: one run cleans everything a dropped waiting run would have (K059) -----------------------
 export const SWEEP_MARGIN_MS = 5 * 60 * 1000;      // overlap with the last good run: an event a little older than its start
 export const SWEEP_FALLBACK_MS = 24 * 3600 * 1000;  // no good run found (first run, unreadable list): the last day, never more
-export const SWEEP_PAGES = 10;                      // 100 items a page, per listing
+export const SWEEP_PAGES = 30;                      // 100 items a page, per listing: room for a full day on a busy repository
 export const SWEEP_REVIEW_PRS = 30;                 // pull requests whose reviews are read
 
 /**
@@ -169,9 +169,13 @@ export const SWEEP_REVIEW_PRS = 30;                 // pull requests whose revie
  * a fork's pull request (its own group, read-only token) or a cancelled, skipped or failed run covered
  * nothing, so it does not count.
  */
-export function sweepSince(runs, { repo, currentId, now }) {
+export function sweepSince(runs, { repo, currentId, now, notBefore }) {
   const floor = now - SWEEP_FALLBACK_MS;
+  // a run older than the workflow file's last change ran an older file, which may not have swept (0.53.1):
+  // it covered only its own event, so it never anchors the window; an unknown change date trusts no run
+  const since = notBefore === undefined ? -Infinity : Date.parse(notBefore);
   const good = (runs || []).filter((r) => r && Number(r.id) < Number(currentId) && r.conclusion === 'success'
+    && Date.parse(r.created_at) >= since
     && !(String(r.event || '').startsWith('pull_request') && r.head_repository?.full_name !== repo)
     && r.actor?.login !== 'dependabot[bot]' && Number.isFinite(Date.parse(r.created_at)));
   if (!good.length) return new Date(floor).toISOString();
@@ -241,7 +245,13 @@ async function sweepRun() {
     try { runs = (await api('GET', `/repos/${repo}/actions/workflows/${encodeURIComponent(file)}/runs?per_page=100`)).workflow_runs; }
     catch (e) { console.log(`::warning::scrub: could not read this workflow's runs (${e.message.slice(0, 120)}); sweeping the last day`); }
   }
-  const since = sweepSince(runs, { repo, currentId: process.env.GITHUB_RUN_ID, now: Date.now() });
+  // when this workflow file last changed: runs before it ran another file (a kit update), so they anchor nothing
+  let notBefore = null;
+  if (file) {
+    try { notBefore = (await api('GET', `/repos/${repo}/commits?path=${encodeURIComponent(`.github/workflows/${file}`)}&per_page=1`))[0]?.commit?.committer?.date ?? null; }
+    catch (e) { console.log(`::warning::scrub: could not read when this workflow last changed (${e.message.slice(0, 120)}); sweeping the last day`); }
+  }
+  const since = sweepSince(runs, { repo, currentId: process.env.GITHUB_RUN_ID, now: Date.now(), notBefore: notBefore ?? new Date(8.64e15).toISOString() });
   const saved = await sweep(repo, since);
   console.log(`scrub: sweep since ${since}: ${saved.length} bod${saved.length === 1 ? 'y' : 'ies'} cleaned`);
 }
