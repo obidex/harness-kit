@@ -3,6 +3,27 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.53.0 · 2026-11-21 · chores apart from tests, one scrub run per burst, checks scaled to the change with a nightly full run (K059)
+
+A comment's few seconds of clean-up no longer wait behind a test run, and thirty comments no longer
+start thirty runs. Nothing always-loaded changed.
+
+- **Chore lane**: `harness-scrub`, `-guard`, `-audit`, `-inbox`, `-review`, `-stale` and `-wake` run on
+  `${{ vars.CHORE_RUNNER || vars.RUNNER || 'ubuntu-latest' }}`; `harness-sweep` stays on `RUNNER`. With
+  `CHORE_RUNNER` unset nothing changes. The audit's **A19** fails a public repository that sets
+  `CHORE_RUNNER`, as it does `RUNNER`.
+- **`harness-scrub`**: issues and comments share one concurrency group per repository (one run going,
+  one waiting); a pull request's own events keep one group per pull request. Each run cleans its event
+  and sweeps every body updated since the last green run (`scrub.mjs`, `sweep`). A fork's or
+  Dependabot's event keeps its own group and sweeps nothing. The job reads its own run list
+  (`actions: write` was already granted; the kit's own `scrub.yml` gains `actions: read`).
+- **`scope.mjs`** (new): `decide` says whether a pull request's own CI may run light (documents only,
+  outside build, test and fixture paths and a documentation site's pages; the profile's new optional
+  `ci_scope.full`), never without a nightly schedule in
+  the calling workflow; `gate` is the one required check's verdict. Tested by `tools/test-scope.mjs`.
+- **`ci.md`** (new, lookup): the chore runner's setup, the burst, the scoped CI pattern with its gate
+  and nightly run, splitting the long test job, and the finish line. `hands.md`'s minutes table updated.
+
 ## 0.52.0 · 2026-11-21 · owner steps are designed away at the plan, tried on every rung, and carry a `Tried:` line when one reaches him (K058)
 
 The owner was handed a step agents could have done. The rules sent it to him as written; they now try

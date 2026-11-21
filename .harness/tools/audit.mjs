@@ -92,6 +92,7 @@ async function load() {
   // (a repository variable, or an organisation's, which the repository endpoint does not list)
   if (repoInfo.status === 200 && repoInfo.data?.private === false) {
     api.runnerVar = await gh(`/repos/${repo}/actions/variables/RUNNER`);
+    api.choreVar = await gh(`/repos/${repo}/actions/variables/CHORE_RUNNER`);   // the chore lane (K059)
     if (repoInfo.data?.owner?.type === 'Organization') api.orgVars = await gh(`/repos/${repo}/actions/organization-variables?per_page=30`);
   }
   api.rulesets = rs; api.labels = labels; api.runs = runs; api.issues = issues; api.pulls = pulls; api.comments = comments; api.repo = repoInfo;
@@ -597,22 +598,23 @@ const checks = {
       if (w.wf.permissions === undefined) bad.push(`${w.file}: no workflow-level permissions (GitHub's default may grant writes)`);
     }
     const pub = isPublic();
-    // a literal self-hosted label fails; the kit's `vars.RUNNER || 'ubuntu-latest'` lane fails only when
-    // the RUNNER variable is set (404: not set, so those jobs run GitHub-hosted)
+    // a literal self-hosted label fails; the kit's `vars.RUNNER || 'ubuntu-latest'` lane, and its chore lane
+    // `vars.CHORE_RUNNER || …` (K059), fail only when that variable is set (404: not set, so GitHub-hosted)
     let runnerUnknown = false;
     if (pub) for (const w of workflows) for (const [k, j] of w.jobs) {
       const r = runsOn(j);
       if (/self-hosted/.test(r)) bad.push(`${w.file}#${k}: a self-hosted runner on a public repository`);
-      else if (/vars\.RUNNER/.test(r)) {
-        const orgSet = api.orgVars?.status === 200 && (api.orgVars.data?.variables || []).some((v) => v.name === 'RUNNER');
-        // one page (30, the endpoint's most): a longer list may hide RUNNER, so it is unread, never clear
+      else for (const [name, read] of [['RUNNER', api.runnerVar], ['CHORE_RUNNER', api.choreVar]]) {
+        if (!new RegExp(`vars\\.${name}\\b`).test(r)) continue;
+        const orgSet = api.orgVars?.status === 200 && (api.orgVars.data?.variables || []).some((v) => v.name === name);
+        // one page (30, the endpoint's most): a longer list may hide the variable, so it is unread, never clear
         const orgUnread = api.orgVars && (api.orgVars.status !== 200 || (api.orgVars.data?.total_count ?? 0) > (api.orgVars.data?.variables || []).length);
-        if (api.runnerVar?.status === 200 || orgSet) bad.push(`${w.file}#${k}: the RUNNER variable is set on a public repository${orgSet ? ' (by its organisation)' : ''}`);
-        else if (api.runnerVar?.status !== 404 || orgUnread) runnerUnknown = true;
+        if (read?.status === 200 || orgSet) bad.push(`${w.file}#${k}: the ${name} variable is set on a public repository${orgSet ? ' (by its organisation)' : ''}`);
+        else if (read?.status !== 404 || orgUnread) runnerUnknown = name;
       }
     }
     if (bad.length) return [FAIL, short(bad.join('; '), 400)];
-    if (runnerUnknown) return [UNKNOWN, `public repository; whether the RUNNER variable is set: ${noAccess(api.runnerVar)}`];
+    if (runnerUnknown) return [UNKNOWN, `public repository; whether the ${runnerUnknown} variable is set: ${noAccess(runnerUnknown === 'RUNNER' ? api.runnerVar : api.choreVar)}`];
     if (pub === undefined) return [UNKNOWN, `${workflows.length} workflows: no pull_request_target, read-only workflow permissions; whether the repository is public: ${noAccess(api.repo)}`];
     return [PASS, `${workflows.length} workflows: no pull_request_target, read-only workflow permissions${pub ? ', no self-hosted runner on this public repository' : ''} (runner hosts: judgment review)`];
   },

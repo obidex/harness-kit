@@ -1,5 +1,6 @@
 # Kit-managed (Harness Kit): installed and updated by .harness/tools/harness.mjs; never edit here.
 # Action group: auto (it checks, reports, alerts or wakes by itself; .harness/tools/actions.mjs)
+# Runs on the chore lane: CHORE_RUNNER when set, else RUNNER (K059, .harness/ci.md).
 # Disposable, event-fired coordinators (K033, .harness/wake.md): the label `wake` on an issue or pull
 # request starts one fresh coordinator run through the project's scheduled task (/fire), at most one at
 # a time (the claim label `coordinator-running` on the STATE issue), and the job posts the run's
@@ -53,7 +54,7 @@ jobs:
        (github.event_name == 'issues' || (github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]'))) ||
       (github.event.action == 'unlabeled' && github.event.label.name == 'coordinator-running') ||
       github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
-    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.CHORE_RUNNER || vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 3
     permissions:
       contents: read

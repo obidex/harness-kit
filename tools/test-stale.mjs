@@ -399,6 +399,31 @@ for (const f of readdirSync(dir)) {
   else ok(/ref: \$\{\{ github\.event\.repository\.default_branch \}\}\n\s+sparse-checkout: \.harness\/tools\n\s+persist-credentials: false/.test(text), `${f}: checks out only the default branch's .harness/tools, without persisted credentials`);
   ok(/persist-credentials: false/.test(text), `${f}: no persisted git credentials`);
 }
+// --- the chore lane (K059): every short kit job takes CHORE_RUNNER first; the long sweep keeps RUNNER ------
+for (const f of readdirSync(dir)) {
+  const wf = parseYaml(readFileSync(join(dir, f), 'utf8'));
+  const lanes = Object.values(wf.jobs || {}).map((j) => (ctx) => evalExpr(j['runs-on'], ctx));
+  const same = { event_name: 'pull_request', repository: 'o/r', event: { pull_request: { head: { repo: { full_name: 'o/r' } } } } };
+  const both = { CHORE_RUNNER: 'chores', RUNNER: 'self-hosted-vps' };
+  if (f === 'harness-sweep.yml') ok(lanes.every((l) => l({ github: same, vars: both }) === 'self-hosted-vps'), `${f}: the long full check stays on RUNNER, never the chore lane it would hold for hours`);
+  else ok(lanes.every((l) => l({ github: same, vars: both }) === 'chores' && l({ github: same, vars: { RUNNER: 'self-hosted-vps' } }) === 'self-hosted-vps' && l({ github: same, vars: {} }) === 'ubuntu-latest'),
+    `${f}: CHORE_RUNNER when set, else RUNNER, else ubuntu-latest`);
+}
+// --- one scrub run per burst (K059): one group for the repository; a read-only event has its own --------
+for (const [f, prefix] of [[join(dir, 'harness-scrub.yml'), 'harness-scrub-'], [join(kit, '.github/workflows/scrub.yml'), 'scrub-']]) {
+  const wf = parseYaml(readFileSync(f, 'utf8'));
+  const g = (github) => evalExpr(wf.concurrency.group.replace(prefix, ''), { github: { repository: 'o/r', run_id: '77', actor: 'someone', ...github } });
+  const sweepOn = (github) => evalExpr(wf.jobs.scrub.steps.at(-1).env.SCRUB_SWEEP, { github: { repository: 'o/r', actor: 'someone', ...github } });
+  const pr = (full_name, actor = 'someone') => ({ actor, event: { pull_request: { number: 5, head: { repo: full_name ? { full_name } : null } } } });
+  ok(String(wf.concurrency['cancel-in-progress']) === 'false' && wf.concurrency.group.startsWith(prefix)
+    && g({ event: { comment: { id: 1 }, issue: { number: 2, pull_request: {} } } }) === 'all' && g({ event: { issue: { number: 3 } } }) === 'all' && String(g(pr('o/r'))) === '5',
+    `${f.split('/').pop()}: comments and issues share one group (one running, one waiting); a pull request's own events keep one group per pull request, so its head commit never shows a scrub cancelled by a comment`);
+  ok(g(pr('fork/r')) === '77' && g(pr(null)) === '77' && g(pr('o/r', 'dependabot[bot]')) === '77' && g({ actor: 'github-actions[bot]', event: {} }) === '77',
+    `${f.split('/').pop()}: a fork's, a deleted fork's or Dependabot's pull request, and the Actions bot, never replace the shared waiting run`);
+  ok(sweepOn(pr('o/r')) === 'on' && sweepOn({ event: { comment: { id: 1 } } }) === 'on' && sweepOn(pr('fork/r')) === 'off' && sweepOn(pr('o/r', 'dependabot[bot]')) === 'off',
+    `${f.split('/').pop()}: a read-only event sweeps nothing; every other run sweeps`);
+}
+
 const st = parseYaml(readFileSync(join(dir, 'harness-stale.yml'), 'utf8'));
 ok(st.on.schedule.length === 1 && /^\d+ \d+ \* \* \*$/.test(st.on.schedule[0].cron) && 'workflow_dispatch' in st.on && Object.keys(st.on).length === 2, `harness-stale runs once a day (${st.on.schedule[0].cron}) and on dispatch, nothing else`);
 ok(st.jobs.stale.permissions.issues === 'write' && Object.entries(st.jobs.stale.permissions).every(([k, v]) => k === 'issues' || v === 'read') && Number(st.jobs.stale['timeout-minutes']) <= 3, 'its one job writes only issues and is short');
