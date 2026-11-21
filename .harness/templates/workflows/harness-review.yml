@@ -1,5 +1,6 @@
 # Kit-managed (Harness Kit): installed and updated by .harness/tools/harness.mjs; never edit here.
 # Action group: auto (it checks, reports, alerts or wakes by itself; .harness/tools/actions.mjs)
+# Runs on the chore lane: CHORE_RUNNER when set, else RUNNER (K059, .harness/ci.md).
 # A second reviewer on every pull request (K054; .harness/tools/review.mjs, review.md). When a
 # pull-request workflow named below finishes green, one job waits until every check on that commit is
 # green, reads the diff and the rulebook, asks a Claude model for the problems it would block the
@@ -47,7 +48,7 @@ jobs:
       github.event.workflow_run.event == 'pull_request' &&
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.head_repository.full_name == github.repository
-    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.CHORE_RUNNER || vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 5
     permissions:
       contents: read

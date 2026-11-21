@@ -25,7 +25,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: scrub-${{ github.event_name }}-${{ github.event.comment.id || github.event.review.id || github.event.issue.number || github.event.pull_request.number }}
+  # one run going and one waiting for the repository; each run sweeps what a dropped one named (K059)
+  group: scrub-${{ ((github.event.pull_request && (github.event.pull_request.head.repo.full_name != github.repository || github.actor == 'dependabot[bot]')) || github.actor == 'github-actions[bot]') && github.run_id || 'all' }}
   cancel-in-progress: false
 
 jobs:
@@ -37,6 +38,7 @@ jobs:
       contents: read
       issues: write
       pull-requests: write
+      actions: read    # its own run list: where the sweep starts (K059)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -49,4 +51,5 @@ jobs:
       - name: Remove Claude attribution from the body
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          SCRUB_SWEEP: ${{ (github.event.pull_request && (github.event.pull_request.head.repo.full_name != github.repository || github.actor == 'dependabot[bot]')) && 'off' || 'on' }}
         run: node .harness/tools/scrub.mjs

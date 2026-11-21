@@ -75,3 +75,5 @@ jobs:
         run: node tools/test-replay.mjs
       - name: Owner steps (the plan's no-one designs and the Tried line)
         run: node tools/test-owner-step.mjs
+      - name: Checks scaled to the change (scope and the gate)
+        run: node tools/test-scope.mjs
