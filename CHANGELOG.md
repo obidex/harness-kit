@@ -3,6 +3,31 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.52.0 · 2026-11-21 · owner steps are designed away at the plan, tried on every rung, and carry a `Tried:` line when one reaches him (K058)
+
+The owner was handed a step agents could have done. The rules sent it to him as written; they now try
+everything first and show the proof.
+
+- **O17** (loaded): a planned owner step lists the designs that need no one and why each fails, for
+  review before the build. Then the ladder: redesign, an API or script, his terminal (Remote Control),
+  his signed-in browser or computer use. A pre-filled link is no longer a rung. The only stops: his
+  password, a code, a payment. A fresh reviewer tries the step without him first, and what reaches
+  him carries one `Tried:` line naming each rung and what stopped it (a step sent without it is a
+  lesson the same day).
+- **O04** (loaded), the owner's choice A: a secret is first designed away (made where it lives, moved
+  as an unopened file, an App's short-lived tokens); else an agent carries a new machine secret
+  straight from its page to its machine, never into chat, an issue, a file, a log or memory, and its
+  thread ends saying so; the owner last.
+- **O01** (loaded): the reserved kinds are O17's stops, a new account, a physical step, a secret only
+  he holds, and the rest as before; a token, an app or a step on his machine is no longer his by kind.
+- **O06** (loaded), **A23**, `models.md`: every scheduled helper task names Haiku, never the account
+  default.
+- **`owner-step.mjs`** (new): `plan` fails a card with an owner step and no "No-one designs" list (or a
+  secret step without the three no-carry designs); `ask` fails a message that waits on the owner
+  without a complete `Tried:` line. **`owner-steps.md`** (new) holds the procedure and the formats.
+- The `owner-defaults.md` per-file cap rises from 4160 to 4416 bytes for these limits; the
+  fresh-install token budget (K034) is unchanged and holds (K058). Replay result included.
+
 ## 0.51.0 · 2026-11-21 · the wake job can start the run by its claim label: no token and no call outside GitHub (K057)
 
 A label on an issue does start a scheduled task that has a GitHub trigger for it. The two recorded

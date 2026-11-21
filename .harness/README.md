@@ -16,6 +16,7 @@ Installed in each project as a pinned copy (K001). Layers, not systems:
 | Models and effort: which model and effort each kind of run uses, and Anthropic's effort advice (B0, B3 of K049) | `models.md` | Lookup |
 | Clean-up card: the pilot template that may change patterns on purpose (C26's exception, K049) | `cards/cleanup.md` | Lookup |
 | Bulk work: every ready card at once, the two reasons to wait, subagents, the owner's browser, scarce resources, one report at the end; an agent on a server (C20, HI05, K051) | `bulk.md` | Lookup |
+| Owner steps (K058): designed away at the plan ("No-one designs"), the ladder, the three stops, secrets carried only when no design fits, the `Tried:` line on every step that reaches him, helper tasks on Haiku (O01, O02, O04, O06, O17) | `owner-steps.md`, `tools/owner-step.mjs` | Lookup; tool run, never loaded |
 | Decisions, one file each: the closed log, `decisions/<ID>.md`, what two threads do with one number, the check (C17, K052) | `decisions.md`, `tools/decisions.mjs` | Lookup; tool run, never loaded |
 | Standing approvals: the one text every project copies into its project instructions, with its fill-ins and how it stays in step | `standing-approvals.md` | Lookup |
 | One-time permission line: how a thread offers the owner one permission line so a blocked step stops coming back to him, and the shape of a project's list of lines (A24) | `permission-line.md` | Lookup |
