@@ -239,10 +239,11 @@ export function startOk({ ledger: led = [], stateClaimed = false, used = 0, now 
   const evs = led.filter((e) => e.kind === 'fire' || e.kind === 'fail');
   // a hand-off yielded (keepsStart, K056) to a job receipt it had not read when it decided (`seen`) and
   // that was written by the end of its settle time: it started nothing, so it neither is a start here
-  // nor hides the job's. A job receipt it had read did not make it yield: it kept its start.
+  // nor hides the job's. A job receipt it had read did not make it yield: it kept its start. A receipt
+  // with no `seen` (a sender before 0.51.0) counts as kept: at worst a start stalls, never two runs.
   const jobs = evs.filter((e) => e.kind === 'fire' && e.via !== 'handoff');
-  const yielded = (e) => e.kind === 'fire' && e.via === 'handoff' && jobs.some((j) => (e.seen == null || (j.id != null && j.id > e.seen))
-    && j.at <= e.at + HANDOFF_SETTLE_MS && (e.seen != null || Math.abs(j.at - e.at) <= HANDOFF_SETTLE_MS));
+  const yielded = (e) => e.kind === 'fire' && e.via === 'handoff' && e.seen != null
+    && jobs.some((j) => j.id != null && j.id > e.seen && j.at <= e.at + HANDOFF_SETTLE_MS);
   const last = evs.filter((e) => !yielded(e)).at(-1);
   if (!last || last.kind !== 'fire') return { ok: false, why: 'the job\'s newest receipt is not a start' };
   // a hand-off that kept its start: its claim fires the label trigger too, but it starts its own run (fire_trigger, K056)
@@ -411,10 +412,16 @@ async function runFire(repo, { event, issue, label }) {
   if (d.via === 'hand') for (const n of s.pausedOn) await gh('DELETE', `/repos/${repo}/issues/${n}/labels/${PAUSED}`).catch(() => {});
   if (byLabel) {
     // the receipt first, as always; then the claim, whose `labeled` event is what starts the task.
-    // decide() starts a run only with no claim, or a dead one cleared above; the unclaim here is only
-    // a guard, since a claim still there would send no event.
+    // decide() starts a run only with no claim, or a dead one cleared above.
     await comment(repo, s.st.number, `${FIRE_MARK}${JSON.stringify({ issue: d.target, via: d.via, sig: d.sig })} -->\nStarting a run (${d.why}).`);
-    await unclaim(repo, s.st.number);
+    // a claim that appeared since the decision read is another start's (a hand-off that kept its start,
+    // K056): it is never taken over (removing and setting it again would start a second run). This
+    // receipt is marked not started, so no label run can work on it.
+    if (names(await gh('GET', `/repos/${repo}/issues/${s.st.number}`)).includes(CLAIM)) {
+      await comment(repo, s.st.number, `${FAIL_MARK}\nNot started: another start took the claim on #${s.st.number} first; it runs, and it reads the queue.`).catch(() => {});
+      console.log(`wake: another start holds the claim on #${s.st.number}; this one starts nothing`);
+      return;
+    }
     // a label refused, lost or not confirmed is a failed start: recorded, counted, and the issue is told
     let failed = null;
     try {
