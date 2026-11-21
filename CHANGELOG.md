@@ -3,6 +3,28 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.50.0 · 2026-11-21 · the session that hands work to another project starts that project's run itself (K056)
+
+The owner, on outside wake-ups failing: find a way not to need them. A session can start another
+project's coordinator run directly, so the one that hands work over does it in the same turn.
+
+- **`wake.mjs handoff --repo <receiver> [--issue <n>] [--from <sender>]`** (new): run in a session,
+  it takes the wake job's own decision for the receiving repository and prints the line the session
+  obeys. `HANDOFF: START <trig id>`: the claim and a receipt are written, and the session calls
+  `fire_trigger` once. `HANDOFF: QUEUED`: a run is on, or a cap or stop holds; the `wake` label
+  waits on the item. `HANDOFF: NOTHING`: nothing to start. `--failed "<error>"` releases a start that
+  did not happen (same item, within 30 minutes). `--dry` writes nothing and prints `HANDOFF: DRY`.
+- **No cap, stop or one-at-a-time rule changes.** A hand-off receipt counts as a run in every cap,
+  and a failed one as a failed start, only from an account that may write to the repository. A
+  hand-off sets no stop and lifts none. Two starts written at the same moment: it yields to the job,
+  and between two hand-offs the earlier receipt keeps the run.
+- **`inbox.mjs`** prints the hand-off line after `send` and after `state --to done` or `blocked`
+  (the project named in the request's Source), and the `inbox` skill makes it a step of both.
+- **A receiving project adds `.github/wake.json`**, `{ "runTask": "trig_…" }`, naming its
+  coordinator-run scheduled task. Until it does, the sender names it with `--task <trig id>`, or the
+  hand-off only queues. A repository that lowered `WAKE_DAILY_CAP` repeats the number there as `dailyCap`.
+- No new workflow, schedule, secret or permission; nothing runs on GitHub for a hand-off.
+
 ## 0.49.0 · 2026-11-20 · the second reviewer is off by default, on only until a time the owner names; a full check of existing code (K055)
 
 The owner, on hearing a project report its reviewer as "on": the set-up should be everywhere, but the
