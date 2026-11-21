@@ -119,7 +119,7 @@ export function ledger(comments) {
     const b = String(c.body || ''), at = Date.parse(c.created_at);
     // a hand-off receipt (K056) is written by a session, under the account the project's sessions act as:
     // it counts when its author may write to the repository, and only then. Edited later, it still counts.
-    if (b.startsWith(HANDOFF_MARK)) { if (byWriter(c)) { const j = json(b, HANDOFF_MARK); out.push({ kind: 'fire', at, issue: Number.isInteger(j.issue) ? j.issue : null, via: 'handoff', sig: '', id: c.id ?? null }); } continue; }
+    if (b.startsWith(HANDOFF_MARK)) { if (byWriter(c)) { const j = json(b, HANDOFF_MARK); out.push({ kind: 'fire', at, issue: Number.isInteger(j.issue) ? j.issue : null, via: 'handoff', sig: '', id: c.id ?? null, seen: Number.isInteger(j.seen) ? j.seen : null }); } continue; }
     if (b.startsWith(HANDOFF_FAIL_MARK)) { if (byWriter(c)) out.push({ kind: 'fail', at, via: 'handoff' }); continue; }
     if (!byJob(c)) continue;
     // the job never edits its comments: an edited one is counted as a run, whatever it says now
@@ -237,10 +237,12 @@ export const startByLabel = (v) => String(v ?? '').toLowerCase() === 'label';   
 export function startOk({ ledger: led = [], stateClaimed = false, used = 0, now = Date.now() }) {
   if (!stateClaimed) return { ok: false, why: `the STATE issue does not carry \`${CLAIM}\`` };
   const evs = led.filter((e) => e.kind === 'fire' || e.kind === 'fail');
-  // a hand-off receipt written within its settle time of a job receipt yielded to it (keepsStart, K056):
-  // it started nothing, so it neither is a start here nor hides the job's
-  const jobAt = evs.filter((e) => e.kind === 'fire' && e.via !== 'handoff').map((e) => e.at);
-  const yielded = (e) => e.kind === 'fire' && e.via === 'handoff' && jobAt.some((t) => Math.abs(t - e.at) <= HANDOFF_SETTLE_MS);
+  // a hand-off yielded (keepsStart, K056) to a job receipt it had not read when it decided (`seen`) and
+  // that was written by the end of its settle time: it started nothing, so it neither is a start here
+  // nor hides the job's. A job receipt it had read did not make it yield: it kept its start.
+  const jobs = evs.filter((e) => e.kind === 'fire' && e.via !== 'handoff');
+  const yielded = (e) => e.kind === 'fire' && e.via === 'handoff' && jobs.some((j) => (e.seen == null || (j.id != null && j.id > e.seen))
+    && j.at <= e.at + HANDOFF_SETTLE_MS && (e.seen != null || Math.abs(j.at - e.at) <= HANDOFF_SETTLE_MS));
   const last = evs.filter((e) => !yielded(e)).at(-1);
   if (!last || last.kind !== 'fire') return { ok: false, why: 'the job\'s newest receipt is not a start' };
   // a hand-off that kept its start: its claim fires the label trigger too, but it starts its own run (fire_trigger, K056)
@@ -546,7 +548,9 @@ async function runHandoff(repo, { issue, from, failed, dry, task: given }) {
     await gh('POST', `/repos/${repo}/issues/${st.number}/labels`, { labels: [CLAIM] });   // claim before the run exists
     // the receipt comes BEFORE the start, as the job's does: no run starts uncounted
     const seen = new Set(led.filter((e) => e.kind === 'fire').map((e) => e.id));
-    const mine = await comment(repo, st.number, `${HANDOFF_MARK}${JSON.stringify({ issue: d.target, via: 'handoff', from: who })} -->\nStarting a run from inside (hand-off from ${who}${d.target != null ? ` for #${d.target}` : ''}).`);
+    // `seen`: the newest receipt this decision read, so `started` (K057) judges its yield exactly as keepsStart does
+    const seenMax = Math.max(0, ...[...seen].filter(Number.isInteger));
+    const mine = await comment(repo, st.number, `${HANDOFF_MARK}${JSON.stringify({ issue: d.target, via: 'handoff', from: who, seen: seenMax })} -->\nStarting a run from inside (hand-off from ${who}${d.target != null ? ` for #${d.target}` : ''}).`);
     // one run at a time, also when two starts are written at the same moment: wait, then read who else
     // wrote a receipt around this one. The loser starts nothing; its receipt stays counted and the claim
     // stays with the start that keeps it.

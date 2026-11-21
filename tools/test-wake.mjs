@@ -312,6 +312,8 @@ ok(r8.code === 0 && /rests/.test(r8.out) && st.labels.includes(BACKSTOP_OFF) && 
       && !startOk({ ledger: [], stateClaimed: true, now }).ok && startOk({ ledger: [f(3, 'fail'), f(1)], stateClaimed: true, now }).ok
       && !startOk({ ledger: [f(1)], stateClaimed: true, used: 1, now }).ok
       && startOk({ ledger: [{ ...f(1), at: now - 3000 }, { kind: 'fire', at: now - 2000, issue: 7, via: 'handoff' }], stateClaimed: true, now }).issue === 40
+      && startOk({ ledger: [{ ...f(1), at: now - 3000, id: 50 }, { kind: 'fire', at: now - 2000, issue: 7, via: 'handoff', id: 51, seen: 49 }], stateClaimed: true, now }).issue === 40
+      && !startOk({ ledger: [{ ...f(1), at: now - 3000, id: 50 }, { kind: 'fire', at: now - 2000, issue: 7, via: 'handoff', id: 51, seen: 50 }], stateClaimed: true, now }).ok
       && !startOk({ ledger: [f(2), { kind: 'fire', at: now - 1000, issue: 7, via: 'handoff' }], stateClaimed: true, now }).ok
       && !startOk({ ledger: [{ ...f(0), at: now - START_WINDOW_MIN * 60000 - 20000 }], stateClaimed: true, now }).ok
       && usedSince([{ id: 2, user: bot, body: `${USED_MARK}\nx`, created_at: new Date(now).toISOString() }, { id: 1, author_association: 'OWNER', body: `${USED_MARK}\nx`, created_at: new Date(now).toISOString() }, { id: 3, user: bot, body: `${USED_MARK}\nold`, created_at: new Date(now - 5 * M).toISOString() }, { id: 4, user: bot, body: 'no mark', created_at: new Date(now).toISOString() }, { id: 0, author_association: 'CONTRIBUTOR', user: { type: 'User' }, body: `${USED_MARK}\nx`, created_at: new Date(now).toISOString() }], now).map((c) => c.id).join() === '1,2',
@@ -413,6 +415,17 @@ ok(s.state === st.number && s.emptyStreak === 0 && s.cap === DAILY_CAP && s.clai
     // K057: in a label project that job receipt's claim started a run; the hand-off that yielded must not refuse it
     const jobRun = await run(['started', '--repo', 'o/r'], { GITHUB_ACTIONS: '', WAKE_REREAD_MS: '1' });
     ok(jobRun.code === 0 && /^WAKE-START: OK/m.test(jobRun.out), 'label start: a hand-off that yielded to the job\'s receipt beside it does not refuse the job\'s run, so a start still works');
+    st.labels = []; issues.get(21).labels = [];
+    for (const i of issues.values()) i.comments = i.comments.filter((c) => !c.body.startsWith(HANDOFF_MARK) && !c.body.startsWith(FIRE_MARK) && !c.body.startsWith(USED_MARK));
+  }
+  {
+    // K057: the job's receipt is written, the hand-off reads it before the job's claim lands and keeps its
+    // start (fire_trigger); the job's claim then starts a label run, which must not work as well
+    st.comments.push({ id: ++commentId, user: bot, author_association: 'OWNER', body: `${FIRE_MARK}{"issue":9,"via":"label","sig":""} -->\nRun signalled (wake label).`, created_at: new Date(Date.now() - 1000).toISOString() });
+    const kept = await handoff(['--issue', '21']);
+    const labelRun = await run(['started', '--repo', 'o/r'], { GITHUB_ACTIONS: '', WAKE_REREAD_MS: '1' });
+    ok(/HANDOFF: START/.test(kept.out) && labelRun.code === 4 && /hand-off, which starts its own run/.test(labelRun.out) && !st.comments.some((c) => c.body.startsWith(USED_MARK)),
+      'label start: a hand-off that read the job\'s receipt and kept its start leaves the job\'s label run refused: one working run');
     st.labels = []; issues.get(21).labels = [];
     for (const i of issues.values()) i.comments = i.comments.filter((c) => !c.body.startsWith(HANDOFF_MARK) && !c.body.startsWith(FIRE_MARK) && !c.body.startsWith(USED_MARK));
   }
