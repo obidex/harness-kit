@@ -268,7 +268,7 @@ ok(s.state === st.number && s.emptyStreak === 0 && s.cap === DAILY_CAP && s.clai
   const dry = await handoff(['--issue', '21', '--dry']);
   ok(/HANDOFF: DRY would START trig_01RECV/.test(dry.out) && !/HANDOFF: START/.test(dry.out) && !st.labels.includes(CLAIM) && marks(HANDOFF_MARK) === 0, '--dry prints the decision under its own word, never the START line a session obeys, and writes nothing');
   const h1 = await handoff(['--issue', '21', '--from', 'o/sender']);
-  ok(h1.code === 0 && /HANDOFF: START trig_01RECV \(o\/r #21\)/.test(h1.out.trim().split('\n').at(-1)) && /hint: .*#21/.test(h1.out) && st.labels.includes(CLAIM) && st.comments.at(-1).body.startsWith(HANDOFF_MARK) && /o\/sender/.test(st.comments.at(-1).body)
+  ok(h1.code === 0 && /HANDOFF: START trig_01RECV \(o\/r #21\)/.test(h1.out.trim().split('\n').at(-1)) && /with this id and no text/.test(h1.out) && !/hint:/.test(h1.out) && st.labels.includes(CLAIM) && st.comments.at(-1).body.startsWith(HANDOFF_MARK) && /o\/sender/.test(st.comments.at(-1).body)
     && fires.length === before && !issues.get(21).labels.includes(WAKE), 'START: the claim and the receipt are written first, the last line names the task for fire_trigger, and no outside /fire call is made');
   add({ number: 22 });
   const h2 = await handoff(['--issue', '22']);
