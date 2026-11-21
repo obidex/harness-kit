@@ -297,6 +297,11 @@ ok(s.state === st.number && s.emptyStreak === 0 && s.cap === DAILY_CAP && s.clai
     const both = await Promise.all([handoff(['--issue', '23'], { HANDOFF_SETTLE_MS: '400' }), handoff(['--issue', '24'], { HANDOFF_SETTLE_MS: '400' })]);
     const starts = both.filter((r) => /HANDOFF: START/.test(r.out)).length, queued = both.filter((r) => /HANDOFF: QUEUED/.test(r.out)).length;
     ok(starts === 1 && queued === 1 && st.labels.includes(CLAIM), 'two hand-offs at the same moment start exactly one run; the other queues its item (one run at a time)');
+    // the one that kept the run could not start it: its release works whichever receipt is the newer
+    const winner = /HANDOFF: START/.test(both[0].out) ? '23' : '24', loser = winner === '23' ? '24' : '23';
+    ok(/HANDOFF: QUEUED the start failed/.test((await handoff(['--issue', winner, '--failed', 'refused'])).out) && !st.labels.includes(CLAIM), 'a start that kept the run and then failed is released, also when the yielding hand-off wrote the newer receipt: no claim is left with no run behind it');
+    ok(/HANDOFF: NOTHING no hand-off start is open/.test((await handoff(['--issue', winner, '--failed', 'again'])).out), 'a start already marked failed is not released twice');
+    void loser;
     st.labels = []; for (const n of [21, 23, 24]) issues.get(n).labels = [];
     for (const i of issues.values()) i.comments = i.comments.filter((c) => !c.body.startsWith(HANDOFF_MARK));
   }

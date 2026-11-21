@@ -431,9 +431,10 @@ async function runHandoff(repo, { issue, from, failed, dry, task: given }) {
   const can = !!it && it.open && !it.isState && !it.labels.includes(STOPPED);
   const queueIt = async () => { if (can && !it.labels.includes(WAKE) && !dry) await gh('POST', `/repos/${repo}/issues/${it.number}/labels`, { labels: [WAKE] }); };
   if (failed !== undefined) {
-    // only a start this tool claimed is released: the newest receipt must be a hand-off's, with no fail after it
-    const last = led.filter((e) => e.kind === 'fire' || e.kind === 'fail').at(-1);
-    if (last?.kind !== 'fire' || last.via !== 'handoff' || Date.now() - last.at > HANDOFF_RELEASE_MIN * 60e3 || (last.issue ?? null) !== (it?.number ?? null)) return done('NOTHING', 'no hand-off start is open here: nothing released');
+    // the start being released is the newest hand-off receipt for this item (another sender's receipt, one
+    // that yielded, may be newer), recent, and not already marked failed
+    const last = led.filter((e) => e.kind === 'fire' && e.via === 'handoff' && (e.issue ?? null) === (it?.number ?? null)).at(-1);
+    if (!last || Date.now() - last.at > HANDOFF_RELEASE_MIN * 60e3 || led.some((e) => e.kind === 'fail' && e.via === 'handoff' && e.at >= last.at)) return done('NOTHING', 'no hand-off start is open here: nothing released');
     if (!dry) {
       await unclaim(repo, st.number);
       await comment(repo, st.number, `${HANDOFF_FAIL_MARK}\nNot started from inside (hand-off from ${who}): ${String(failed).replace(/\s+/g, ' ').slice(0, 160)}.`);
