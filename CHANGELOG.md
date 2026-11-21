@@ -3,6 +3,13 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.53.1 · 2026-11-21 · the first clean-up run after a kit update reaches back a full day (K059)
+
+- **`scrub.mjs`**: a green run anchors the sweep only if it was created after the workflow file last
+  changed (`commits?path=`). Older runs ran the previous file, which did not sweep, so the first run
+  after an update sweeps the last day: scrub runs cancelled while the update was on its way lose
+  nothing. A listing may hold 3,000 items (was 1,000), room for a busy repository's day.
+
 ## 0.53.0 · 2026-11-21 · chores apart from tests, one scrub run per burst, checks scaled to the change with a nightly full run (K059)
 
 A comment's few seconds of clean-up no longer wait behind a test run, and thirty comments no longer

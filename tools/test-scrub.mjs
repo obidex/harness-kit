@@ -75,6 +75,12 @@ eq(sweepSince([r(5, '2026-11-21T17:00:00Z', 'success'), r(6, '2026-11-21T17:20:0
   'a cancelled (dropped), failed or skipped run covered nothing: the window reaches back to the last green one');
 eq(sweepSince([r(5, '2026-11-21T17:00:00Z', 'success'), r(7, '2026-11-21T17:30:00Z', 'success', { event: 'pull_request', head_repository: { full_name: 'fork/r' } }), r(8, '2026-11-21T17:40:00Z', 'success', { actor: { login: 'dependabot[bot]' } })], { repo: 'o/r', currentId: 9, now: NOW }), at('2026-11-21T17:00:00Z'),
   'a fork\'s or Dependabot\'s run (read-only, its own group) swept nothing and does not count');
+eq(sweepSince([r(5, '2026-11-21T17:00:00Z', 'success'), r(7, '2026-11-21T17:30:00Z', 'success')], { repo: 'o/r', currentId: 9, now: NOW, notBefore: '2026-11-21T17:10:00Z' }), at('2026-11-21T17:30:00Z'),
+  'a green run after the workflow file last changed anchors the window');
+eq(sweepSince([r(5, '2026-11-21T17:00:00Z', 'success'), r(7, '2026-11-21T17:30:00Z', 'success')], { repo: 'o/r', currentId: 9, now: NOW, notBefore: '2026-11-21T17:45:00Z' }), new Date(NOW - SWEEP_FALLBACK_MS).toISOString(),
+  'the first run after a kit update sweeps the last day: older green runs ran the old file, which did not sweep, so runs cancelled before the update lose nothing');
+eq(sweepSince([r(7, '2026-11-21T17:30:00Z', 'success')], { repo: 'o/r', currentId: 9, now: NOW, notBefore: new Date(8.64e15).toISOString() }), new Date(NOW - SWEEP_FALLBACK_MS).toISOString(),
+  'an unknown change date trusts no earlier run: the last day');
 eq(sweepSince([], { repo: 'o/r', currentId: 9, now: NOW }), new Date(NOW - SWEEP_FALLBACK_MS).toISOString(), 'no green run (or an unreadable list): the last day');
 eq(sweepSince([r(5, '2026-11-01T00:00:00Z', 'success')], { repo: 'o/r', currentId: 9, now: NOW }), new Date(NOW - SWEEP_FALLBACK_MS).toISOString(), 'never further back than the last day');
 

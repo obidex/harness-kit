@@ -41,7 +41,9 @@ comment never leaves a cancelled scrub check on a pull request's head commit. Ea
 event's body and then sweeps every issue, pull request, comment and review comment updated since the
 newest earlier run that finished green (less 5 minutes; at most the last day), and the reviews of the
 pull requests among them (`scrub.mjs sweep`). A dropped run's body is cleaned by the run that replaced
-it. A listing longer than 1,000 items, or any error but a body that is read-only or gone, fails the
+it. Only a green run made from the current workflow file counts (one older than the file's last
+change ran a file that may not have swept), so the first run after a kit update sweeps the last day:
+waiting scrub runs may be cancelled while an update is on its way. A listing longer than 3,000 items, or any error but a body that is read-only or gone, fails the
 run, so the next one sweeps again from the last green run. A fork's or Dependabot's pull-request event has a read-only token, so it keeps a group of its own
 and sweeps nothing. `harness-audit` and `harness-guard` already keep one run per pull request
 (`cancel-in-progress`).
