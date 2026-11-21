@@ -2,7 +2,8 @@
 
 > Lookup only, never loaded by default. K033: how a project's coordinator runs only when an event
 > calls for it, one fresh session at a time, with caps nobody resets. The tool is `tools/wake.mjs`;
-> the workflow is `templates/workflows/harness-wake.yml`.
+> the workflow is `templates/workflows/harness-wake.yml`. K056: a session that hands work to another
+> project starts that project's run itself ("Hand-off between projects").
 
 ## Why
 
@@ -79,6 +80,39 @@ see:
 - an issue still labelled `wake`;
 - a dead run's claim;
 - C15 stale work, except draft pull requests such as the old wake channels.
+
+## Hand-off between projects (K056)
+
+The label wake needs a job and an outside call. A session needs neither: it can start another
+project's run task itself. So **whoever finishes something another project waits on starts that
+project's coordinator run in the same turn**: an inbox request sent, an inbox request answered or
+blocked, a blocker closed, an action proven.
+
+1. In the sending session, with the receiving repository attached (push access):
+   `node .harness/tools/wake.mjs handoff --repo <receiving owner/name> [--issue <its item>] [--from <own owner/name>]`.
+   `inbox.mjs` prints this line, filled in, after `send` and after `state --to done` or `blocked`.
+2. The tool reads the receiver's claim, receipts and stops and takes the same decision as the wake
+   job: one run at a time, the same caps, every stop. Its last line is what the session obeys:
+   - `HANDOFF: START <trig id> …`: the claim is set and the receipt written on the receiver's STATE
+     issue. Call `fire_trigger` once with that id and the printed hint as text. Never twice. If the
+     call is refused or fails, run the command again with `--failed "<the error>"` (it releases the
+     claim, marks the start failed and leaves `wake` on the item), and try no other way (C14).
+   - `HANDOFF: QUEUED …`: no start now (a run is on, a cap, a stop, no task named). The `wake` label
+     is on the item; the run that is on takes it before it ends, or the next start does.
+   - `HANDOFF: NOTHING …`: nothing there to start or queue. Go on.
+3. The run started this way is an ordinary run under the contract below; it removes the claim last.
+
+**What the receiver provides.** `.github/wake.json` on its default branch, `{ "runTask": "trig_…" }`:
+the id of its coordinator-run scheduled task (Setup, step 1). Without it a hand-off only queues.
+A repository whose coordinator keeps its STATE issue by hand is read through the label
+`coordinator-state`; one with no STATE issue gets `NOTHING`.
+
+**Counts and stops.** A hand-off receipt counts as a run in every cap, whoever posted it, and its
+failed start as a failed start. A hand-off sets no stop and lifts none: paused, stopped or capped,
+it queues. It is an outside wake, so it ends a chain of runs that only started each other. No timer
+is added: a hand-off happens at the moment work changes hands, or not at all.
+
+**Not for** events no session causes (a person's tap, a job without AI): those stay with the label.
 
 ## The run's contract
 

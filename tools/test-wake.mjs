@@ -8,7 +8,7 @@ import { createServer } from 'node:http';
 import { execFile } from 'node:child_process';
 import { join } from 'node:path';
 import { readFileSync } from 'node:fs';
-import { decide, ledger, capFrom, fireUrlOk, isState, payload, signature, failStreak, chainLength, MOVABLE, WAKE, CLAIM, STOPPED, PAUSED, BACKSTOP_OFF, CHAIN_STOP, STATE, STATE_MARK, FIRE_MARK, FAIL_MARK, STUCK_MARK, EMPTY_MARK, DAILY_CAP, ISSUE_CAP, ISSUE_TOTAL, EMPTY_STOP, STUCK_STOP } from '../.harness/tools/wake.mjs';
+import { handoffPlan, runTaskOf, HANDOFF_MARK, HANDOFF_FAIL_MARK, RUN_TASK_FILE, decide, ledger, capFrom, fireUrlOk, isState, payload, signature, failStreak, chainLength, MOVABLE, WAKE, CLAIM, STOPPED, PAUSED, BACKSTOP_OFF, CHAIN_STOP, STATE, STATE_MARK, FIRE_MARK, FAIL_MARK, STUCK_MARK, EMPTY_MARK, DAILY_CAP, ISSUE_CAP, ISSUE_TOTAL, EMPTY_STOP, STUCK_STOP } from '../.harness/tools/wake.mjs';
 import { parseYaml } from '../.harness/tools/lib.mjs';
 
 let n = 0;
@@ -113,6 +113,7 @@ ok(/#7/.test(payload({ repo: 'o/r', why: 'w', target: 7, stateIssue: 1 })) && /r
 // --- the job, end to end against stand-ins -------------------------------------------------------------
 const issues = new Map();   // number -> { number, state, labels: [names], body, user, comments: [{ user, body, created_at }] }
 const fires = [];
+let taskFile = null;   // the receiving repository's .github/wake.json, when it has one
 let fireStatus = 200;
 const add = (i) => { issues.set(i.number, { state: 'open', labels: [], comments: [], user: { login: 'owner', type: 'User' }, body: '', ...i }); return issues.get(i.number); };
 const view = (i) => ({ number: i.number, state: i.state, body: i.body, user: i.user, labels: i.labels.map((name) => ({ name })), html_url: `https://gh.test/o/r/issues/${i.number}` });
@@ -133,6 +134,7 @@ const srv = createServer((q, res) => {
     }
     if (u.pathname === '/repos/o/r/issues' && q.method === 'POST') { const j = JSON.parse(data); const i = add({ number: Math.max(0, ...issues.keys()) + 1, body: j.body, labels: j.labels, user: bot }); return send(201, view(i)); }
     if (u.pathname === '/repos/o/r/issues/comments') return send(200, u.searchParams.get('page') === '1' && u.searchParams.get('since') ? [...issues.values()].flatMap((i) => i.comments).sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at)) : []);
+    if (u.pathname === `/repos/o/r/contents/${RUN_TASK_FILE}`) return taskFile == null ? send(404, {}) : send(200, { content: Buffer.from(taskFile).toString('base64') });
     if (u.pathname === '/repos/o/r/pulls' || u.pathname.startsWith('/repos/o/r/commits')) return send(200, []);
     const m = u.pathname.match(/^\/repos\/o\/r\/issues\/(\d+)(\/comments|\/labels(?:\/([\w-]+))?)?$/);
     const i = m && issues.get(Number(m[1]));
@@ -209,6 +211,64 @@ ok(r8.code === 0 && /rests/.test(r8.out) && st.labels.includes(BACKSTOP_OFF) && 
 }
 const s = JSON.parse((await run(['status', '--repo', 'o/r'])).out);
 ok(s.state === st.number && s.emptyStreak === 0 && s.cap === DAILY_CAP && s.claim.length === 0 && s.failStreak === 0, 'status shows what the next decision reads');
+
+// --- the hand-off between projects (K056): the same decision, started from inside a session ---------
+{
+  const person = { login: 'owner', type: 'User' };
+  const it = woke(5, { labels: [] });
+  const d = decide({ event: 'handoff', issue: it, now });
+  ok(d.act === 'fire' && d.target === 5 && d.via === 'handoff' && decide({ event: 'handoff', now }).act === 'fire' && decide({ event: 'handoff', now }).target === null, 'a hand-off from another project starts a run, for its issue or for the queue as it stands');
+  ok(decide({ event: 'handoff', issue: it, claim: true, ledger: [fireAt(1)], now }).act === 'none' && decide({ event: 'handoff', issue: it, paused: true, now }).act === 'none'
+    && decide({ event: 'handoff', issue: woke(5, { labels: [STOPPED] }), now }).act === 'none' && decide({ event: 'handoff', issue: woke(5, { open: false }), now }).act === 'none',
+  'a hand-off starts nothing while a run is on, while wakes are paused, for a stopped issue or for a closed one: one run at a time and every stop hold');
+  ok(decide({ event: 'handoff', issue: it, ledger: Array.from({ length: DAILY_CAP }, (_, i) => fireAt((i + 1) * 23 / DAILY_CAP, 100 + i)), now }).act === 'capped'
+    && decide({ event: 'handoff', issue: it, ledger: Array.from({ length: ISSUE_CAP }, (_, i) => fireAt(i + 1, 5)), now }).act === 'capped'
+    && decide({ event: 'handoff', issue: it, ledger: [fireAt(5), { kind: 'fail', at: now - 5 * H + 1 }, fireAt(4), { kind: 'fail', at: now - 4 * H + 1 }, fireAt(3), { kind: 'fail', at: now - 3 * H + 1 }], now }).act === 'pause',
+  'a hand-off is under the same caps and the same stop after failed starts as a wake label: none of them changed');
+  const l = ledger([
+    { user: person, created_at: '2026-11-07T10:00:00Z', body: `${HANDOFF_MARK}{"issue":5,"via":"handoff","from":"o/s"} -->\nStarting` },
+    { user: person, created_at: '2026-11-07T10:01:00Z', body: `${HANDOFF_FAIL_MARK}\nNot started` },
+    { user: person, created_at: '2026-11-07T10:02:00Z', updated_at: '2026-11-07T11:00:00Z', body: `${HANDOFF_MARK}{"issue":6} -->\nedited later` },
+    { user: person, created_at: '2026-11-07T10:03:00Z', body: `${FIRE_MARK}{"issue":7} -->\nforged` },
+  ]);
+  ok(l.length === 3 && l[0].kind === 'fire' && l[0].via === 'handoff' && l[0].issue === 5 && l[1].kind === 'fail' && l[2].issue === 6 && failStreak(l.slice(0, 2)) === 1,
+    'a hand-off receipt counts as a run whoever posted it (it can only use a cap up), its failed start counts as a failed start, and a person still cannot forge the job\'s own receipt');
+  ok(chainLength([{ ...fireAt(9, 7), via: 'queue' }, { ...fireAt(5, 8), via: 'handoff' }]) === 0, 'a hand-off is an outside wake: it ends a chain of runs that only started each other');
+  ok(runTaskOf('{"runTask":"trig_01AbC"}') === 'trig_01AbC' && runTaskOf('{"runTask":"https://evil.test/fire"}') === null && runTaskOf('{}') === null && runTaskOf('not json') === null, 'the run task is a scheduled task id from the receiving repository, nothing else');
+  const fireD = { act: 'fire', why: 'w' }, open = woke(5, { labels: [] });
+  ok(handoffPlan(fireD, { task: 'trig_1', issue: open }).say === 'START' && handoffPlan(fireD, { task: 'trig_1', issue: open }).label === false && handoffPlan(fireD, { task: 'trig_1' }).claim === true, 'START claims and sets no wake label: the run is started here, not by the label');
+  ok(handoffPlan(fireD, { task: null, issue: open }).say === 'QUEUED' && handoffPlan(fireD, { task: null }).say === 'NOTHING', 'a repository that names no run task gets the label to wait on, or nothing when no issue was named');
+  ok(handoffPlan({ act: 'none', why: 'a run is on' }, { task: 'trig_1', issue: open }).label === true && handoffPlan({ act: 'capped', why: 'c' }, { task: 'trig_1', issue: open }).say === 'QUEUED'
+    && handoffPlan({ act: 'pause', why: 'p' }, { task: 'trig_1', issue: open }).claim === false && handoffPlan({ act: 'stop-item', why: 's' }, { task: 'trig_1', issue: open }).label === false
+    && handoffPlan({ act: 'none', why: 'stopped' }, { task: 'trig_1', issue: woke(5, { labels: [STOPPED] }) }).say === 'NOTHING',
+  'refused, a hand-off leaves the wake label for the run that is on or the next start; it never sets a stop and never labels a stopped issue');
+}
+{
+  const handoff = (args, env) => run(['handoff', '--repo', 'o/r', ...args], { GITHUB_ACTIONS: '', ...env });
+  const before = fires.length, marks = (m) => st.comments.filter((c) => c.body.startsWith(m)).length;
+  add({ number: 21, body: 'answered: the sender waits on this' });
+  const n0 = await handoff(['--issue', '21', '--from', 'o/sender']);
+  ok(n0.code === 0 && /HANDOFF: QUEUED .*names no coordinator-run task/.test(n0.out) && issues.get(21).labels.includes(WAKE) && !st.labels.includes(CLAIM) && marks(HANDOFF_MARK) === 0, 'a repository that names no run task: the wake label is set and waits; no claim, no receipt');
+  issues.get(21).labels = []; taskFile = '{"runTask":"trig_01RECV"}';
+  const dry = await handoff(['--issue', '21', '--dry']);
+  ok(/HANDOFF: START trig_01RECV/.test(dry.out) && !st.labels.includes(CLAIM) && marks(HANDOFF_MARK) === 0, '--dry prints the decision and writes nothing');
+  const h1 = await handoff(['--issue', '21', '--from', 'o/sender']);
+  ok(h1.code === 0 && /HANDOFF: START trig_01RECV \(o\/r #21\)/.test(h1.out.trim().split('\n').at(-1)) && /hint: .*#21/.test(h1.out) && st.labels.includes(CLAIM) && st.comments.at(-1).body.startsWith(HANDOFF_MARK) && /o\/sender/.test(st.comments.at(-1).body)
+    && fires.length === before && !issues.get(21).labels.includes(WAKE), 'START: the claim and the receipt are written first, the last line names the task for fire_trigger, and no outside /fire call is made');
+  add({ number: 22 });
+  const h2 = await handoff(['--issue', '22']);
+  ok(/HANDOFF: QUEUED a run is on/.test(h2.out) && issues.get(22).labels.includes(WAKE) && marks(HANDOFF_MARK) === 1, 'a second hand-off while that run is on starts nothing: its wake label waits for the run\'s end (one run at a time)');
+  const f = await handoff(['--issue', '21', '--failed', 'fire_trigger refused: not allowed']);
+  ok(/HANDOFF: QUEUED the start failed/.test(f.out) && !st.labels.includes(CLAIM) && st.comments.at(-1).body.startsWith(HANDOFF_FAIL_MARK) && issues.get(21).labels.includes(WAKE), 'a start that failed releases the claim, is marked failed and leaves the wake label for the next start');
+  ok(/HANDOFF: NOTHING no hand-off start is open/.test((await handoff(['--failed', 'again'])).out) && marks(HANDOFF_FAIL_MARK) === 1, '--failed releases only a start a hand-off claimed: a second call does nothing');
+  const cap = await handoff(['--issue', '22'], { WAKE_DAILY_CAP: '2' });
+  ok(/HANDOFF: QUEUED the daily cap is reached/.test(cap.out) && marks(HANDOFF_MARK) === 1, 'hand-off starts count against the same daily cap as the job\'s runs');
+  issues.get(22).labels = [STOPPED];
+  ok(/HANDOFF: NOTHING #22 is stopped/.test((await handoff(['--issue', '22'])).out) && !issues.get(22).labels.includes(WAKE), 'a stopped issue is never labelled or started for');
+  st.labels = [PAUSED];
+  ok(/HANDOFF: QUEUED wakes are paused/.test((await handoff(['--issue', '21'])).out) && st.labels.join() === PAUSED, 'while wakes are paused a hand-off starts nothing and lifts nothing');
+  st.labels = []; issues.get(21).labels = []; issues.get(22).labels = []; taskFile = null;
+}
 srv.close();
 
 // --- the installed workflow ---------------------------------------------------------------------

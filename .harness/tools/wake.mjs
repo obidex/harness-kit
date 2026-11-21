@@ -9,6 +9,19 @@
 //                                         the run's session link as the receipt
 //   node .harness/tools/wake.mjs status --repo owner/name
 //                                         the state the next decision reads (JSON; reads only)
+//   node .harness/tools/wake.mjs handoff --repo owner/name [--issue <n>] [--from owner/name] [--dry]
+//                                         in a session (K056, wake.md "Hand-off between projects"): the
+//                                         sender finished something that repository's project waits on.
+//                                         The same decision as the job's, read from that repository; its
+//                                         last line is what the session obeys:
+//                                           HANDOFF: START <trig id> …   the claim and the receipt are
+//                                             written: call fire_trigger once with that id
+//                                           HANDOFF: QUEUED …            no start now (a run is on, a cap, a
+//                                             stop): the `wake` label is on the issue and waits
+//                                           HANDOFF: NOTHING …           nothing there to start or to queue
+//   node .harness/tools/wake.mjs handoff --repo owner/name [--issue <n>] --failed <why>
+//                                         the fire_trigger call after a START failed: releases the claim,
+//                                         marks the start failed and leaves the `wake` label on the issue
 //
 // The contract (.harness/wake.md):
 // - A wake is the label `wake` on an issue or pull request, never a comment. Anyone with triage on the
@@ -43,6 +56,9 @@ export const STATE = 'coordinator-state';
 export const STATE_MARK = '<!-- coordinator-state -->';
 export const FIRE_MARK = '<!-- wake-fire ';            // + JSON + ' -->': a receipt, posted BEFORE the fire
 export const FAIL_MARK = '<!-- wake-fail -->';         // the fire after the last receipt did not start
+export const HANDOFF_MARK = '<!-- wake-handoff ';      // + JSON + ' -->': a receipt a session wrote BEFORE it started a run from inside (K056)
+export const HANDOFF_FAIL_MARK = '<!-- wake-handoff-fail -->';   // that start did not happen
+export const RUN_TASK_FILE = '.github/wake.json';     // in the receiving repository: { "runTask": "trig_…" }, its coordinator-run scheduled task
 export const EMPTY_MARK = '<!-- wake-backstop-empty -->';
 export const STUCK_MARK = '<!-- wake-stuck ';          // + JSON + ' -->': the backstop stopped on no progress
 export const CAPPED_MARK = '<!-- wake-capped -->';
@@ -79,8 +95,12 @@ const json = (b, mark) => { try { return JSON.parse(b.slice(mark.length, b.index
 export function ledger(comments) {
   const out = [];
   for (const c of comments) {
-    if (!byJob(c)) continue;
     const b = String(c.body || ''), at = Date.parse(c.created_at);
+    // a hand-off receipt (K056) is written by a session, under the account the project's sessions act as.
+    // It counts whoever posted it: such a comment can only use a cap up, never free one.
+    if (b.startsWith(HANDOFF_MARK)) { const j = json(b, HANDOFF_MARK); out.push({ kind: 'fire', at, issue: Number.isInteger(j.issue) ? j.issue : null, via: 'handoff', sig: '' }); continue; }
+    if (b.startsWith(HANDOFF_FAIL_MARK)) { out.push({ kind: 'fail', at }); continue; }
+    if (!byJob(c)) continue;
     // the job never edits its comments: an edited one is counted as a run, whatever it says now
     if (c.updated_at && Math.abs(Date.parse(c.updated_at) - at) > 5000) { out.push({ kind: 'fire', at, issue: null, via: 'edited', sig: '' }); continue; }
     if (b.startsWith(FIRE_MARK)) {
@@ -164,6 +184,11 @@ export function decide({ event, label, issue = null, claim = false, paused = fal
   } else if (event === 'workflow_dispatch') {
     if (issue && (!issue.open || issue.isState)) return { act: 'none', why: 'not an open issue to wake for' };
     target = issue ? issue.number : null; why = 'started by hand'; via = 'hand';
+  } else if (event === 'handoff') {
+    // K056: another project finished something this one waits on. An outside wake, under every cap and stop.
+    if (issue && (!issue.open || issue.isState)) return { act: 'none', why: 'not an open issue to hand over' };
+    if (issue?.labels.includes(STOPPED)) return { act: 'none', why: `#${issue.number} is stopped (${STOPPED}); a person removes that label to wake for it again` };
+    target = issue ? issue.number : null; why = 'hand-off from another project'; via = 'handoff';
   } else return { act: 'none', why: `event ${event} wakes nobody` };
   if (busy) return { act: 'none', why: 'a run is on; it reads the wake queue before it ends, and its end starts the next run', target };
   if (via !== 'hand') {
@@ -337,6 +362,82 @@ async function runFire(repo, { event, issue, label }) {
   console.log(`wake: fired: ${link}`);
 }
 
+/** The receiving repository's coordinator-run task, from RUN_TASK_FILE on its default branch. */
+export function runTaskOf(text) {
+  let j = null;
+  try { j = JSON.parse(text); } catch { return null; }
+  return /^trig_[A-Za-z0-9]+$/.test(String(j?.runTask || '')) ? j.runTask : null;
+}
+
+/** What a hand-off does with the decision. Pure.
+ *  out: { say: START|QUEUED|NOTHING, why, claim (set it and write the receipt), label (set `wake` on the issue) } */
+export function handoffPlan(d, { task, issue = null }) {
+  const can = !!issue && issue.open && !issue.isState && !issue.labels.includes(STOPPED);   // an issue the label may wait on
+  if (d.act === 'fire') {
+    if (task) return { say: 'START', why: d.why, claim: true, label: false };
+    return { say: can ? 'QUEUED' : 'NOTHING', why: `the repository names no coordinator-run task (${RUN_TASK_FILE})`, claim: false, label: can };
+  }
+  // a stop is a person's to lift and the job's to set: a hand-off sets none and waits behind every one
+  if (d.act === 'stop-item') return { say: 'NOTHING', why: d.why, claim: false, label: false };
+  if (d.act === 'pause') return { say: can ? 'QUEUED' : 'NOTHING', why: `${d.why}: no start from inside either`, claim: false, label: can };
+  return { say: can ? 'QUEUED' : 'NOTHING', why: d.why, claim: false, label: can };
+}
+
+/** The STATE issue a hand-off reads: the job's own; else, in a repository whose coordinator keeps one by
+ *  hand, the oldest open issue labelled so. Never opened, reopened or written to find it. */
+async function handoffState(repo) {
+  const own = await stateIssue(repo, { open: false });
+  if (own && own.state === 'open') return own;
+  return (await pages(`/repos/${repo}/issues?state=open&labels=${STATE}&sort=created&direction=asc`)).filter((i) => !i.pull_request)[0] || null;
+}
+
+const SLUG = /^[\w.-]+\/[\w.-]+$/;
+
+async function runHandoff(repo, { issue, from, failed, dry }) {
+  const who = SLUG.test(String(from || '')) ? from : 'another project';
+  const done = (say, why) => console.log(`HANDOFF: ${say} ${String(why).replace(/\s+/g, ' ').slice(0, 300)}`);
+  const st = await handoffState(repo);
+  if (!st) return done('NOTHING', `${repo} has no open coordinator state issue (label ${STATE}): nothing to read a claim or a cap from`);
+  const led = await receipts(repo);
+  let it = null;
+  if (issue) {
+    const i = await gh('GET', `/repos/${repo}/issues/${issue}`);
+    it = { number: i.number, open: i.state === 'open', labels: names(i), isState: i.number === st.number };
+  }
+  const can = !!it && it.open && !it.isState && !it.labels.includes(STOPPED);
+  const queueIt = async () => { if (can && !it.labels.includes(WAKE) && !dry) await gh('POST', `/repos/${repo}/issues/${it.number}/labels`, { labels: [WAKE] }); };
+  if (failed !== undefined) {
+    // only a start this tool claimed is released: the newest receipt must be a hand-off's, with no fail after it
+    const last = led.filter((e) => e.kind === 'fire' || e.kind === 'fail').at(-1);
+    if (last?.kind !== 'fire' || last.via !== 'handoff') return done('NOTHING', 'no hand-off start is open here: nothing released');
+    if (!dry) {
+      await unclaim(repo, st.number);
+      await comment(repo, st.number, `${HANDOFF_FAIL_MARK}\nNot started from inside (hand-off from ${who}): ${String(failed).replace(/\s+/g, ' ').slice(0, 160)}.`);
+      await queueIt();
+    }
+    return done(can ? 'QUEUED' : 'NOTHING', `the start failed and is marked so${can ? `; \`${WAKE}\` stays on #${it.number} for the next start` : ''}`);
+  }
+  const labelled = async (l) => (await pages(`/repos/${repo}/issues?state=open&labels=${l}`)).map((i) => i.number);
+  const claimed = await labelled(CLAIM), paused = (await labelled(PAUSED)).length > 0;
+  const queue = (await pages(`/repos/${repo}/issues?state=open&labels=${WAKE}&sort=created&direction=asc`)).filter((i) => i.number !== st.number && !names(i).includes(STOPPED)).map((i) => i.number);
+  const d = decide({ event: 'handoff', issue: it, claim: claimed.length > 0, paused, ledger: led, queue, now: Date.now(), cap: capFrom(process.env.WAKE_DAILY_CAP) });
+  let task = null;
+  if (d.act === 'fire') {
+    try { task = runTaskOf(Buffer.from((await gh('GET', `/repos/${repo}/contents/${RUN_TASK_FILE}`)).content || '', 'base64').toString('utf8')); } catch { /* no file: no task */ }
+  }
+  const p = handoffPlan(d, { task, issue: it });
+  if (p.label) await queueIt();
+  if (!p.claim) return done(p.say, `${p.why}${p.label ? `; \`${WAKE}\` is on #${it.number}: the run that is on, or the next start, takes it` : ''}`);
+  if (!dry) {
+    if (d.clearClaim) for (const n of claimed) await unclaim(repo, n);
+    await gh('POST', `/repos/${repo}/issues/${st.number}/labels`, { labels: [CLAIM] });   // claim before the run exists
+    // the receipt comes BEFORE the start, as the job's does: no run starts uncounted
+    await comment(repo, st.number, `${HANDOFF_MARK}${JSON.stringify({ issue: d.target, via: 'handoff', from: who })} -->\nStarting a run from inside (hand-off from ${who}${d.target != null ? ` for #${d.target}` : ''}).`);
+  }
+  console.log(`hint: ${payload({ repo, why: `hand-off from ${who}`, target: d.target, stateIssue: st.number }).replace(/\n/g, ' ')}`);
+  done('START', `${task} (${repo}${d.target != null ? ` #${d.target}` : ''}${dry ? '; dry: nothing written' : ''}): call fire_trigger once with this id and the hint as text; if the call fails, run handoff again with --failed "<the error>"`);
+}
+
 const argv = process.argv.slice(2);
 const opt = (n) => { const i = argv.indexOf(n); return i >= 0 ? argv[i + 1] : undefined; };
 
@@ -347,6 +448,7 @@ async function main() {
   const issue = opt('--issue') ? Number(opt('--issue')) : null;
   if (issue !== null && !Number.isInteger(issue)) throw new Error('--issue must be a number');
   if (cmd === 'fire') return runFire(repo, { event: opt('--event'), issue, label: opt('--label') });
+  if (cmd === 'handoff') return runHandoff(repo, { issue, from: opt('--from'), failed: argv.includes('--failed') ? String(opt('--failed') ?? '') : undefined, dry: argv.includes('--dry') });
   if (cmd === 'status') {
     const st = await stateIssue(repo, { open: false });
     if (!st) { console.log(JSON.stringify({ state: null })); return; }
@@ -361,7 +463,7 @@ async function main() {
       queue: (await pages(`/repos/${repo}/issues?state=open&labels=${WAKE}`)).filter((i) => i.number !== st.number).map((i) => i.number) }));
     return;
   }
-  throw new Error('usage: wake.mjs fire|status  (see the header of this file)');
+  throw new Error('usage: wake.mjs fire|status|handoff  (see the header of this file)');
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
