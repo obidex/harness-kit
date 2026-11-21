@@ -25,8 +25,10 @@ everything first and show the proof.
 - **`owner-step.mjs`** (new): `plan` fails a card with an owner step and no "No-one designs" list (or a
   secret step without the three no-carry designs); `ask` fails a message that waits on the owner
   without a complete `Tried:` line. **`owner-steps.md`** (new) holds the procedure and the formats.
-- The `owner-defaults.md` per-file cap rises from 4160 to 4416 bytes for these limits; the
-  fresh-install token budget (K034) is unchanged and holds (K058). Replay result included.
+- By the owner's decision (K058, C17): the `owner-defaults.md` per-file cap rises from 4160 to 4544
+  bytes and the kit's share of a fresh install from 4000 to 4064 tokens, so every limit of O04 and
+  O17 loads. `owner-steps.md` says how to read older project lines that still send secrets or root
+  steps to the owner by kind. Replay result included.
 
 ## 0.51.0 · 2026-11-21 · the wake job can start the run by its claim label: no token and no call outside GitHub (K057)
 

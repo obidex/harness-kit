@@ -25,13 +25,15 @@ export const SECRET_DESIGNS = [
   ['moved machine to machine as a file nobody opens', /\bfile\b/i],
   ['the machine signs in as an App and gets short-lived tokens', /\bapp\b/i],
 ];
-/** The O17 rungs a `Tried:` line names, in the ladder's order. */
+/** The O17 rungs a `Tried:` line names, in the ladder's order, each by how its part begins. */
 export const RUNGS = [
-  ['redesign', /\b(?:re)?design/i],
-  ['an API or a script', /\bAPI\b|\bscript\b/i],
-  ['his terminal (Remote Control)', /\bterminal\b|\bRemote Control\b/i],
-  ['his signed-in browser', /\bbrowser\b/i],
+  ['redesign', /^(?:re)?design\b/i],
+  ['an API or a script', /^(?:an? )?(?:API|script)\b/i],
+  ['his terminal (Remote Control)', /^(?:his )?(?:terminal|Remote Control)\b/i],
+  ['his signed-in browser', /^(?:his )?(?:signed-in )?browser\b/i],
 ];
+/** A line that says there is no owner step. */
+const NO_STEP = /\bno owner[- ]steps?\b|\bowner[- ]steps?[\s:*_—–-]*(?:none|n\/a)\b/i;
 
 const HEADING = /^(?:#{1,6}\s*|\*\*)?\s*No-one designs\b/i;
 const ITEM = /^\s*(?:[-*]|\d+[.)])\s+(.*)$/;
@@ -58,7 +60,7 @@ export function designs(text) {
 /** Problems with a card's plan (O17, O04); [] when it passes or has no owner step. */
 export function planProblems(text) {
   const body = strip(text);
-  const steps = body.split('\n').filter((l) => OWNER_STEP.test(l) && !HEADING.test(l.trim()));
+  const steps = body.split('\n').filter((l) => OWNER_STEP.test(l) && !NO_STEP.test(l) && !HEADING.test(l.trim()));
   if (!steps.length) return [];
   const list = designs(body);
   if (!list) return ['the card has an owner step but no "No-one designs" list (O17): list the designs that need no one and why each fails'];
@@ -76,17 +78,20 @@ export function planProblems(text) {
 export function askProblems(text) {
   const body = strip(text);
   if (!/\bWAITING FOR YOU\b/.test(body)) return [];
-  const tried = body.split('\n').map((l) => l.trim().replace(/^[*_>\s-]+/, '').replace(/^\*\*Tried:\*\*/, 'Tried:')).filter((l) => /^Tried:/.test(l));
+  const tried = body.split('\n').map((l) => l.trim().replace(/^[*_>\s-]+/, '').replace(/^Tried:[*_]+/, 'Tried:')).filter((l) => /^Tried:/.test(l));
   if (!tried.length) return ['the message waits on the owner but has no line beginning "Tried:" (O02): name each rung and what stopped it'];
   if (tried.length > 1) return ['the message has more than one "Tried:" line: one line names every rung'];
-  // one part per rung, split on ";" or "·": the part names the rung and what stopped it
-  const parts = tried[0].slice('Tried:'.length).split(/[;·]/).map((p) => p.trim()).filter(Boolean);
+  // one part per rung, split on ";" or "·": each part begins with its rung, then ":" or a dash and
+  // what stopped it ("browser: the page asks for his code")
+  const parts = tried[0].slice('Tried:'.length).split(/[;·]/).map((p) => p.replace(/^[\s*_]+|[\s*_]+$/g, '')).filter(Boolean);
   const out = [];
+  if (parts.length < RUNGS.length) out.push(`the "Tried:" line has ${parts.length} part(s): one per rung, ${RUNGS.length} in all, split by ";"`);
   for (const [name, re] of RUNGS) {
     const part = parts.find((p) => re.test(p));
-    if (!part) { out.push(`the "Tried:" line does not name the rung "${name}" (O17)`); continue; }
-    const rest = part.replace(re, ' ').replace(/\b(?:an?|or|his|the|over|signed-in|Remote Control|API|script|terminal|browser)\b/gi, ' ');
-    if ((rest.match(/[A-Za-z]{2,}/g) || []).length < 2) out.push(`the "Tried:" line names "${name}" but not what stopped it`);
+    if (!part) { out.push(`the "Tried:" line has no part beginning with the rung "${name}" (O17)`); continue; }
+    const sep = part.match(/^[^:—–]*?(?::|\s[—–-]{1,2}\s)\s*(.*)$/);
+    const reason = sep ? sep[1] : '';
+    if ((reason.match(/[A-Za-z]{2,}/g) || []).length < 2) out.push(`the "Tried:" line names "${name}" but not what stopped it`);
   }
   return out;
 }

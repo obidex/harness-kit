@@ -98,3 +98,10 @@ does a coordinator's or a builder's work is no helper and keeps its own model (A
 
 Gates, reviews and merges (C10, C12, O05, O11); spending (O13); real data waiting for his tap (O19);
 safety refusals (C14); the standing approvals.
+
+**Older lines in a project's own instructions.** A project's instructions, standing-approval list or
+rulebook may still say that secrets, tokens or root steps are always his. That text is his to change
+and no agent edits it (O04: no agent changes its own permissions). Until his next refresh of those
+lines, read them with this rule: a line that sends a step to him by its kind is answered by this
+file's ladder and stops, and a line that forbids an action outright still forbids it. Where a project
+rulebook already follows O04 by name, it is current.

@@ -15,7 +15,7 @@ const run = (cmd, text) => spawnSync(process.execPath, [tool, cmd, '-'], { input
 const tokenCard = `**Goal:** narrow the server's login.
 **Acceptance:** 1. the old login is gone.
 Owner step: one fine-grained token, made by him from a prefilled link and pasted on the box.`;
-ok(planProblems(tokenCard).some((p) => /no "No-one designs" list/.test(p)), 'a card with an owner step and no list of designs fails (the infra#194 shape)');
+ok(planProblems(tokenCard).some((p) => /no "No-one designs" list/.test(p)), 'a card with an owner step and no list of designs fails (a token pasted by hand)');
 ok(run('plan', tokenCard).status === 1, 'the CLI exits 1 on that card');
 
 const noReasons = `${tokenCard}
@@ -46,7 +46,8 @@ ok(planProblems(plainStep).length === 0, 'an inline list after the heading count
 
 const noStep = `**Goal:** faster checks.\n**Acceptance:** 1. the suite runs side by side.`;
 ok(planProblems(noStep).length === 0 && run('plan', noStep).status === 0, 'a card with no owner step passes untouched');
-ok(planProblems(`Owner step: none.\n<!-- No-one designs -->`).some((p) => /no "No-one designs"/.test(p)), 'a list hidden in an HTML comment does not count');
+ok(planProblems(`Owner step: he pastes the key.\n<!-- No-one designs -->`).some((p) => /no "No-one designs"/.test(p)), 'a list hidden in an HTML comment does not count');
+ok(planProblems('**Owner steps:** none.\nNo owner step: the agent does it all.').length === 0, 'a line saying there is no owner step is not one');
 
 // --- ask: a message that waits on the owner carries the Tried: line -------------------------------
 const bare = `Server login: the new token is ready to make.
@@ -57,7 +58,10 @@ ok(run('ask', bare).status === 1, 'the CLI exits 1 on it');
 
 const partial = `${bare.replace('WAITING FOR YOU', 'Tried: redesign: the App needs a setting only he may change; API: no endpoint makes this token\nWAITING FOR YOU')}`;
 const pp = askProblems(partial);
-ok(pp.some((p) => /terminal/.test(p)) && pp.some((p) => /browser/.test(p)) && !pp.some((p) => /redesign|API/.test(p)), 'a Tried: line missing rungs names exactly the missing ones');
+ok(pp.some((p) => /terminal/.test(p)) && pp.some((p) => /browser/.test(p)) && !pp.some((p) => /"redesign"|"an API/.test(p)), 'a Tried: line missing rungs names exactly the missing ones');
+const borrowed = 'Tried: redesign: the browser and the terminal were both refused; API: no endpoint makes it\nWAITING FOR YOU — paste';
+const bp = askProblems(borrowed);
+ok(bp.some((p) => /2 part/.test(p)) && bp.some((p) => /beginning with the rung "his terminal/.test(p)) && bp.some((p) => /beginning with the rung "his signed-in browser/.test(p)), 'a rung named only inside another rung\'s reason does not count');
 
 const empty = `Tried: redesign; API or script; terminal; browser\nWAITING FOR YOU — tap the number`;
 ok(askProblems(empty).filter((p) => /not what stopped it/.test(p)).length === 4, 'rungs named without what stopped them fail, each');
