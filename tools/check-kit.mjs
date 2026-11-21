@@ -79,16 +79,18 @@ const lx = [...ps.matchAll(/^\| ([LX][0-9]{2}) \|/gm)].map((m) => m[1]);
 new Set(lx).size === lx.length || fail('project-specific.md repeats an L or X ID');
 
 // --- 3. caps on always-loaded text ----------------------------------------------------------------
-const caps = { '.harness/core.md': 8704, '.harness/owner-defaults.md': 4160 }; // raised by the owner, K049
+const caps = { '.harness/core.md': 8704, '.harness/owner-defaults.md': 4544 }; // raised by the owner, K049; owner-defaults for the owner-step rules and their limits, by his decision, K058
 for (const [f, max] of Object.entries(caps)) {
   const n = Buffer.byteLength(read(f));
   if (n > max) fail(`${f} is ${n} bytes, over its cap of ${max}`);
 }
 // a fresh install: the example CLAUDE.md and what it imports from the kit (its AGENTS.md is the
-// project's). At most half the default budget, so the project's own rulebook keeps the other half.
+// project's). The kit's share: half the default budget (K034) plus 64 tokens for the owner-step
+// limits, by the owner's decision (K058); the project's own rulebook keeps the rest.
 {
+  const KIT_SHARE = DEFAULT_BUDGET / 2 + 64;
   const fresh = ['examples/CLAUDE.md', '.harness/core.md', '.harness/owner-defaults.md', '.harness/VERSION'].reduce((s, f) => s + Buffer.byteLength(read(f)), 0);
-  if (tokens(fresh) > DEFAULT_BUDGET / 2) fail(`a fresh install loads about ${tokens(fresh)} tokens, over half the default budget (${DEFAULT_BUDGET})`);
+  if (tokens(fresh) > KIT_SHARE) fail(`a fresh install loads about ${tokens(fresh)} tokens, over the kit's share of the default budget (${KIT_SHARE} of ${DEFAULT_BUDGET})`);
 }
 
 // --- 4. profile example against the schema ------------------------------------------------------
