@@ -111,7 +111,7 @@ ok(fireUrlOk('https://api.anthropic.com/v1/claude_code/routines/trig_01AbC/fire'
 ok(/#7/.test(payload({ repo: 'o/r', why: 'w', target: 7, stateIssue: 1 })) && /remove `coordinator-running` from #1 as the very last step/.test(payload({ repo: 'o/r', why: 'w', target: null, stateIssue: 1 })), 'the run is told the issue, the STATE issue and to release the claim last');
 
 // --- the job, end to end against stand-ins -------------------------------------------------------------
-let commentId = 100, raceUsed = false, hideNewest = false, failAtUnclaim = null;   // hideNewest: the repository listing lags one comment behind
+let commentId = 100, raceUsed = false, postAs = null, hideUsedOnce = 0, hideNewest = false, failAtUnclaim = null;   // hideNewest: the repository listing lags one comment behind
 // raceUsed: another run's record lands just before this run's own
 const issues = new Map();   // number -> { number, state, labels: [names], body, user, comments: [{ user, body, created_at }] }
 const fires = [];
@@ -137,13 +137,13 @@ const srv = createServer((q, res) => {
       return send(200, l.map(view));
     }
     if (u.pathname === '/repos/o/r/issues' && q.method === 'POST') { const j = JSON.parse(data); const i = add({ number: Math.max(0, ...issues.keys()) + 1, body: j.body, labels: j.labels, user: bot }); return send(201, view(i)); }
-    if (u.pathname === '/repos/o/r/issues/comments') return send(200, u.searchParams.get('page') === '1' && u.searchParams.get('since') ? [...issues.values()].flatMap((i) => i.comments).sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at)).slice(0, hideNewest ? -1 : undefined) : []);
+    if (u.pathname === '/repos/o/r/issues/comments') return send(200, u.searchParams.get('page') === '1' && u.searchParams.get('since') ? [...issues.values()].flatMap((i) => i.comments).sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at)).slice(0, hideNewest ? -1 : undefined).filter((c) => { if (hideUsedOnce !== 2) return true; return !c.body.startsWith(USED_MARK); }).concat((hideUsedOnce === 2 ? (hideUsedOnce = 0, []) : [])) : []);
     if (u.pathname === '/repos/o/r/pulls' || u.pathname.startsWith('/repos/o/r/commits')) return send(200, []);
     const m = u.pathname.match(/^\/repos\/o\/r\/issues\/(\d+)(\/comments|\/labels(?:\/([\w-]+))?)?$/);
     const i = m && issues.get(Number(m[1]));
     if (!i) return send(404, {});
     if (m[2] === '/comments' && q.method === 'GET') return send(200, u.searchParams.get('page') === '1' ? i.comments : []);
-    if (m[2] === '/comments') { const body = JSON.parse(data).body; if (raceUsed && body.startsWith(USED_MARK)) i.comments.push({ id: ++commentId, user: bot, body, created_at: new Date(Date.now() - 1).toISOString() }); const c = { id: ++commentId, user: bot, body, created_at: new Date().toISOString() }; i.comments.push(c); return send(201, c); }
+    if (m[2] === '/comments') { const body = JSON.parse(data).body; if (raceUsed && body.startsWith(USED_MARK)) i.comments.push({ id: ++commentId, user: bot, body, created_at: new Date(Date.now() - 1).toISOString() }); const c = { id: ++commentId, user: bot, ...(postAs || {}), body, created_at: new Date().toISOString() }; i.comments.push(c); if (hideUsedOnce === 1 && body.startsWith(USED_MARK)) hideUsedOnce = 2; return send(201, c); }
     if (m[2]?.startsWith('/labels') && q.method === 'DELETE') { if (!i.labels.includes(m[3])) return send(404, {}); if (m[3] === CLAIM) failAtUnclaim = i.comments.some((c) => c.body.startsWith(FAIL_MARK)); i.labels = i.labels.filter((x) => x !== m[3]); return send(200, []); }
     if (m[2]?.startsWith('/labels')) { if (labelsRefused === 'error') return send(500, {}); if (labelsRefused === 'lost') { i.labels = [...new Set([...i.labels, ...JSON.parse(data).labels])]; return send(500, {}); } if (labelsRefused) return send(200, []); const add = JSON.parse(data).labels; labelEvents.push(...add.filter((x) => !i.labels.includes(x)).map((x) => `${i.number}:${x}`)); if (add.includes(CLAIM)) receiptAtClaim = i.comments.filter((c) => c.body.startsWith(FIRE_MARK)).length; i.labels = [...new Set([...i.labels, ...add])]; return send(200, i.labels.map((name) => ({ name }))); }
     if (q.method === 'PATCH') { const j = JSON.parse(data); if (j.state) i.state = j.state; if (j.labels) i.labels = j.labels; return send(200, view(i)); }
@@ -246,6 +246,18 @@ ok(r8.code === 0 && /rests/.test(r8.out) && st.labels.includes(BACKSTOP_OFF) && 
     const noClaim = await started();
     ok(noClaim.code === 4 && /does not carry/.test(noClaim.out) && !st.comments.some((c) => c.body.startsWith(USED_MARK)), 'label start: a fresh receipt without the claim on the STATE issue is refused and spends nothing');
     issues.get(40).labels = issues.get(40).labels.filter((x) => x !== CLAIM); st.labels = [CLAIM];
+    // a rival's older record that the first listing does not show yet is still found: the run reads again
+    st.comments = keep.filter((c) => !c.body.startsWith(USED_MARK));
+    raceUsed = true; hideUsedOnce = 1;
+    const lagRace = await started();
+    raceUsed = false; hideUsedOnce = 0;
+    ok(lagRace.code === 4 && /another run took this start first/.test(lagRace.out), 'label start: a listing that lags is read again, so an older record from a racing run still wins');
+    // a run whose own record would not count (its account cannot write) may not work: it could take the start again and again
+    st.comments = keep.filter((c) => !c.body.startsWith(USED_MARK));
+    postAs = { user: { login: 'reader', type: 'User' }, author_association: 'NONE' };
+    const reader = await started();
+    postAs = null;
+    ok(reader.code === 4 && /could not be recorded/.test(reader.out), 'label start: a run that cannot leave a record that counts is refused');
     // a stranger's comment on a public repository is no record: it cannot refuse the run
     st.comments = keep.filter((c) => !c.body.startsWith(USED_MARK));
     issues.get(40).comments.push({ id: 5, user: { login: 'stranger', type: 'User' }, author_association: 'NONE', body: `${USED_MARK}\nx`, created_at: new Date().toISOString() });
