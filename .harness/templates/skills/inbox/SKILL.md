@@ -26,8 +26,8 @@ on that issue, and the sender reads the result there. Setup and cost: `.harness/
    session: attach the repository with push access first. Never ask the owner to wake or relay (O15).
 4. **Start the receiver, in this same turn (K056).** Run the line `send` printed last
    (`wake.mjs handoff --repo <owner/name> --issue <n>`; add `--from <your owner/name>`) and obey its
-   last line: on `HANDOFF: START <trig id>` call `fire_trigger` once with that id and the printed
-   hint as text (a refused call or an error answer: the same command with `--failed "<error>"`,
+   last line: on `HANDOFF: START <trig id>` call `fire_trigger` once with that id and no
+   text (a refused call or an error answer: the same command with `--failed "<error>"`,
    nothing else; a timeout may have started the run, so release nothing); on
    `QUEUED` or `NOTHING` go on. This holds whatever step 3 said about delivery
    (`.harness/wake.md`, "Hand-off between projects").

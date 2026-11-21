@@ -3,6 +3,15 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.50.1 · 2026-11-21 · a hand-off starts the run with no added text
+
+The first real hand-off showed that a scheduled task which starts a new thread at each run refuses a
+start with added text ("nothing was run"), and starts with none.
+
+- `wake.mjs handoff` no longer prints a hint to pass along, and its `START` line, `wake.md` and the
+  `inbox` skill say: call `fire_trigger` with the id and no text. The run reads its queue from the
+  repository, as every run does.
+
 ## 0.50.0 · 2026-11-21 · the session that hands work to another project starts that project's run itself (K056)
 
 The owner, on outside wake-ups failing: find a way not to need them. A session can start another

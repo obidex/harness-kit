@@ -487,8 +487,7 @@ async function runHandoff(repo, { issue, from, failed, dry, task: given }) {
     }
   }
   if (dry) return done('DRY', `would START ${task} (${repo}${d.target != null ? ` #${d.target}` : ''}); nothing written, start nothing`);
-  console.log(`hint: ${payload({ repo, why: `hand-off from ${who}`, target: d.target, stateIssue: st.number }).replace(/\n/g, ' ')}`);
-  done('START', `${task} (${repo}${d.target != null ? ` #${d.target}` : ''}): call fire_trigger once with this id and the hint as text; if the call fails, run handoff again with --failed "<the error>"`);
+  done('START', `${task} (${repo}${d.target != null ? ` #${d.target}` : ''}): call fire_trigger once with this id and no text (a task that starts a new thread refuses added text; the run reads its queue from the repository); if the call is refused, run handoff again with --failed "<the error>"`);
 }
 
 const argv = process.argv.slice(2);
