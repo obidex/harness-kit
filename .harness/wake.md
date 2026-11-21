@@ -50,7 +50,7 @@ each run is short and fresh: it starts on an event, reads the state, acts, write
 **Counts.**
 - Each repository gets at most 48 runs in any 24 hours, and each issue at most 12 (8 and 3 until K051).
   The caps stop a loop; they are set well above a full day of parallel work, so they never throttle it.
-- Every count reads the job's own receipt comments, from the whole repository and 30 days back.
+- Every count reads the job's own receipt comments (and a hand-off's, K056), from the whole repository and 30 days back.
   If that listing is cut off, the job fails closed. The job never edits its own comments, so an
   edited one counts as a run whatever it says now.
 - The Actions variable `WAKE_DAILY_CAP` may lower the cap, never raise it.
@@ -109,10 +109,22 @@ hand-off only queues.
 A repository whose coordinator keeps its STATE issue by hand is read through the label
 `coordinator-state`; one with no STATE issue gets `NOTHING`.
 
-**Counts and stops.** A hand-off receipt counts as a run in every cap, whoever posted it, and its
-failed start as a failed start. A hand-off sets no stop and lifts none: paused, stopped or capped,
-it queues. It is an outside wake, so it ends a chain of runs that only started each other. No timer
-is added: a hand-off happens at the moment work changes hands, or not at all.
+**Counts and stops.** A hand-off receipt counts as a run in every cap, and its failed start as a
+failed start, when its author may write to the repository (owner, member or collaborator); a
+stranger's comment counts for nothing. A hand-off sets no stop and lifts none, `backstop-off`
+included (only a run the job fires re-arms the backstop): paused, stopped or capped, it queues. It
+is an outside wake, so it ends a chain of runs that only started each other. No timer is added: a
+hand-off happens at the moment work changes hands, or not at all.
+
+**Two starts at the same moment.** A session is outside the job's one-at-a-time queue, so after its
+receipt the hand-off waits a few seconds and reads the receipts again. Beside a receipt of the job
+it always yields; between two hand-offs the earlier receipt keeps the run. The one that yields
+starts nothing, leaves the claim alone and prints `QUEUED`. `--failed` releases only the start for
+the same item, and only within 30 minutes of it.
+
+**Where the job's outside call is refused**, a queued label or a released claim still starts the
+job, and its failed starts add up to `wake-paused` as before. A hand-off then only queues until a
+person lifts the pause: every stop holds for it too.
 
 **Not for** events no session causes (a person's tap, a job without AI): those stay with the label.
 

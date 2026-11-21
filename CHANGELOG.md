@@ -13,9 +13,11 @@ project's coordinator run directly, so the one that hands work over does it in t
   obeys. `HANDOFF: START <trig id>`: the claim and a receipt are written, and the session calls
   `fire_trigger` once. `HANDOFF: QUEUED`: a run is on, or a cap or stop holds; the `wake` label
   waits on the item. `HANDOFF: NOTHING`: nothing to start. `--failed "<error>"` releases a start that
-  did not happen. `--dry` writes nothing.
+  did not happen (same item, within 30 minutes). `--dry` writes nothing and prints `HANDOFF: DRY`.
 - **No cap, stop or one-at-a-time rule changes.** A hand-off receipt counts as a run in every cap,
-  and a failed one as a failed start. A hand-off sets no stop and lifts none.
+  and a failed one as a failed start, only from an account that may write to the repository. A
+  hand-off sets no stop and lifts none. Two starts written at the same moment: it yields to the job,
+  and between two hand-offs the earlier receipt keeps the run.
 - **`inbox.mjs`** prints the hand-off line after `send` and after `state --to done` or `blocked`
   (the project named in the request's Source), and the `inbox` skill makes it a step of both.
 - **A receiving project adds `.github/wake.json`**, `{ "runTask": "trig_…" }`, naming its

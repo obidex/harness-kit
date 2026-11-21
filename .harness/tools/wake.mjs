@@ -21,8 +21,10 @@
 //                                         --task names the receiver's run task only while that repository
 //                                         names none itself (.github/wake.json); its own file always wins
 //                                           HANDOFF: NOTHING …           nothing there to start or to queue
+//                                           HANDOFF: DRY …               --dry: what it would do; start nothing
 //   node .harness/tools/wake.mjs handoff --repo owner/name [--issue <n>] --failed <why>
-//                                         the fire_trigger call after a START failed: releases the claim,
+//                                         the fire_trigger call after a START failed (same --issue, within
+//                                         30 minutes of that START): releases the claim,
 //                                         marks the start failed and leaves the `wake` label on the issue
 //
 // The contract (.harness/wake.md):
@@ -35,7 +37,8 @@
 // - The STATE issue: opened by this job (github-actions[bot]) with the label `coordinator-state` and
 //   the marker <!-- coordinator-state -->. Its body is the run's state; each run reads it first and
 //   writes it last. It holds no count: nothing about it can reset a cap.
-// - Caps: every attempt is a receipt comment by github-actions[bot], posted BEFORE the fire and read
+// - Caps: every attempt is a receipt comment by github-actions[bot] (or, for a hand-off, K056, by an
+//   account that may write to the repository), posted BEFORE the fire and read
 //   from the whole repository (LEDGER_DAYS back; a cut-off listing fails closed; a job comment edited
 //   later counts as a run whatever it says). DAILY_CAP runs per repository per 24 hours
 //   (WAKE_DAILY_CAP may lower it, never raise it), ISSUE_CAP per issue per 24 hours.
@@ -90,24 +93,29 @@ const byJob = (c) => c?.user?.login === BOT && c?.user?.type === 'Bot';
  *  only: no cap, no claim and no count depends on which issue it is. */
 export const isState = (i) => !i.pull_request && byJob(i) && String(i.body || '').includes(STATE_MARK);
 
-const json = (b, mark) => { try { return JSON.parse(b.slice(mark.length, b.indexOf(' -->'))); } catch { return {}; } };
+const json = (b, mark) => { try { const j = JSON.parse(b.slice(mark.length, b.indexOf(' -->'))); return j && typeof j === 'object' ? j : {}; } catch { return {}; } };
+/** May this comment's author write to the repository? A hand-off receipt counts only then (K056): on a
+ *  public repository anyone may comment, and a stranger's comment must neither use a cap up nor count as a failed start. */
+const WRITERS = ['OWNER', 'MEMBER', 'COLLABORATOR'];
+const byWriter = (c) => WRITERS.includes(c?.author_association);
 
 /** The job's own marker comments, from anywhere in the repository, oldest first:
- *  { kind: fire|fail|empty|stuck, at, issue, via, sig }. A comment a person posted never counts. */
+ *  { kind: fire|fail|empty|stuck, at, issue, via, sig }. A comment a person posted never counts, except a
+ *  hand-off's receipt and failed start (K056), and those only from an account that may write here. */
 export function ledger(comments) {
   const out = [];
   for (const c of comments) {
     const b = String(c.body || ''), at = Date.parse(c.created_at);
-    // a hand-off receipt (K056) is written by a session, under the account the project's sessions act as.
-    // It counts whoever posted it: such a comment can only use a cap up, never free one.
-    if (b.startsWith(HANDOFF_MARK)) { const j = json(b, HANDOFF_MARK); out.push({ kind: 'fire', at, issue: Number.isInteger(j.issue) ? j.issue : null, via: 'handoff', sig: '' }); continue; }
-    if (b.startsWith(HANDOFF_FAIL_MARK)) { out.push({ kind: 'fail', at }); continue; }
+    // a hand-off receipt (K056) is written by a session, under the account the project's sessions act as:
+    // it counts when its author may write to the repository, and only then. Edited later, it still counts.
+    if (b.startsWith(HANDOFF_MARK)) { if (byWriter(c)) { const j = json(b, HANDOFF_MARK); out.push({ kind: 'fire', at, issue: Number.isInteger(j.issue) ? j.issue : null, via: 'handoff', sig: '', id: c.id ?? null }); } continue; }
+    if (b.startsWith(HANDOFF_FAIL_MARK)) { if (byWriter(c)) out.push({ kind: 'fail', at, via: 'handoff' }); continue; }
     if (!byJob(c)) continue;
     // the job never edits its comments: an edited one is counted as a run, whatever it says now
     if (c.updated_at && Math.abs(Date.parse(c.updated_at) - at) > 5000) { out.push({ kind: 'fire', at, issue: null, via: 'edited', sig: '' }); continue; }
     if (b.startsWith(FIRE_MARK)) {
       const j = json(b, FIRE_MARK);
-      out.push({ kind: 'fire', at, issue: Number.isInteger(j.issue) ? j.issue : null, via: String(j.via || ''), sig: String(j.sig || '') });
+      out.push({ kind: 'fire', at, issue: Number.isInteger(j.issue) ? j.issue : null, via: String(j.via || ''), sig: String(j.sig || ''), id: c.id ?? null });
     } else if (b.startsWith(FAIL_MARK)) out.push({ kind: 'fail', at });
     else if (b.startsWith(EMPTY_MARK)) out.push({ kind: 'empty', at });
     else if (b.startsWith(STUCK_MARK)) out.push({ kind: 'stuck', at, sig: String(json(b, STUCK_MARK).sig || '') });
@@ -385,6 +393,20 @@ export function handoffPlan(d, { task, issue = null }) {
   return { say: can ? 'QUEUED' : 'NOTHING', why: d.why, claim: false, label: can };
 }
 
+export const HANDOFF_SETTLE_MS = 8000;   // how long a hand-off waits after its receipt before it reads who else started
+export const HANDOFF_RELEASE_MIN = 30;   // --failed releases only a start this recent
+
+/** Two starts written at the same moment: who keeps it? Pure. `mine` is this hand-off's receipt id,
+ *  `fires` the receipts written since its decision read them. The wake job never yields, so a hand-off yields to
+ *  any job receipt beside its own; between hand-offs the earliest receipt keeps the start. */
+export function keepsStart(mine, fires) {
+  const near = fires.filter((f) => f.id !== mine);
+  if (near.some((f) => f.via !== 'handoff')) return false;
+  const me = fires.find((f) => f.id === mine);
+  if (!me) return false;   // its own receipt cannot be read back: no start on an unread count
+  return !near.some((f) => f.at < me.at || (f.at === me.at && Number(f.id) < Number(mine)));
+}
+
 /** The STATE issue a hand-off reads: the job's own; else, in a repository whose coordinator keeps one by
  *  hand, the oldest open issue labelled so. Never opened, reopened or written to find it. */
 async function handoffState(repo) {
@@ -411,7 +433,7 @@ async function runHandoff(repo, { issue, from, failed, dry, task: given }) {
   if (failed !== undefined) {
     // only a start this tool claimed is released: the newest receipt must be a hand-off's, with no fail after it
     const last = led.filter((e) => e.kind === 'fire' || e.kind === 'fail').at(-1);
-    if (last?.kind !== 'fire' || last.via !== 'handoff') return done('NOTHING', 'no hand-off start is open here: nothing released');
+    if (last?.kind !== 'fire' || last.via !== 'handoff' || Date.now() - last.at > HANDOFF_RELEASE_MIN * 60e3 || (last.issue ?? null) !== (it?.number ?? null)) return done('NOTHING', 'no hand-off start is open here: nothing released');
     if (!dry) {
       await unclaim(repo, st.number);
       await comment(repo, st.number, `${HANDOFF_FAIL_MARK}\nNot started from inside (hand-off from ${who}): ${String(failed).replace(/\s+/g, ' ').slice(0, 160)}.`);
@@ -436,10 +458,21 @@ async function runHandoff(repo, { issue, from, failed, dry, task: given }) {
     if (d.clearClaim) for (const n of claimed) await unclaim(repo, n);
     await gh('POST', `/repos/${repo}/issues/${st.number}/labels`, { labels: [CLAIM] });   // claim before the run exists
     // the receipt comes BEFORE the start, as the job's does: no run starts uncounted
-    await comment(repo, st.number, `${HANDOFF_MARK}${JSON.stringify({ issue: d.target, via: 'handoff', from: who })} -->\nStarting a run from inside (hand-off from ${who}${d.target != null ? ` for #${d.target}` : ''}).`);
+    const seen = new Set(led.filter((e) => e.kind === 'fire').map((e) => e.id));
+    const mine = await comment(repo, st.number, `${HANDOFF_MARK}${JSON.stringify({ issue: d.target, via: 'handoff', from: who })} -->\nStarting a run from inside (hand-off from ${who}${d.target != null ? ` for #${d.target}` : ''}).`);
+    // one run at a time, also when two starts are written at the same moment: wait, then read who else
+    // wrote a receipt around this one. The loser starts nothing; its receipt stays counted and the claim
+    // stays with the start that keeps it.
+    await new Promise((r) => setTimeout(r, Number(process.env.HANDOFF_SETTLE_MS ?? HANDOFF_SETTLE_MS)));
+    const near = (await receipts(repo)).filter((e) => e.kind === 'fire' && e.id != null && !seen.has(e.id));   // every start written since this decision read the receipts
+    if (!keepsStart(mine?.id, near)) {
+      await queueIt();
+      return done(can ? 'QUEUED' : 'NOTHING', `another start was written at the same moment and keeps the run${can ? `; \`${WAKE}\` is on #${it.number} for it` : ''}`);
+    }
   }
+  if (dry) return done('DRY', `would START ${task} (${repo}${d.target != null ? ` #${d.target}` : ''}); nothing written, start nothing`);
   console.log(`hint: ${payload({ repo, why: `hand-off from ${who}`, target: d.target, stateIssue: st.number }).replace(/\n/g, ' ')}`);
-  done('START', `${task} (${repo}${d.target != null ? ` #${d.target}` : ''}${dry ? '; dry: nothing written' : ''}): call fire_trigger once with this id and the hint as text; if the call fails, run handoff again with --failed "<the error>"`);
+  done('START', `${task} (${repo}${d.target != null ? ` #${d.target}` : ''}): call fire_trigger once with this id and the hint as text; if the call fails, run handoff again with --failed "<the error>"`);
 }
 
 const argv = process.argv.slice(2);
