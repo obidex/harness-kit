@@ -116,6 +116,7 @@ const fires = [];
 let fireStatus = 200;
 const labelEvents = [];   // `<issue>:<label>` for each label GitHub would send a `labeled` event for
 let labelsRefused = false;
+let receiptAtClaim = null;   // receipts already on the issue at the moment its claim label was set
 const add = (i) => { issues.set(i.number, { state: 'open', labels: [], comments: [], user: { login: 'owner', type: 'User' }, body: '', ...i }); return issues.get(i.number); };
 const view = (i) => ({ number: i.number, state: i.state, body: i.body, user: i.user, labels: i.labels.map((name) => ({ name })), html_url: `https://gh.test/o/r/issues/${i.number}` });
 const srv = createServer((q, res) => {
@@ -142,7 +143,7 @@ const srv = createServer((q, res) => {
     if (m[2] === '/comments' && q.method === 'GET') return send(200, u.searchParams.get('page') === '1' ? i.comments : []);
     if (m[2] === '/comments') { i.comments.push({ user: bot, body: JSON.parse(data).body, created_at: new Date().toISOString() }); return send(201, { id: 1 }); }
     if (m[2]?.startsWith('/labels') && q.method === 'DELETE') { if (!i.labels.includes(m[3])) return send(404, {}); i.labels = i.labels.filter((x) => x !== m[3]); return send(200, []); }
-    if (m[2]?.startsWith('/labels')) { if (labelsRefused) return send(200, []); const add = JSON.parse(data).labels; labelEvents.push(...add.filter((x) => !i.labels.includes(x)).map((x) => `${i.number}:${x}`)); i.labels = [...new Set([...i.labels, ...add])]; return send(200, i.labels.map((name) => ({ name }))); }
+    if (m[2]?.startsWith('/labels')) { if (labelsRefused === 'error') return send(500, {}); if (labelsRefused) return send(200, []); const add = JSON.parse(data).labels; labelEvents.push(...add.filter((x) => !i.labels.includes(x)).map((x) => `${i.number}:${x}`)); if (add.includes(CLAIM)) receiptAtClaim = i.comments.filter((c) => c.body.startsWith(FIRE_MARK)).length; i.labels = [...new Set([...i.labels, ...add])]; return send(200, i.labels.map((name) => ({ name }))); }
     if (q.method === 'PATCH') { const j = JSON.parse(data); if (j.state) i.state = j.state; if (j.labels) i.labels = j.labels; return send(200, view(i)); }
     return send(200, view(i));
   });
@@ -212,15 +213,16 @@ ok(r8.code === 0 && /rests/.test(r8.out) && st.labels.includes(BACKSTOP_OFF) && 
 {
   // K056: with WAKE_START=label nothing outside GitHub is called; the claim label is the start
   const LABEL = { WAKE_START: 'label', WAKE_ROUTINE_URL: '', WAKE_ROUTINE_TOKEN: '', WAKE_DAILY_CAP: '' };
-  ok(startByLabel('label') && startByLabel(' label ') && !startByLabel('') && !startByLabel(undefined) && !startByLabel('Label') && !startByLabel('labels'), 'only the exact word switches the start to the label');
+  ok(startByLabel('label') && startByLabel(' label ') && startByLabel('Label') && !startByLabel('') && !startByLabel(undefined) && !startByLabel('labels') && !startByLabel('true'), 'only the one word switches the start to the label, in any case, as the workflow reads it');
   for (const i of issues.values()) { if (!isState(view(i))) i.labels = i.labels.filter((x) => x !== WAKE); i.comments = []; }
   st.labels = [];
   add({ number: 40, labels: [WAKE], body: 'by label' });
   const before = fires.length, at = labelEvents.length;
+  receiptAtClaim = null;
   const r = await fire('labeled', 40, WAKE, LABEL);
   const marks = st.comments.map((c) => c.body);
   ok(r.code === 0 && fires.length === before && st.labels.includes(CLAIM) && labelEvents.slice(at).join() === `${st.number}:${CLAIM}`, 'label start: no /fire call, no URL and no token needed; the claim label is set once, which is the event the task listens for');
-  ok(marks.findIndex((b) => b.startsWith(FIRE_MARK)) === 0 && marks.some((b) => b.startsWith(START_MARK)) && issues.get(40).comments.some((c) => /signalled/.test(c.body)) && ledger(st.comments).filter((e) => e.kind === 'fire').length === 1, 'label start: the receipt comes before the label and is counted like any run; the woken issue is told');
+  ok(receiptAtClaim === 1 && marks.findIndex((b) => b.startsWith(FIRE_MARK)) === 0 && marks.some((b) => b.startsWith(START_MARK)) && issues.get(40).comments.some((c) => /signalled/.test(c.body)) && ledger(st.comments).filter((e) => e.kind === 'fire').length === 1, 'label start: the receipt is already on the STATE issue when the claim label is set, so no run starts uncounted; it counts like any run and the woken issue is told');
   const again = await fire('labeled', 40, WAKE, LABEL);
   ok(again.code === 0 && labelEvents.length === at + 1 && /a run is on/.test(again.out), 'label start: while the claim is held, a second wake sets no second label');
   st.labels = []; st.comments = [];
@@ -228,6 +230,11 @@ ok(r8.code === 0 && /rests/.test(r8.out) && st.labels.includes(BACKSTOP_OFF) && 
   const bad = await fire('labeled', 40, WAKE, LABEL);
   labelsRefused = false;
   ok(bad.code === 1 && st.comments.some((c) => c.body.startsWith(FAIL_MARK)) && failStreak(ledger(st.comments)) === 1, 'label start: a label GitHub did not confirm is a failed start, recorded and counted');
+  st.labels = []; st.comments = []; issues.get(40).comments = [];
+  labelsRefused = 'error';
+  const lost = await fire('labeled', 40, WAKE, LABEL);
+  labelsRefused = false;
+  ok(lost.code === 1 && !st.labels.includes(CLAIM) && failStreak(ledger(st.comments)) === 1 && issues.get(40).comments.some((c) => /No coordinator run started/.test(c.body)), 'label start: a label GitHub refuses with an error is a failed start too: recorded, counted, no claim left, the woken issue told');
   ok((await fire('labeled', 40, WAKE, { ...LABEL, WAKE_START: 'yes' })).code === 1, 'any other value of WAKE_START still needs the /fire URL and token');
   issues.get(40).labels = []; st.labels = []; st.comments = [];
 }

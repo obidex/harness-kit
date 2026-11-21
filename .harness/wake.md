@@ -84,8 +84,10 @@ see:
 
 The scheduled task's saved prompt says this. Each run:
 
-1. Reads the fire payload (a hint only), then the STATE issue, then the board and the queue (open
-   issues labelled `wake`). It acts on what GitHub shows, never on the payload alone.
+1. Reads the fire payload (a hint only; a run started by label, K056, gets none), then the STATE
+   issue, then the board and the queue (open issues labelled `wake`). It acts on what GitHub shows,
+   never on the payload alone. A run started by label makes one comment on the STATE issue its first
+   write ("Run started: <time>"): that comment is the only proof the start arrived.
 2. Works the queue under the project's rules (`core.md`, the rulebook). It removes `wake` from each
    issue it has handled. It may set `wake` on an issue to hand work to the next run. That counts
    against the same caps.
@@ -94,7 +96,9 @@ The scheduled task's saved prompt says this. Each run:
    cannot finish writes why in STATE and still removes the claim. A run never opens a new issue only
    to continue its own work past the per-issue cap.
 
-A run never changes its own scheduled task, the workflow or the caps. It never removes
+A run never changes its own scheduled task, the workflow or the caps. It never sets
+`coordinator-running`, on any issue: only the job claims, and with the label start a claim set by
+anyone else would start a run that no receipt counts. It never removes
 `wake-stopped`, `wake-paused` or `backstop-off`, never edits the job's comments, never starts the
 workflow by hand, and never touches any permission or secret.
 
@@ -123,7 +127,7 @@ GitHub trigger on it.
 1. **The scheduled task** (an agent can do this in the owner's signed-in browser; tools cannot set a
    GitHub trigger). In the task's Edit dialog, Trigger, choose **GitHub event**, the project's
    repository, the event **Issue: Labeled**, and a filter so that only the label
-   `coordinator-running` matches. Read the saved page back: the trigger line must say "Issue:
+   `coordinator-running` matches (and only the STATE issue, where the filter can say so). Read the saved page back: the trigger line must say "Issue:
    Labeled". The Claude GitHub App must be installed on the repository. Turn the task's notifications
    off, or every run reaches the owner's phone.
 2. **The switch.** Set `WAKE_START` to `label`. Delete the Actions variable `WAKE_ROUTINE_URL`, the
@@ -137,7 +141,7 @@ What differs from `/fire`:
   comment on the STATE issue, so the run's contract makes that comment its first write.
 - **A start that never comes** leaves the claim in place. After 6 hours it counts as a run that died:
   the next decision clears it and starts again, and a run that keeps dying pauses wakes, as before.
-  Only a label GitHub did not confirm is a failed start the job itself sees.
+  Only a label GitHub refused or did not confirm is a failed start the job itself sees.
 - **A label set by the job's own token does start the task.** GitHub starts no workflow for such a
   label, but it still tells the Apps installed on the repository. Measured: a run 2 seconds after a
   job's label, and 3 seconds after a label set by a person's account.

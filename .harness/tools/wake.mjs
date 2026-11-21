@@ -181,8 +181,8 @@ export function decide({ event, label, issue = null, claim = false, paused = fal
   return { act: 'fire', why, target, via, sig, clearClaim: dead, work: work.map((w) => w.number) };
 }
 
-/** K056: does this project start its run by the claim label alone (no /fire call)? Only the exact word. */
-export const startByLabel = (v) => String(v ?? '').trim() === 'label';
+/** K056: does this project start its run by the claim label alone (no /fire call)? Only that one word. */
+export const startByLabel = (v) => String(v ?? '').trim().toLowerCase() === 'label';   // case as the workflow's `==` reads it
 
 /** The fire URL must be a scheduled task's /fire endpoint, nothing else. */
 export function fireUrlOk(url, base = process.env.WAKE_FIRE_BASE || 'https://api.anthropic.com') {
@@ -331,15 +331,22 @@ async function runFire(repo, { event, issue, label }) {
   for (const n of s.restingOn) await gh('DELETE', `/repos/${repo}/issues/${n}/labels/${BACKSTOP_OFF}`).catch(() => {});
   if (d.via === 'hand') for (const n of s.pausedOn) await gh('DELETE', `/repos/${repo}/issues/${n}/labels/${PAUSED}`).catch(() => {});
   if (byLabel) {
-    // the receipt first, as always; then the claim, whose `labeled` event is what starts the task. A
-    // claim that was already there would send no event, so it is taken off first (decide() starts a run
-    // only with no claim, or a dead one cleared above).
+    // the receipt first, as always; then the claim, whose `labeled` event is what starts the task.
+    // decide() starts a run only with no claim, or a dead one cleared above; the unclaim here is only
+    // a guard, since a claim still there would send no event.
     await comment(repo, s.st.number, `${FIRE_MARK}${JSON.stringify({ issue: d.target, via: d.via, sig: d.sig })} -->\nStarting a run (${d.why}).`);
     await unclaim(repo, s.st.number);
-    const got = await gh('POST', `/repos/${repo}/issues/${s.st.number}/labels`, { labels: [CLAIM] });
-    if (!(got || []).some((l) => (l?.name ?? l) === CLAIM)) {
-      await comment(repo, s.st.number, `${FAIL_MARK}\nNot started: GitHub did not confirm the \`${CLAIM}\` label.`).catch(() => {});
-      throw new Error(`GitHub did not confirm the ${CLAIM} label on #${s.st.number}`);
+    // a label refused, lost or not confirmed is a failed start: recorded, counted, and the issue is told
+    let failed = null;
+    try {
+      const got = await gh('POST', `/repos/${repo}/issues/${s.st.number}/labels`, { labels: [CLAIM] });
+      if (!(got || []).some((l) => (l?.name ?? l) === CLAIM)) failed = `GitHub did not confirm the \`${CLAIM}\` label on #${s.st.number}`;
+    } catch (e) { failed = `the \`${CLAIM}\` label on #${s.st.number} was refused (${String(e.message).slice(0, 120)})`; }
+    if (failed) {
+      await unclaim(repo, s.st.number);
+      await comment(repo, s.st.number, `${FAIL_MARK}\nNot started: ${failed}.`).catch(() => {});
+      if (d.target != null) await comment(repo, d.target, `No coordinator run started: ${failed}. The \`${WAKE}\` label stays; the next event or the daily backstop tries again (after ${STUCK_STOP} failures in a row, only a run started by hand).`).catch(() => {});
+      throw new Error(failed);
     }
     const how = `the label \`${CLAIM}\` on #${s.st.number} starts the project's scheduled task (its GitHub trigger "Issue: Labeled"); the run's first comment on #${s.st.number} shows it started`;
     await comment(repo, s.st.number, `${START_MARK}\nRun signalled: ${how}.${d.target != null ? ` Woken by #${d.target}.` : ''}`).catch(() => {});
