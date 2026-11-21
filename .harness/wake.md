@@ -186,8 +186,10 @@ GitHub trigger on it.
    `coordinator-running` matches (and only the STATE issue, where the filter can say so). Read the saved page back: the trigger line must say "Issue:
    Labeled". The Claude GitHub App must be installed on the repository. Turn the task's notifications
    off, or every run reaches the owner's phone.
-2. **The switch.** Set `WAKE_START` to `label`. Delete the Actions variable `WAKE_ROUTINE_URL`, the
-   secret `WAKE_ROUTINE_TOKEN` and the task's API trigger: nothing reads them any more.
+2. **The switch.** Set `WAKE_START` to `label`. Delete the Actions variable `WAKE_ROUTINE_URL` and the
+   secret `WAKE_ROUTINE_TOKEN`: nothing reads them any more. The task's API trigger may go too, but a
+   hand-off (K056) still starts the task with `fire_trigger`: after removing it, prove one hand-off
+   start, and add the API trigger back if that start fails.
 3. **Prove it once.** Set `wake` on a test issue. The STATE issue gets the receipt, "Run signalled",
    and then the run's own first comment; the run removes the claim as its last step.
 
@@ -200,7 +202,11 @@ What differs from `/fire`:
   Only a label GitHub refused or did not confirm is a failed start the job itself sees.
 - **A hand-off** (K056) sets the same claim, so it fires the label trigger too. The hand-off still
   starts its run with `fire_trigger`; `wake.mjs started` refuses a start whose newest receipt is a
-  hand-off's, so the run the label began ends at once and one hand-off is one working run.
+  hand-off's, so the run the label began ends at once and one hand-off is one working run. A hand-off
+  that yielded to a job receipt beside it started nothing: `started` passes over it and the job's
+  start works.
+- **The run needs GitHub write access** to run `started` (it writes the "Run started" comment): in a
+  cloud session, the repository attached with push access. Without it every label start is refused.
 - **A label set by the job's own token does start the task.** GitHub starts no workflow for such a
   label, but it still tells the Apps installed on the repository. Measured: a run 2 seconds after a
   job's label, and 3 seconds after a label set by a person's account.

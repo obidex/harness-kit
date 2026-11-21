@@ -225,22 +225,28 @@ export function decide({ event, label, issue = null, claim = false, paused = fal
 }
 
 /** K057: does this project start its run by the claim label alone (no /fire call)? Only that one word. */
-export const startByLabel = (v) => String(v ?? '').trim().toLowerCase() === 'label';   // case as the workflow's `==` reads it
+export const startByLabel = (v) => String(v ?? '').toLowerCase() === 'label';   // case as the workflow's `==` reads it
 
 /** K057: is a run that a label started one the job itself signalled? Only then may it work: the claim
  *  sits on the STATE issue, the job's newest receipt is a start no older than START_WINDOW_MIN with no
  *  failure after it, and no run has spent that receipt yet (`used`: the USED_MARK comments since it).
  *  A claim label set by anyone else, or set again after a run took the start, has no unspent receipt,
  *  so that run ends at once and the caps hold for work, whoever can set a label. A hand-off's receipt
- *  is no signal either: the session that wrote it starts that run itself. */
+ *  is no signal either: the session that wrote it starts that run itself; one that yielded to a job
+ *  receipt beside it is passed over, so the job's start still works. */
 export function startOk({ ledger: led = [], stateClaimed = false, used = 0, now = Date.now() }) {
   if (!stateClaimed) return { ok: false, why: `the STATE issue does not carry \`${CLAIM}\`` };
-  const last = led.filter((e) => e.kind === 'fire' || e.kind === 'fail').at(-1);
+  const evs = led.filter((e) => e.kind === 'fire' || e.kind === 'fail');
+  // a hand-off receipt written within its settle time of a job receipt yielded to it (keepsStart, K056):
+  // it started nothing, so it neither is a start here nor hides the job's
+  const jobAt = evs.filter((e) => e.kind === 'fire' && e.via !== 'handoff').map((e) => e.at);
+  const yielded = (e) => e.kind === 'fire' && e.via === 'handoff' && jobAt.some((t) => Math.abs(t - e.at) <= HANDOFF_SETTLE_MS);
+  const last = evs.filter((e) => !yielded(e)).at(-1);
   if (!last || last.kind !== 'fire') return { ok: false, why: 'the job\'s newest receipt is not a start' };
-  // a hand-off's claim fires the label trigger too, but the hand-off starts its own run (fire_trigger, K056)
+  // a hand-off that kept its start: its claim fires the label trigger too, but it starts its own run (fire_trigger, K056)
   if (last.via === 'handoff') return { ok: false, why: 'the newest start is a hand-off, which starts its own run' };
-  const min = Math.round((now - last.at) / 60000);
-  if (min > START_WINDOW_MIN) return { ok: false, why: `the job's newest start receipt is ${min} minutes old (more than ${START_WINDOW_MIN})` };
+  const min = Math.floor((now - last.at) / 60000);
+  if (now - last.at > START_WINDOW_MIN * 60000) return { ok: false, why: `the job's newest start receipt is ${min} minutes old (more than ${START_WINDOW_MIN})` };
   if (used > 0) return { ok: false, why: 'a run already took the job\'s newest start (one start, one run)' };
   return { ok: true, why: `the job signalled this start ${min} minute(s) ago`, issue: last.issue, at: last.at };
 }
@@ -578,9 +584,10 @@ async function main() {
     const st = await stateIssue(repo, { open: false });
     const refuse = (why) => { console.log(`WAKE-START: REFUSED — ${why}`); process.exitCode = 4; };
     if (!st) return refuse('there is no STATE issue');
-    const all = await recentComments(repo), led = ledger(all);
-    const lastFire = led.filter((e) => e.kind === 'fire').at(-1);
-    const r = startOk({ ledger: led, stateClaimed: st.state === 'open' && names(st).includes(CLAIM), used: lastFire ? usedSince(all, lastFire.at).length : 0 });
+    const all = await recentComments(repo), led = ledger(all), stateClaimed = st.state === 'open' && names(st).includes(CLAIM);
+    // first which receipt is the start, then whether a run already spent that one
+    const r0 = startOk({ ledger: led, stateClaimed });
+    const r = r0.ok ? startOk({ ledger: led, stateClaimed, used: usedSince(all, r0.at).length }) : r0;
     if (!r.ok) return refuse(r.why);
     let mine;
     try { mine = await gh('POST', `/repos/${repo}/issues/${st.number}/comments`, { body: `${USED_MARK}\nRun started (label start${r.issue != null ? `, woken by #${r.issue}` : ''}).` }); }

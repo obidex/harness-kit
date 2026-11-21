@@ -115,7 +115,7 @@ let commentId = 100, raceUsed = false, postAs = null, hideUsedOnce = 0, hideNewe
 // raceUsed: another run's record lands just before this run's own
 const issues = new Map();   // number -> { number, state, labels: [names], body, user, comments: [{ user, body, created_at }] }
 const fires = [];
-let rival = null;   // rival: a second start's receipt, written right after the next hand-off receipt
+let rival = null;   // rival: a second start's receipt, dated just before the next hand-off receipt (written while it settles)
 let taskFile = null;   // the receiving repository's .github/wake.json, when it has one
 let fireStatus = 200;
 const labelEvents = [];   // `<issue>:<label>` for each label GitHub would send a `labeled` event for
@@ -146,7 +146,7 @@ const srv = createServer((q, res) => {
     const i = m && issues.get(Number(m[1]));
     if (!i) return send(404, {});
     if (m[2] === '/comments' && q.method === 'GET') return send(200, u.searchParams.get('page') === '1' ? i.comments : []);
-    if (m[2] === '/comments') { const body = JSON.parse(data).body; if (raceUsed && body.startsWith(USED_MARK)) i.comments.push({ id: ++commentId, user: bot, body, created_at: new Date(Date.now() - 1).toISOString() }); const c = { id: ++commentId, user: bot, author_association: 'OWNER', ...(postAs || {}), body, created_at: new Date().toISOString() }; i.comments.push(c); if (hideUsedOnce === 1 && body.startsWith(USED_MARK)) hideUsedOnce = 2; if (rival && body.startsWith(HANDOFF_MARK)) { i.comments.push({ ...c, id: ++commentId, body: rival }); rival = null; } return send(201, c); }
+    if (m[2] === '/comments') { const body = JSON.parse(data).body; if (raceUsed && body.startsWith(USED_MARK)) i.comments.push({ id: ++commentId, user: bot, body, created_at: new Date(Date.now() - 1).toISOString() }); const c = { id: ++commentId, user: bot, author_association: 'OWNER', ...(postAs || {}), body, created_at: new Date().toISOString() }; i.comments.push(c); if (hideUsedOnce === 1 && body.startsWith(USED_MARK)) hideUsedOnce = 2; if (rival && body.startsWith(HANDOFF_MARK)) { i.comments.push({ ...c, id: ++commentId, body: rival, created_at: new Date(Date.parse(c.created_at) - 1).toISOString() }); rival = null; } return send(201, c); }
     if (m[2]?.startsWith('/labels') && q.method === 'DELETE') { if (!i.labels.includes(m[3])) return send(404, {}); if (m[3] === CLAIM) failAtUnclaim = i.comments.some((c) => c.body.startsWith(FAIL_MARK)); i.labels = i.labels.filter((x) => x !== m[3]); return send(200, []); }
     if (m[2]?.startsWith('/labels')) { if (labelsRefused === 'error') return send(500, {}); if (labelsRefused === 'lost') { i.labels = [...new Set([...i.labels, ...JSON.parse(data).labels])]; return send(500, {}); } if (labelsRefused) return send(200, []); const add = JSON.parse(data).labels; labelEvents.push(...add.filter((x) => !i.labels.includes(x)).map((x) => `${i.number}:${x}`)); if (add.includes(CLAIM)) receiptAtClaim = i.comments.filter((c) => c.body.startsWith(FIRE_MARK)).length; i.labels = [...new Set([...i.labels, ...add])]; return send(200, i.labels.map((name) => ({ name }))); }
     if (q.method === 'PATCH') { const j = JSON.parse(data); if (j.state) i.state = j.state; if (j.labels) i.labels = j.labels; return send(200, view(i)); }
@@ -216,9 +216,9 @@ ok(r8.code === 0 && /rests/.test(r8.out) && st.labels.includes(BACKSTOP_OFF) && 
   st.labels = [];
 }
 {
-  // K056: with WAKE_START=label nothing outside GitHub is called; the claim label is the start
+  // K057: with WAKE_START=label nothing outside GitHub is called; the claim label is the start
   const LABEL = { WAKE_START: 'label', WAKE_ROUTINE_URL: '', WAKE_ROUTINE_TOKEN: '', WAKE_DAILY_CAP: '' };
-  ok(startByLabel('label') && startByLabel(' label ') && startByLabel('Label') && !startByLabel('') && !startByLabel(undefined) && !startByLabel('labels') && !startByLabel('true'), 'only the one word switches the start to the label, in any case, as the workflow reads it');
+  ok(startByLabel('label') && !startByLabel(' label ') && startByLabel('Label') && !startByLabel('') && !startByLabel(undefined) && !startByLabel('labels') && !startByLabel('true'), 'only the one word switches the start to the label, in any case, as the workflow reads it');
   for (const i of issues.values()) { if (!isState(view(i))) i.labels = i.labels.filter((x) => x !== WAKE); i.comments = []; }
   st.labels = [];
   add({ number: 40, labels: [WAKE], body: 'by label' });
@@ -311,6 +311,9 @@ ok(r8.code === 0 && /rests/.test(r8.out) && st.labels.includes(BACKSTOP_OFF) && 
       && !startOk({ ledger: [f(START_WINDOW_MIN + 1)], stateClaimed: true, now }).ok && !startOk({ ledger: [f(2), f(1, 'fail')], stateClaimed: true, now }).ok
       && !startOk({ ledger: [], stateClaimed: true, now }).ok && startOk({ ledger: [f(3, 'fail'), f(1)], stateClaimed: true, now }).ok
       && !startOk({ ledger: [f(1)], stateClaimed: true, used: 1, now }).ok
+      && startOk({ ledger: [{ ...f(1), at: now - 3000 }, { kind: 'fire', at: now - 2000, issue: 7, via: 'handoff' }], stateClaimed: true, now }).issue === 40
+      && !startOk({ ledger: [f(2), { kind: 'fire', at: now - 1000, issue: 7, via: 'handoff' }], stateClaimed: true, now }).ok
+      && !startOk({ ledger: [{ ...f(0), at: now - START_WINDOW_MIN * 60000 - 20000 }], stateClaimed: true, now }).ok
       && usedSince([{ id: 2, user: bot, body: `${USED_MARK}\nx`, created_at: new Date(now).toISOString() }, { id: 1, author_association: 'OWNER', body: `${USED_MARK}\nx`, created_at: new Date(now).toISOString() }, { id: 3, user: bot, body: `${USED_MARK}\nold`, created_at: new Date(now - 5 * M).toISOString() }, { id: 4, user: bot, body: 'no mark', created_at: new Date(now).toISOString() }, { id: 0, author_association: 'CONTRIBUTOR', user: { type: 'User' }, body: `${USED_MARK}\nx`, created_at: new Date(now).toISOString() }], now).map((c) => c.id).join() === '1,2',
       `label start: only a claim on the STATE issue with the job's own start receipt as its newest, at most ${START_WINDOW_MIN} minutes old and not yet taken by a run, lets a run work`);
     st.labels = []; st.comments = [];
@@ -407,8 +410,11 @@ ok(s.state === st.number && s.emptyStreak === 0 && s.cap === DAILY_CAP && s.clai
     rival = `${FIRE_MARK}{"issue":9,"via":"label","sig":""} -->\nStarting a run (wake label).`;
     const lost = await handoff(['--issue', '21']);
     ok(/HANDOFF: QUEUED another start was written at the same moment/.test(lost.out) && !/HANDOFF: START/.test(lost.out) && issues.get(21).labels.includes(WAKE) && st.labels.includes(CLAIM), 'two starts at the same moment: the hand-off that does not keep the run starts nothing, leaves the claim with the other and queues its item');
+    // K057: in a label project that job receipt's claim started a run; the hand-off that yielded must not refuse it
+    const jobRun = await run(['started', '--repo', 'o/r'], { GITHUB_ACTIONS: '', WAKE_REREAD_MS: '1' });
+    ok(jobRun.code === 0 && /^WAKE-START: OK/m.test(jobRun.out), 'label start: a hand-off that yielded to the job\'s receipt beside it does not refuse the job\'s run, so a start still works');
     st.labels = []; issues.get(21).labels = [];
-    for (const i of issues.values()) i.comments = i.comments.filter((c) => !c.body.startsWith(HANDOFF_MARK) && !c.body.startsWith(FIRE_MARK));
+    for (const i of issues.values()) i.comments = i.comments.filter((c) => !c.body.startsWith(HANDOFF_MARK) && !c.body.startsWith(FIRE_MARK) && !c.body.startsWith(USED_MARK));
   }
   {
     // two senders hand off to the same project in the same moment: exactly one of them starts the run

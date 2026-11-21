@@ -21,7 +21,8 @@ A label on an issue does start a scheduled task that has a GitHub trigger for it
   session link; the run's first comment on the STATE issue is the proof).
 - **A hand-off** (K056) in a project that switched: its claim fires the label trigger too, and
   `wake.mjs started` refuses that run (the newest receipt is the hand-off's), so the run
-  `fire_trigger` starts is the only one that works.
+  `fire_trigger` starts is the only one that works. A hand-off that yielded to the job's receipt beside
+  it is passed over, so the job's own label start still works.
 - A project switches by its own card. Nothing is switched by taking this version.
 
 ## 0.50.1 · 2026-11-21 · a hand-off starts the run with no added text
