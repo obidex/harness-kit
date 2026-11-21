@@ -3,6 +3,20 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.50.0 · 2026-11-21 · the wake job can start the run by its claim label: no token and no call outside GitHub (K056)
+
+A label on an issue does start a scheduled task that has a GitHub trigger for it. The two recorded
+"failures" of that test were a trigger set to the wrong event.
+
+- **`WAKE_START=label`** (Actions variable): `wake.mjs fire` posts its receipt, then sets the claim
+  label `coordinator-running` on the STATE issue, and that label starts the task. Decision, caps,
+  receipts and stops are unchanged. Without the variable nothing changes: `/fire` as before.
+- **`harness-wake.yml`** runs with either the routine URL or the label start, and passes the variable.
+- **`wake.md`** "Start by label": the trigger to set (Issue: Labeled, filtered to the claim label),
+  what to delete after the switch (URL variable, token secret, API trigger), and what differs (no
+  session link; the run's first comment on the STATE issue is the proof).
+- A project switches by its own card. Nothing is switched by taking this version.
+
 ## 0.49.0 · 2026-11-20 · the second reviewer is off by default, on only until a time the owner names; a full check of existing code (K055)
 
 The owner, on hearing a project report its reviewer as "on": the set-up should be everywhere, but the

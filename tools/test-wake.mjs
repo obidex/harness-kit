@@ -8,7 +8,7 @@ import { createServer } from 'node:http';
 import { execFile } from 'node:child_process';
 import { join } from 'node:path';
 import { readFileSync } from 'node:fs';
-import { decide, ledger, capFrom, fireUrlOk, isState, payload, signature, failStreak, chainLength, MOVABLE, WAKE, CLAIM, STOPPED, PAUSED, BACKSTOP_OFF, CHAIN_STOP, STATE, STATE_MARK, FIRE_MARK, FAIL_MARK, STUCK_MARK, EMPTY_MARK, DAILY_CAP, ISSUE_CAP, ISSUE_TOTAL, EMPTY_STOP, STUCK_STOP } from '../.harness/tools/wake.mjs';
+import { decide, ledger, capFrom, fireUrlOk, isState, payload, signature, failStreak, chainLength, MOVABLE, WAKE, CLAIM, STOPPED, PAUSED, BACKSTOP_OFF, CHAIN_STOP, STATE, STATE_MARK, FIRE_MARK, FAIL_MARK, STUCK_MARK, EMPTY_MARK, START_MARK, startByLabel, DAILY_CAP, ISSUE_CAP, ISSUE_TOTAL, EMPTY_STOP, STUCK_STOP } from '../.harness/tools/wake.mjs';
 import { parseYaml } from '../.harness/tools/lib.mjs';
 
 let n = 0;
@@ -114,6 +114,8 @@ ok(/#7/.test(payload({ repo: 'o/r', why: 'w', target: 7, stateIssue: 1 })) && /r
 const issues = new Map();   // number -> { number, state, labels: [names], body, user, comments: [{ user, body, created_at }] }
 const fires = [];
 let fireStatus = 200;
+const labelEvents = [];   // `<issue>:<label>` for each label GitHub would send a `labeled` event for
+let labelsRefused = false;
 const add = (i) => { issues.set(i.number, { state: 'open', labels: [], comments: [], user: { login: 'owner', type: 'User' }, body: '', ...i }); return issues.get(i.number); };
 const view = (i) => ({ number: i.number, state: i.state, body: i.body, user: i.user, labels: i.labels.map((name) => ({ name })), html_url: `https://gh.test/o/r/issues/${i.number}` });
 const srv = createServer((q, res) => {
@@ -140,7 +142,7 @@ const srv = createServer((q, res) => {
     if (m[2] === '/comments' && q.method === 'GET') return send(200, u.searchParams.get('page') === '1' ? i.comments : []);
     if (m[2] === '/comments') { i.comments.push({ user: bot, body: JSON.parse(data).body, created_at: new Date().toISOString() }); return send(201, { id: 1 }); }
     if (m[2]?.startsWith('/labels') && q.method === 'DELETE') { if (!i.labels.includes(m[3])) return send(404, {}); i.labels = i.labels.filter((x) => x !== m[3]); return send(200, []); }
-    if (m[2]?.startsWith('/labels')) { i.labels = [...new Set([...i.labels, ...JSON.parse(data).labels])]; return send(200, []); }
+    if (m[2]?.startsWith('/labels')) { if (labelsRefused) return send(200, []); const add = JSON.parse(data).labels; labelEvents.push(...add.filter((x) => !i.labels.includes(x)).map((x) => `${i.number}:${x}`)); i.labels = [...new Set([...i.labels, ...add])]; return send(200, i.labels.map((name) => ({ name }))); }
     if (q.method === 'PATCH') { const j = JSON.parse(data); if (j.state) i.state = j.state; if (j.labels) i.labels = j.labels; return send(200, view(i)); }
     return send(200, view(i));
   });
@@ -207,6 +209,28 @@ ok(r8.code === 0 && /rests/.test(r8.out) && st.labels.includes(BACKSTOP_OFF) && 
   ok(h.code === 0 && !st.labels.includes(PAUSED) && !st.labels.includes(BACKSTOP_OFF), 'a run started by hand lifts the pause and re-arms the backstop');
   st.labels = [];
 }
+{
+  // K056: with WAKE_START=label nothing outside GitHub is called; the claim label is the start
+  const LABEL = { WAKE_START: 'label', WAKE_ROUTINE_URL: '', WAKE_ROUTINE_TOKEN: '', WAKE_DAILY_CAP: '' };
+  ok(startByLabel('label') && startByLabel(' label ') && !startByLabel('') && !startByLabel(undefined) && !startByLabel('Label') && !startByLabel('labels'), 'only the exact word switches the start to the label');
+  for (const i of issues.values()) { if (!isState(view(i))) i.labels = i.labels.filter((x) => x !== WAKE); i.comments = []; }
+  st.labels = [];
+  add({ number: 40, labels: [WAKE], body: 'by label' });
+  const before = fires.length, at = labelEvents.length;
+  const r = await fire('labeled', 40, WAKE, LABEL);
+  const marks = st.comments.map((c) => c.body);
+  ok(r.code === 0 && fires.length === before && st.labels.includes(CLAIM) && labelEvents.slice(at).join() === `${st.number}:${CLAIM}`, 'label start: no /fire call, no URL and no token needed; the claim label is set once, which is the event the task listens for');
+  ok(marks.findIndex((b) => b.startsWith(FIRE_MARK)) === 0 && marks.some((b) => b.startsWith(START_MARK)) && issues.get(40).comments.some((c) => /signalled/.test(c.body)) && ledger(st.comments).filter((e) => e.kind === 'fire').length === 1, 'label start: the receipt comes before the label and is counted like any run; the woken issue is told');
+  const again = await fire('labeled', 40, WAKE, LABEL);
+  ok(again.code === 0 && labelEvents.length === at + 1 && /a run is on/.test(again.out), 'label start: while the claim is held, a second wake sets no second label');
+  st.labels = []; st.comments = [];
+  labelsRefused = true;
+  const bad = await fire('labeled', 40, WAKE, LABEL);
+  labelsRefused = false;
+  ok(bad.code === 1 && st.comments.some((c) => c.body.startsWith(FAIL_MARK)) && failStreak(ledger(st.comments)) === 1, 'label start: a label GitHub did not confirm is a failed start, recorded and counted');
+  ok((await fire('labeled', 40, WAKE, { ...LABEL, WAKE_START: 'yes' })).code === 1, 'any other value of WAKE_START still needs the /fire URL and token');
+  issues.get(40).labels = []; st.labels = []; st.comments = [];
+}
 const s = JSON.parse((await run(['status', '--repo', 'o/r'])).out);
 ok(s.state === st.number && s.emptyStreak === 0 && s.cap === DAILY_CAP && s.claim.length === 0 && s.failStreak === 0, 'status shows what the next decision reads');
 srv.close();
@@ -215,7 +239,7 @@ srv.close();
 const text = readFileSync(join(new URL('..', import.meta.url).pathname, '.harness/templates/workflows/harness-wake.yml'), 'utf8');
 const wf = parseYaml(text);
 const job = wf.jobs.wake, p = job.permissions;
-ok(/vars\.WAKE_ROUTINE_URL != ''/.test(job.if) && /label\.name == 'wake'/.test(job.if) && /label\.name == 'coordinator-running'/.test(job.if), 'the job is skipped without the routine URL, and runs only for the wake label or the claim leaving');
+ok(/\(vars\.WAKE_ROUTINE_URL != '' \|\| vars\.WAKE_START == 'label'\) &&/.test(job.if) && /label\.name == 'wake'/.test(job.if) && /label\.name == 'coordinator-running'/.test(job.if) && /WAKE_START: \$\{\{ vars\.WAKE_START \}\}/.test(text), 'the job is skipped with neither the routine URL nor the label start, and runs only for the wake label or the claim leaving');
 ok(job['timeout-minutes'] <= 3 && Object.entries(p).filter(([, v]) => v === 'write').map(([k]) => k).join() === 'issues' && p.contents === 'read', 'it is short and writes only issues (labels and comments), never code');
 ok(!/pull_request_target/.test(text) && /sparse-checkout: \.harness\/tools/.test(text) && /default_branch/.test(text) && /secrets\.WAKE_ROUTINE_TOKEN/.test(text), 'it never runs PR code: only the default branch\'s tools, and the token comes from a secret');
 ok(String(wf.on.schedule?.[0]?.cron || wf.on.schedule).includes('* * *') && wf.concurrency?.group === 'harness-wake', 'one daily backstop, one decision at a time');

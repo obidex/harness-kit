@@ -113,6 +113,37 @@ workflow by hand, and never touches any permission or secret.
 
 Until the variable is set, every `harness-wake` job is skipped.
 
+## Start by label (K056): no token, no call outside GitHub
+
+The job can start the run without `/fire`. Set the Actions variable `WAKE_START` to `label`. The job
+then decides, counts and posts its receipt exactly as before, and its last step is the claim label
+`coordinator-running` on the STATE issue. That label is the start: the project's scheduled task has a
+GitHub trigger on it.
+
+1. **The scheduled task** (an agent can do this in the owner's signed-in browser; tools cannot set a
+   GitHub trigger). In the task's Edit dialog, Trigger, choose **GitHub event**, the project's
+   repository, the event **Issue: Labeled**, and a filter so that only the label
+   `coordinator-running` matches. Read the saved page back: the trigger line must say "Issue:
+   Labeled". The Claude GitHub App must be installed on the repository. Turn the task's notifications
+   off, or every run reaches the owner's phone.
+2. **The switch.** Set `WAKE_START` to `label`. Delete the Actions variable `WAKE_ROUTINE_URL`, the
+   secret `WAKE_ROUTINE_TOKEN` and the task's API trigger: nothing reads them any more.
+3. **Prove it once.** Set `wake` on a test issue. The STATE issue gets the receipt, "Run signalled",
+   and then the run's own first comment; the run removes the claim as its last step.
+
+What differs from `/fire`:
+
+- **No session link.** The job cannot see the run start. The proof that it started is the run's first
+  comment on the STATE issue, so the run's contract makes that comment its first write.
+- **A start that never comes** leaves the claim in place. After 6 hours it counts as a run that died:
+  the next decision clears it and starts again, and a run that keeps dying pauses wakes, as before.
+  Only a label GitHub did not confirm is a failed start the job itself sees.
+- **A label set by the job's own token does start the task.** GitHub starts no workflow for such a
+  label, but it still tells the Apps installed on the repository. Measured: a run 2 seconds after a
+  job's label, and 3 seconds after a label set by a person's account.
+- **Check the trigger's event before believing a failed proof.** A task whose trigger says "Pull
+  request: Opened" never starts on a label, and its silence looks like "labels start nothing".
+
 ## Cost (O13)
 
 - **GitHub minutes:** each wake label, claim release and backstop day runs one job of a few seconds.
@@ -120,6 +151,7 @@ Until the variable is set, every `harness-wake` job is skipped.
   and none with one or on a public repository.
 - **Claude usage:** each run started is one Claude Code session on the owner's subscription. That is
   usage, never money, and at most 48 a day per repository.
+- **Start by label:** the same job and the same session per run; no extra job and no extra session.
 - **Rate limits:** the `/fire` limits are 30 fires an hour per task and 100 an hour per account.
   They are far above the caps.
 

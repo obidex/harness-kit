@@ -6,7 +6,9 @@
 //                                         in Actions only (harness-wake.yml): decide whether this event
 //                                         starts a fresh coordinator run, and if so fire the project's
 //                                         scheduled task (WAKE_ROUTINE_URL, WAKE_ROUTINE_TOKEN) and post
-//                                         the run's session link as the receipt
+//                                         the run's session link as the receipt; with WAKE_START=label
+//                                         (K056) it calls nothing outside GitHub: the claim label it
+//                                         sets is the start, and the task listens for that label
 //   node .harness/tools/wake.mjs status --repo owner/name
 //                                         the state the next decision reads (JSON; reads only)
 //
@@ -43,6 +45,7 @@ export const STATE = 'coordinator-state';
 export const STATE_MARK = '<!-- coordinator-state -->';
 export const FIRE_MARK = '<!-- wake-fire ';            // + JSON + ' -->': a receipt, posted BEFORE the fire
 export const FAIL_MARK = '<!-- wake-fail -->';         // the fire after the last receipt did not start
+export const START_MARK = '<!-- wake-start-label -->';  // K056: the run was signalled by the claim label, not by /fire
 export const EMPTY_MARK = '<!-- wake-backstop-empty -->';
 export const STUCK_MARK = '<!-- wake-stuck ';          // + JSON + ' -->': the backstop stopped on no progress
 export const CAPPED_MARK = '<!-- wake-capped -->';
@@ -178,6 +181,9 @@ export function decide({ event, label, issue = null, claim = false, paused = fal
   return { act: 'fire', why, target, via, sig, clearClaim: dead, work: work.map((w) => w.number) };
 }
 
+/** K056: does this project start its run by the claim label alone (no /fire call)? Only the exact word. */
+export const startByLabel = (v) => String(v ?? '').trim() === 'label';
+
 /** The fire URL must be a scheduled task's /fire endpoint, nothing else. */
 export function fireUrlOk(url, base = process.env.WAKE_FIRE_BASE || 'https://api.anthropic.com') {
   const b = base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -282,9 +288,12 @@ const unclaim = (repo, n) => gh('DELETE', `/repos/${repo}/issues/${n}/labels/${C
 
 async function runFire(repo, { event, issue, label }) {
   if (process.env.GITHUB_ACTIONS !== 'true') throw new Error('fire runs only in GitHub Actions (harness-wake.yml): its receipts must be the job\'s own');
+  // K056: with WAKE_START=label the claim label is the start (the project's task has a GitHub trigger on
+  // it), so there is no URL, no token and no call outside GitHub; any other value is the /fire call
+  const byLabel = startByLabel(process.env.WAKE_START);
   const url = process.env.WAKE_ROUTINE_URL, token = process.env.WAKE_ROUTINE_TOKEN;
-  if (!fireUrlOk(url)) throw new Error('WAKE_ROUTINE_URL is not a scheduled task\'s /fire URL (.harness/wake.md "Setup")');
-  if (!token) throw new Error('the WAKE_ROUTINE_TOKEN secret is missing (.harness/wake.md "Setup")');
+  if (!byLabel && !fireUrlOk(url)) throw new Error('WAKE_ROUTINE_URL is not a scheduled task\'s /fire URL (.harness/wake.md "Setup")');
+  if (!byLabel && !token) throw new Error('the WAKE_ROUTINE_TOKEN secret is missing (.harness/wake.md "Setup")');
   const s = await read(repo, { issue, event });
   const d = decide({ event, label, issue: s.it, claim: s.claim, paused: s.paused, backstopOff: s.backstopOff, ledger: s.led, queue: s.queue, work: s.work, now: Date.now(), cap: capFrom(process.env.WAKE_DAILY_CAP) });
   console.log(`wake: ${d.act}: ${d.why}`);
@@ -321,6 +330,23 @@ async function runFire(repo, { event, issue, label }) {
   // a run re-arms the backstop; a run started by hand also lifts a pause
   for (const n of s.restingOn) await gh('DELETE', `/repos/${repo}/issues/${n}/labels/${BACKSTOP_OFF}`).catch(() => {});
   if (d.via === 'hand') for (const n of s.pausedOn) await gh('DELETE', `/repos/${repo}/issues/${n}/labels/${PAUSED}`).catch(() => {});
+  if (byLabel) {
+    // the receipt first, as always; then the claim, whose `labeled` event is what starts the task. A
+    // claim that was already there would send no event, so it is taken off first (decide() starts a run
+    // only with no claim, or a dead one cleared above).
+    await comment(repo, s.st.number, `${FIRE_MARK}${JSON.stringify({ issue: d.target, via: d.via, sig: d.sig })} -->\nStarting a run (${d.why}).`);
+    await unclaim(repo, s.st.number);
+    const got = await gh('POST', `/repos/${repo}/issues/${s.st.number}/labels`, { labels: [CLAIM] });
+    if (!(got || []).some((l) => (l?.name ?? l) === CLAIM)) {
+      await comment(repo, s.st.number, `${FAIL_MARK}\nNot started: GitHub did not confirm the \`${CLAIM}\` label.`).catch(() => {});
+      throw new Error(`GitHub did not confirm the ${CLAIM} label on #${s.st.number}`);
+    }
+    const how = `the label \`${CLAIM}\` on #${s.st.number} starts the project's scheduled task (its GitHub trigger "Issue: Labeled"); the run's first comment on #${s.st.number} shows it started`;
+    await comment(repo, s.st.number, `${START_MARK}\nRun signalled: ${how}.${d.target != null ? ` Woken by #${d.target}.` : ''}`).catch(() => {});
+    if (d.target != null) await comment(repo, d.target, `Coordinator run signalled: ${how}.`).catch(() => {});
+    console.log(`wake: signalled by label on #${s.st.number}`);
+    return;
+  }
   await gh('POST', `/repos/${repo}/issues/${s.st.number}/labels`, { labels: [CLAIM] });   // claim before the run exists
   // the receipt comes BEFORE the fire: every attempt is counted, and a run never starts uncounted
   await comment(repo, s.st.number, `${FIRE_MARK}${JSON.stringify({ issue: d.target, via: d.via, sig: d.sig })} -->\nStarting a run (${d.why}).`);
