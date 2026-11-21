@@ -7,16 +7,33 @@
 //                                         starts a fresh coordinator run, and if so fire the project's
 //                                         scheduled task (WAKE_ROUTINE_URL, WAKE_ROUTINE_TOKEN) and post
 //                                         the run's session link as the receipt; with WAKE_START=label
-//                                         (K056) it calls nothing outside GitHub: the claim label it
+//                                         (K057) it calls nothing outside GitHub: the claim label it
 //                                         sets is the start, and the task listens for that label
 //   node .harness/tools/wake.mjs started --repo owner/name
-//                                         for a run that a label started (K056): prints `WAKE-START: OK`
+//                                         for a run that a label started (K057): prints `WAKE-START: OK`
 //                                         only when the job itself signalled this start (its receipt, the
 //                                         claim on the STATE issue) and no run took it yet; OK writes one
 //                                         "Run started" comment that spends the start (needs a token that
 //                                         may comment); else `WAKE-START: REFUSED` and exit 4
 //   node .harness/tools/wake.mjs status --repo owner/name
 //                                         the state the next decision reads (JSON; reads only)
+//   node .harness/tools/wake.mjs handoff --repo owner/name [--issue <n>] [--from owner/name] [--task <trig id>] [--dry]
+//                                         in a session (K056, wake.md "Hand-off between projects"): the
+//                                         sender finished something that repository's project waits on.
+//                                         The same decision as the job's, read from that repository; its
+//                                         last line is what the session obeys:
+//                                           HANDOFF: START <trig id> …   the claim and the receipt are
+//                                             written: call fire_trigger once with that id
+//                                           HANDOFF: QUEUED …            no start now (a run is on, a cap, a
+//                                             stop): the `wake` label is on the issue and waits
+//                                         --task names the receiver's run task only while that repository
+//                                         names none itself (.github/wake.json); its own file always wins
+//                                           HANDOFF: NOTHING …           nothing there to start or to queue
+//                                           HANDOFF: DRY …               --dry: what it would do; start nothing
+//   node .harness/tools/wake.mjs handoff --repo owner/name [--issue <n>] --failed <why>
+//                                         the fire_trigger call after a START failed (same --issue, within
+//                                         30 minutes of that START): releases the claim,
+//                                         marks the start failed and leaves the `wake` label on the issue
 //
 // The contract (.harness/wake.md):
 // - A wake is the label `wake` on an issue or pull request, never a comment. Anyone with triage on the
@@ -28,7 +45,8 @@
 // - The STATE issue: opened by this job (github-actions[bot]) with the label `coordinator-state` and
 //   the marker <!-- coordinator-state -->. Its body is the run's state; each run reads it first and
 //   writes it last. It holds no count: nothing about it can reset a cap.
-// - Caps: every attempt is a receipt comment by github-actions[bot], posted BEFORE the fire and read
+// - Caps: every attempt is a receipt comment by github-actions[bot] (or, for a hand-off, K056, by an
+//   account that may write to the repository), posted BEFORE the fire and read
 //   from the whole repository (LEDGER_DAYS back; a cut-off listing fails closed; a job comment edited
 //   later counts as a run whatever it says). DAILY_CAP runs per repository per 24 hours
 //   (WAKE_DAILY_CAP may lower it, never raise it), ISSUE_CAP per issue per 24 hours.
@@ -51,7 +69,10 @@ export const STATE = 'coordinator-state';
 export const STATE_MARK = '<!-- coordinator-state -->';
 export const FIRE_MARK = '<!-- wake-fire ';            // + JSON + ' -->': a receipt, posted BEFORE the fire
 export const FAIL_MARK = '<!-- wake-fail -->';         // the fire after the last receipt did not start
-export const START_MARK = '<!-- wake-start-label -->';  // K056: the run was signalled by the claim label, not by /fire
+export const START_MARK = '<!-- wake-start-label -->';  // K057: the run was signalled by the claim label, not by /fire
+export const HANDOFF_MARK = '<!-- wake-handoff ';      // + JSON + ' -->': a receipt a session wrote BEFORE it started a run from inside (K056)
+export const HANDOFF_FAIL_MARK = '<!-- wake-handoff-fail -->';   // that start did not happen
+export const RUN_TASK_FILE = '.github/wake.json';     // in the receiving repository: { "runTask": "trig_…", "dailyCap": n }: its coordinator-run scheduled task, and its daily cap where lowered
 export const EMPTY_MARK = '<!-- wake-backstop-empty -->';
 export const STUCK_MARK = '<!-- wake-stuck ';          // + JSON + ' -->': the backstop stopped on no progress
 export const CAPPED_MARK = '<!-- wake-capped -->';
@@ -66,8 +87,8 @@ export const CLAIM_TTL_H = 6;        // a claim older than this belongs to a run
 export const EMPTY_STOP = 3;         // empty backstops in a row, then the backstop stops
 export const STUCK_STOP = 3;         // backstop runs in a row for the same work, or failed fires in a row: stop
 export const CHAIN_STOP = 8;         // hand-off runs in a row with no outside wake between, then pause
-export const USED_MARK = '<!-- wake-start-used -->';   // K056: the run's own "started" comment; it spends the job's receipt
-export const START_WINDOW_MIN = 15;  // K056: a label-started run works only within this long of the job's receipt
+export const USED_MARK = '<!-- wake-start-used -->';   // K057: the run's own "started" comment; it spends the job's receipt
+export const START_WINDOW_MIN = 15;  // K057: a label-started run works only within this long of the job's receipt
 export const LEDGER_DAYS = 30;       // how far back the receipts are read
 const HOUR = 3600e3, DAY = 24 * HOUR;
 
@@ -83,20 +104,29 @@ const byJob = (c) => c?.user?.login === BOT && c?.user?.type === 'Bot';
  *  only: no cap, no claim and no count depends on which issue it is. */
 export const isState = (i) => !i.pull_request && byJob(i) && String(i.body || '').includes(STATE_MARK);
 
-const json = (b, mark) => { try { return JSON.parse(b.slice(mark.length, b.indexOf(' -->'))); } catch { return {}; } };
+const json = (b, mark) => { try { const j = JSON.parse(b.slice(mark.length, b.indexOf(' -->'))); return j && typeof j === 'object' ? j : {}; } catch { return {}; } };
+/** May this comment's author write to the repository? A hand-off receipt counts only then (K056): on a
+ *  public repository anyone may comment, and a stranger's comment must neither use a cap up nor count as a failed start. */
+const WRITERS = ['OWNER', 'MEMBER', 'COLLABORATOR'];
+const byWriter = (c) => WRITERS.includes(c?.author_association);
 
 /** The job's own marker comments, from anywhere in the repository, oldest first:
- *  { kind: fire|fail|empty|stuck, at, issue, via, sig }. A comment a person posted never counts. */
+ *  { kind: fire|fail|empty|stuck, at, issue, via, sig }. A comment a person posted never counts, except a
+ *  hand-off's receipt and failed start (K056), and those only from an account that may write here. */
 export function ledger(comments) {
   const out = [];
   for (const c of comments) {
-    if (!byJob(c)) continue;
     const b = String(c.body || ''), at = Date.parse(c.created_at);
+    // a hand-off receipt (K056) is written by a session, under the account the project's sessions act as:
+    // it counts when its author may write to the repository, and only then. Edited later, it still counts.
+    if (b.startsWith(HANDOFF_MARK)) { if (byWriter(c)) { const j = json(b, HANDOFF_MARK); out.push({ kind: 'fire', at, issue: Number.isInteger(j.issue) ? j.issue : null, via: 'handoff', sig: '', id: c.id ?? null }); } continue; }
+    if (b.startsWith(HANDOFF_FAIL_MARK)) { if (byWriter(c)) out.push({ kind: 'fail', at, via: 'handoff' }); continue; }
+    if (!byJob(c)) continue;
     // the job never edits its comments: an edited one is counted as a run, whatever it says now
     if (c.updated_at && Math.abs(Date.parse(c.updated_at) - at) > 5000) { out.push({ kind: 'fire', at, issue: null, via: 'edited', sig: '' }); continue; }
     if (b.startsWith(FIRE_MARK)) {
       const j = json(b, FIRE_MARK);
-      out.push({ kind: 'fire', at, issue: Number.isInteger(j.issue) ? j.issue : null, via: String(j.via || ''), sig: String(j.sig || '') });
+      out.push({ kind: 'fire', at, issue: Number.isInteger(j.issue) ? j.issue : null, via: String(j.via || ''), sig: String(j.sig || ''), id: c.id ?? null });
     } else if (b.startsWith(FAIL_MARK)) out.push({ kind: 'fail', at });
     else if (b.startsWith(EMPTY_MARK)) out.push({ kind: 'empty', at });
     else if (b.startsWith(STUCK_MARK)) out.push({ kind: 'stuck', at, sig: String(json(b, STUCK_MARK).sig || '') });
@@ -175,6 +205,11 @@ export function decide({ event, label, issue = null, claim = false, paused = fal
   } else if (event === 'workflow_dispatch') {
     if (issue && (!issue.open || issue.isState)) return { act: 'none', why: 'not an open issue to wake for' };
     target = issue ? issue.number : null; why = 'started by hand'; via = 'hand';
+  } else if (event === 'handoff') {
+    // K056: another project finished something this one waits on. An outside wake, under every cap and stop.
+    if (issue && (!issue.open || issue.isState)) return { act: 'none', why: 'not an open issue to hand over' };
+    if (issue?.labels.includes(STOPPED)) return { act: 'none', why: `#${issue.number} is stopped (${STOPPED}); a person removes that label to wake for it again` };
+    target = issue ? issue.number : null; why = 'hand-off from another project'; via = 'handoff';
   } else return { act: 'none', why: `event ${event} wakes nobody` };
   if (busy) return { act: 'none', why: 'a run is on; it reads the wake queue before it ends, and its end starts the next run', target };
   if (via !== 'hand') {
@@ -189,18 +224,21 @@ export function decide({ event, label, issue = null, claim = false, paused = fal
   return { act: 'fire', why, target, via, sig, clearClaim: dead, work: work.map((w) => w.number) };
 }
 
-/** K056: does this project start its run by the claim label alone (no /fire call)? Only that one word. */
+/** K057: does this project start its run by the claim label alone (no /fire call)? Only that one word. */
 export const startByLabel = (v) => String(v ?? '').trim().toLowerCase() === 'label';   // case as the workflow's `==` reads it
 
-/** K056: is a run that a label started one the job itself signalled? Only then may it work: the claim
+/** K057: is a run that a label started one the job itself signalled? Only then may it work: the claim
  *  sits on the STATE issue, the job's newest receipt is a start no older than START_WINDOW_MIN with no
  *  failure after it, and no run has spent that receipt yet (`used`: the USED_MARK comments since it).
  *  A claim label set by anyone else, or set again after a run took the start, has no unspent receipt,
- *  so that run ends at once and the caps hold for work, whoever can set a label. */
+ *  so that run ends at once and the caps hold for work, whoever can set a label. A hand-off's receipt
+ *  is no signal either: the session that wrote it starts that run itself. */
 export function startOk({ ledger: led = [], stateClaimed = false, used = 0, now = Date.now() }) {
   if (!stateClaimed) return { ok: false, why: `the STATE issue does not carry \`${CLAIM}\`` };
   const last = led.filter((e) => e.kind === 'fire' || e.kind === 'fail').at(-1);
   if (!last || last.kind !== 'fire') return { ok: false, why: 'the job\'s newest receipt is not a start' };
+  // a hand-off's claim fires the label trigger too, but the hand-off starts its own run (fire_trigger, K056)
+  if (last.via === 'handoff') return { ok: false, why: 'the newest start is a hand-off, which starts its own run' };
   const min = Math.round((now - last.at) / 60000);
   if (min > START_WINDOW_MIN) return { ok: false, why: `the job's newest start receipt is ${min} minutes old (more than ${START_WINDOW_MIN})` };
   if (used > 0) return { ok: false, why: 'a run already took the job\'s newest start (one start, one run)' };
@@ -321,7 +359,7 @@ const unclaim = (repo, n) => gh('DELETE', `/repos/${repo}/issues/${n}/labels/${C
 
 async function runFire(repo, { event, issue, label }) {
   if (process.env.GITHUB_ACTIONS !== 'true') throw new Error('fire runs only in GitHub Actions (harness-wake.yml): its receipts must be the job\'s own');
-  // K056: with WAKE_START=label the claim label is the start (the project's task has a GitHub trigger on
+  // K057: with WAKE_START=label the claim label is the start (the project's task has a GitHub trigger on
   // it), so there is no URL, no token and no call outside GitHub; any other value is the /fire call
   const byLabel = startByLabel(process.env.WAKE_START);
   const url = process.env.WAKE_ROUTINE_URL, token = process.env.WAKE_ROUTINE_TOKEN;
@@ -405,6 +443,124 @@ async function runFire(repo, { event, issue, label }) {
   console.log(`wake: fired: ${link}`);
 }
 
+/** The receiving repository's coordinator-run task, from RUN_TASK_FILE on its default branch. */
+export function runTaskOf(text) {
+  let j = null;
+  try { j = JSON.parse(text); } catch { return null; }
+  return /^trig_[A-Za-z0-9]+$/.test(String(j?.runTask || '')) ? j.runTask : null;
+}
+
+/** The receiving repository's daily cap as its file states it (`dailyCap`): lower only, as WAKE_DAILY_CAP. */
+export function capOf(text) {
+  try { return capFrom(JSON.parse(text)?.dailyCap); } catch { return DAILY_CAP; }
+}
+
+/** What a hand-off does with the decision. Pure.
+ *  out: { say: START|QUEUED|NOTHING, why, claim (set it and write the receipt), label (set `wake` on the issue) } */
+export function handoffPlan(d, { task, issue = null }) {
+  const can = !!issue && issue.open && !issue.isState && !issue.labels.includes(STOPPED);   // an issue the label may wait on
+  if (d.act === 'fire') {
+    if (task) return { say: 'START', why: d.why, claim: true, label: false };
+    return { say: can ? 'QUEUED' : 'NOTHING', why: `the repository names no coordinator-run task (${RUN_TASK_FILE}) and --task gave none`, claim: false, label: can };
+  }
+  // a stop is a person's to lift and the job's to set: a hand-off sets none and waits behind every one
+  if (d.act === 'stop-item') return { say: 'NOTHING', why: d.why, claim: false, label: false };
+  if (d.act === 'pause') return { say: can ? 'QUEUED' : 'NOTHING', why: `${d.why}: no start from inside either`, claim: false, label: can };
+  return { say: can ? 'QUEUED' : 'NOTHING', why: d.why, claim: false, label: can };
+}
+
+export const HANDOFF_SETTLE_MS = 8000;   // how long a hand-off waits after its receipt before it reads who else started
+export const HANDOFF_RELEASE_MIN = 30;   // --failed releases only a start this recent
+
+/** Two starts written at the same moment: who keeps it? Pure. `mine` is this hand-off's receipt id,
+ *  `fires` the receipts written since its decision read them. The wake job never yields, so a hand-off yields to
+ *  any job receipt beside its own; between hand-offs the earliest receipt keeps the start. */
+export function keepsStart(mine, fires) {
+  const near = fires.filter((f) => f.id !== mine);
+  if (near.some((f) => f.via !== 'handoff')) return false;
+  const me = fires.find((f) => f.id === mine);
+  if (!me) return false;   // its own receipt cannot be read back: no start on an unread count
+  return !near.some((f) => f.at < me.at || (f.at === me.at && Number(f.id) < Number(mine)));
+}
+
+/** The STATE issue a hand-off reads: the job's own; else, in a repository whose coordinator keeps one by
+ *  hand, the oldest open issue labelled so. Never opened, reopened or written to find it. */
+async function handoffState(repo) {
+  const own = await stateIssue(repo, { open: false });
+  if (own && own.state === 'open') return own;
+  return (await pages(`/repos/${repo}/issues?state=open&labels=${STATE}&sort=created&direction=asc`)).filter((i) => !i.pull_request)[0] || null;
+}
+
+const SLUG = /^[\w.-]+\/[\w.-]+$/;
+
+async function runHandoff(repo, { issue, from, failed, dry, task: given }) {
+  const who = SLUG.test(String(from || '')) ? from : 'another project';
+  const done = (say, why) => console.log(`HANDOFF: ${say} ${String(why).replace(/\s+/g, ' ').slice(0, 300)}`);
+  const st = await handoffState(repo);
+  if (!st) return done('NOTHING', `${repo} has no open coordinator state issue (label ${STATE}): nothing to read a claim or a cap from`);
+  const led = await receipts(repo);
+  let it = null;
+  if (issue) {
+    const i = await gh('GET', `/repos/${repo}/issues/${issue}`);
+    it = { number: i.number, open: i.state === 'open', labels: names(i), isState: i.number === st.number };
+  }
+  const can = !!it && it.open && !it.isState && !it.labels.includes(STOPPED);
+  const queueIt = async () => { if (can && !it.labels.includes(WAKE) && !dry) await gh('POST', `/repos/${repo}/issues/${it.number}/labels`, { labels: [WAKE] }); };
+  if (failed !== undefined) {
+    // the start being released is the newest hand-off receipt for this item (another sender's receipt, one
+    // that yielded, may be newer), recent, not already marked failed, and with no run of the job after it
+    const last = led.filter((e) => e.kind === 'fire' && e.via === 'handoff' && (e.issue ?? null) === (it?.number ?? null)).at(-1);
+    if (!last || Date.now() - last.at > HANDOFF_RELEASE_MIN * 60e3 || led.some((e) => e.at >= last.at && ((e.kind === 'fail' && e.via === 'handoff') || (e.kind === 'fire' && e.via !== 'handoff')))) return done('NOTHING', 'no hand-off start is open here: nothing released');
+    if (!dry) {
+      await unclaim(repo, st.number);
+      await comment(repo, st.number, `${HANDOFF_FAIL_MARK}\nNot started from inside (hand-off from ${who}): ${String(failed).replace(/\s+/g, ' ').slice(0, 160)}.`);
+      await queueIt();
+    }
+    return done(can ? 'QUEUED' : 'NOTHING', `the start failed and is marked so${can ? `; \`${WAKE}\` stays on #${it.number} for the next start` : ''}`);
+  }
+  const labelled = async (l) => (await pages(`/repos/${repo}/issues?state=open&labels=${l}`)).map((i) => i.number);
+  const claimed = await labelled(CLAIM), paused = (await labelled(PAUSED)).length > 0;
+  const queue = (await pages(`/repos/${repo}/issues?state=open&labels=${WAKE}&sort=created&direction=asc`)).filter((i) => i.number !== st.number && !names(i).includes(STOPPED)).map((i) => i.number);
+  // the receiver's own file: its run task, and its daily cap where it lowered one (WAKE_DAILY_CAP is an
+  // Actions variable no session can read, so a repository that lowers it writes the same number here)
+  let file = '';
+  try { file = Buffer.from((await gh('GET', `/repos/${repo}/contents/${RUN_TASK_FILE}`)).content || '', 'base64').toString('utf8'); } catch { /* no file */ }
+  const d = decide({ event: 'handoff', issue: it, claim: claimed.length > 0, paused, ledger: led, queue, now: Date.now(), cap: Math.min(capOf(file), capFrom(process.env.WAKE_DAILY_CAP)) });
+  let task = null;
+  if (d.act === 'fire') {
+    task = runTaskOf(file);
+    // the sender may name the task only while the receiver names none: the receiver's own word wins
+    if (!task) task = runTaskOf(JSON.stringify({ runTask: given }));
+  }
+  const p = handoffPlan(d, { task, issue: it });
+  if (p.label) await queueIt();
+  if (!p.claim) return done(p.say, `${p.why}${p.label ? `; \`${WAKE}\` is on #${it.number}: the run that is on, or the next start, takes it` : ''}`);
+  if (!dry) {
+    if (d.clearClaim) for (const n of claimed) await unclaim(repo, n);
+    await gh('POST', `/repos/${repo}/issues/${st.number}/labels`, { labels: [CLAIM] });   // claim before the run exists
+    // the receipt comes BEFORE the start, as the job's does: no run starts uncounted
+    const seen = new Set(led.filter((e) => e.kind === 'fire').map((e) => e.id));
+    const mine = await comment(repo, st.number, `${HANDOFF_MARK}${JSON.stringify({ issue: d.target, via: 'handoff', from: who })} -->\nStarting a run from inside (hand-off from ${who}${d.target != null ? ` for #${d.target}` : ''}).`);
+    // one run at a time, also when two starts are written at the same moment: wait, then read who else
+    // wrote a receipt around this one. The loser starts nothing; its receipt stays counted and the claim
+    // stays with the start that keeps it.
+    await new Promise((r) => setTimeout(r, Number(process.env.HANDOFF_SETTLE_MS ?? HANDOFF_SETTLE_MS)));
+    const near = (await receipts(repo)).filter((e) => e.kind === 'fire' && e.id != null && !seen.has(e.id));   // every start written since this decision read the receipts
+    if (!near.some((e) => e.id === mine?.id)) {
+      // its own receipt does not count here (an account that may not write): no start, and no claim left behind
+      if (!near.length) await unclaim(repo, st.number);   // the claim is its own only when no other start was written
+      await queueIt();
+      return done(can ? 'QUEUED' : 'NOTHING', `this account's receipt does not count in ${repo} (it may not write there), so it starts nothing`);
+    }
+    if (!keepsStart(mine?.id, near)) {
+      await queueIt();
+      return done(can ? 'QUEUED' : 'NOTHING', `another start was written at the same moment and keeps the run${can ? `; \`${WAKE}\` is on #${it.number} for it` : ''}`);
+    }
+  }
+  if (dry) return done('DRY', `would START ${task} (${repo}${d.target != null ? ` #${d.target}` : ''}); nothing written, start nothing`);
+  done('START', `${task} (${repo}${d.target != null ? ` #${d.target}` : ''}): call fire_trigger once with this id and no text (a task that starts a new thread refuses added text; the run reads its queue from the repository); if the call is refused, run handoff again with --failed "<the error>"`);
+}
+
 const argv = process.argv.slice(2);
 const opt = (n) => { const i = argv.indexOf(n); return i >= 0 ? argv[i + 1] : undefined; };
 
@@ -415,6 +571,7 @@ async function main() {
   const issue = opt('--issue') ? Number(opt('--issue')) : null;
   if (issue !== null && !Number.isInteger(issue)) throw new Error('--issue must be a number');
   if (cmd === 'fire') return runFire(repo, { event: opt('--event'), issue, label: opt('--label') });
+  if (cmd === 'handoff') return runHandoff(repo, { issue, from: opt('--from'), failed: argv.includes('--failed') ? String(opt('--failed') ?? '') : undefined, dry: argv.includes('--dry'), task: opt('--task') });
   if (cmd === 'started') {
     // The run obeys the first word of the line. OK is given once per receipt: this command spends the
     // start with one comment on the STATE issue, and the oldest such comment since the receipt wins.
@@ -456,7 +613,7 @@ async function main() {
       queue: (await pages(`/repos/${repo}/issues?state=open&labels=${WAKE}`)).filter((i) => i.number !== st.number).map((i) => i.number) }));
     return;
   }
-  throw new Error('usage: wake.mjs fire|started|status  (see the header of this file)');
+  throw new Error('usage: wake.mjs fire|started|status|handoff  (see the header of this file)');
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {

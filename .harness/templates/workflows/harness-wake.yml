@@ -11,7 +11,7 @@
 # 30 days or made no progress (`wake-stopped`); 3 failed starts or 8 hand-offs in a row (`wake-paused`).
 # Inert until the project sets the Actions variable WAKE_ROUTINE_URL and the secret WAKE_ROUTINE_TOKEN
 # (.harness/wake.md "Setup"): with no URL every job is skipped and costs nothing.
-# With the Actions variable WAKE_START set to `label` (K056) the job calls nothing outside GitHub and
+# With the Actions variable WAKE_START set to `label` (K057) the job calls nothing outside GitHub and
 # needs no URL and no token: the claim label it sets on the STATE issue starts the project's scheduled
 # task, which has a GitHub trigger on that label (.harness/wake.md "Start by label").
 # Safe on a self-hosted runner: it runs only the default branch's .harness/tools, never PR scripts, and

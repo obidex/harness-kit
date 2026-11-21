@@ -7,7 +7,7 @@ import { createServer } from 'node:http';
 import { execFile } from 'node:child_process';
 import { join } from 'node:path';
 import { readFileSync } from 'node:fs';
-import { body, parse, setField, tokenOwner } from '../.harness/tools/inbox.mjs';
+import { body, parse, setField, tokenOwner, handoffLine, sourceOf } from '../.harness/tools/inbox.mjs';
 import { parseYaml } from '../.harness/tools/lib.mjs';
 
 let n = 0;
@@ -98,6 +98,9 @@ const wired = { INBOX_ROUTINE_URL: `${base}/v1/claude_code/routines/trig_01ABC/f
 const s1 = await run(send);
 await settle();
 ok(s1.code === 3 && /filed kit\/proof-1/.test(s1.out) && issues.length === 1 && issues[0].labels[0].name === 'inbox', 'send files one issue labelled inbox');
+ok(/next, in this same turn \(K056.*wake\.mjs handoff --repo o\/r --issue 1$/m.test(s1.out), 'send ends by naming the hand-off step: the sender starts the receiving project in the same turn (K056)');
+ok(sourceOf('https://github.com/o/src/issues/12').repo === 'o/src' && sourceOf('see https://github.com/o/src/pull/7 (asked there)').issue === 7 && sourceOf('the owner, 2 Oct') === null
+  && handoffLine('o/src', 12, 'o/r').endsWith('wake.mjs handoff --repo o/src --issue 12 --from o/r'), 'the project that waits on a request is read from its Source line, or not named at all');
 ok(dispatches.length === 1 && dispatches[0].ref === 'main' && dispatches[0].inputs.repo === 'o/r' && dispatches[0].inputs.issue === '1', 'for a repository without its own wake job (no kit), send starts the control repository\'s hands-inbox job for that request');
 ok(/NOT delivered: no open inbox-wake pull request/.test(s1.out) && issues[0].comments.length === 1 && issues[0].comments[0].startsWith('<!-- inbox-wake-undelivered -->') && !issues[0].comments.some((c) => c.includes('Woke')), 'with no wake channel the job leaves one "Not delivered" note, never "Woke", and send reports it and exits non-zero');
 ok(wakes.length === 0, 'send itself never posts on the channel: a comment from the session\'s own account never reaches a subscribed session (K024)');
@@ -313,8 +316,10 @@ ok((await run(['state', '--repo', 'o/r', '--issue', '1', '--to', 'done'])).code 
 ok((await run(['state', '--repo', 'o/r', '--issue', '1', '--to', 'working'])).code === 0 && parse(issues[0].body).State === 'working', 'the coordinator marks it working');
 const w2 = await run(['wake', '--repo', 'o/r', '--issue', '1'], wired);
 ok(w2.code === 0 && /nobody woken/.test(w2.out) && fires.length === 1, 'a request already picked up never wakes the AI again');
+issues[0].body = setField(issues[0].body, 'Source', 'https://github.com/o/src/issues/12');   // asked from another project's item
 const d = await run(['state', '--repo', 'o/r', '--issue', '1', '--to', 'done', '--note', 'PR #9 merged, ci green']);
 ok(d.code === 0 && issues[0].state === 'closed' && parse(issues[0].body).Evidence === 'PR #9 merged, ci green' && issues[0].comments.at(-1).includes('PR #9'), 'done records the evidence on the issue and closes it');
+ok(/wake\.mjs handoff --repo o\/src --issue 12 --from o\/r$/m.test(d.out), 'done ends by naming the hand-off to the project that asked, read from the Source line (K056)');
 ok(JSON.parse((await run(['pending', '--repo', 'o/r'])).out).length === 0 && /already .*closed, done/.test((await run(send)).out), 'after done nothing is pending, and a resend points at the finished issue');
 const locked = await run(['pending', '--repo', 'o/locked']);
 ok(locked.code === 1 && /answered 401/.test(locked.out) && /attach it first \(add_repo o\/locked with access "push"\)/.test(locked.out), 'a refused token names the fix: attach the repository to the session (cloud) or give GH_TOKEN access');

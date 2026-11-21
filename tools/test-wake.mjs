@@ -8,7 +8,7 @@ import { createServer } from 'node:http';
 import { execFile } from 'node:child_process';
 import { join } from 'node:path';
 import { readFileSync } from 'node:fs';
-import { decide, ledger, capFrom, fireUrlOk, isState, payload, signature, failStreak, chainLength, MOVABLE, WAKE, CLAIM, STOPPED, PAUSED, BACKSTOP_OFF, CHAIN_STOP, STATE, STATE_MARK, FIRE_MARK, FAIL_MARK, STUCK_MARK, EMPTY_MARK, START_MARK, USED_MARK, startByLabel, startOk, usedSince, START_WINDOW_MIN, DAILY_CAP, ISSUE_CAP, ISSUE_TOTAL, EMPTY_STOP, STUCK_STOP } from '../.harness/tools/wake.mjs';
+import { capOf, keepsStart, handoffPlan, runTaskOf, HANDOFF_MARK, HANDOFF_FAIL_MARK, RUN_TASK_FILE, decide, ledger, capFrom, fireUrlOk, isState, payload, signature, failStreak, chainLength, MOVABLE, WAKE, CLAIM, STOPPED, PAUSED, BACKSTOP_OFF, CHAIN_STOP, STATE, STATE_MARK, FIRE_MARK, FAIL_MARK, STUCK_MARK, EMPTY_MARK, START_MARK, USED_MARK, startByLabel, startOk, usedSince, START_WINDOW_MIN, DAILY_CAP, ISSUE_CAP, ISSUE_TOTAL, EMPTY_STOP, STUCK_STOP } from '../.harness/tools/wake.mjs';
 import { parseYaml } from '../.harness/tools/lib.mjs';
 
 let n = 0;
@@ -115,6 +115,8 @@ let commentId = 100, raceUsed = false, postAs = null, hideUsedOnce = 0, hideNewe
 // raceUsed: another run's record lands just before this run's own
 const issues = new Map();   // number -> { number, state, labels: [names], body, user, comments: [{ user, body, created_at }] }
 const fires = [];
+let rival = null;   // rival: a second start's receipt, written right after the next hand-off receipt
+let taskFile = null;   // the receiving repository's .github/wake.json, when it has one
 let fireStatus = 200;
 const labelEvents = [];   // `<issue>:<label>` for each label GitHub would send a `labeled` event for
 let labelsRefused = false;
@@ -138,12 +140,13 @@ const srv = createServer((q, res) => {
     }
     if (u.pathname === '/repos/o/r/issues' && q.method === 'POST') { const j = JSON.parse(data); const i = add({ number: Math.max(0, ...issues.keys()) + 1, body: j.body, labels: j.labels, user: bot }); return send(201, view(i)); }
     if (u.pathname === '/repos/o/r/issues/comments') return send(200, u.searchParams.get('page') === '1' && u.searchParams.get('since') ? [...issues.values()].flatMap((i) => i.comments).sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at)).slice(0, hideNewest ? -1 : undefined).filter((c) => { if (hideUsedOnce !== 2) return true; return !c.body.startsWith(USED_MARK); }).concat((hideUsedOnce === 2 ? (hideUsedOnce = 0, []) : [])) : []);
+    if (u.pathname === `/repos/o/r/contents/${RUN_TASK_FILE}`) return taskFile == null ? send(404, {}) : send(200, { content: Buffer.from(taskFile).toString('base64') });
     if (u.pathname === '/repos/o/r/pulls' || u.pathname.startsWith('/repos/o/r/commits')) return send(200, []);
     const m = u.pathname.match(/^\/repos\/o\/r\/issues\/(\d+)(\/comments|\/labels(?:\/([\w-]+))?)?$/);
     const i = m && issues.get(Number(m[1]));
     if (!i) return send(404, {});
     if (m[2] === '/comments' && q.method === 'GET') return send(200, u.searchParams.get('page') === '1' ? i.comments : []);
-    if (m[2] === '/comments') { const body = JSON.parse(data).body; if (raceUsed && body.startsWith(USED_MARK)) i.comments.push({ id: ++commentId, user: bot, body, created_at: new Date(Date.now() - 1).toISOString() }); const c = { id: ++commentId, user: bot, ...(postAs || {}), body, created_at: new Date().toISOString() }; i.comments.push(c); if (hideUsedOnce === 1 && body.startsWith(USED_MARK)) hideUsedOnce = 2; return send(201, c); }
+    if (m[2] === '/comments') { const body = JSON.parse(data).body; if (raceUsed && body.startsWith(USED_MARK)) i.comments.push({ id: ++commentId, user: bot, body, created_at: new Date(Date.now() - 1).toISOString() }); const c = { id: ++commentId, user: bot, author_association: 'OWNER', ...(postAs || {}), body, created_at: new Date().toISOString() }; i.comments.push(c); if (hideUsedOnce === 1 && body.startsWith(USED_MARK)) hideUsedOnce = 2; if (rival && body.startsWith(HANDOFF_MARK)) { i.comments.push({ ...c, id: ++commentId, body: rival }); rival = null; } return send(201, c); }
     if (m[2]?.startsWith('/labels') && q.method === 'DELETE') { if (!i.labels.includes(m[3])) return send(404, {}); if (m[3] === CLAIM) failAtUnclaim = i.comments.some((c) => c.body.startsWith(FAIL_MARK)); i.labels = i.labels.filter((x) => x !== m[3]); return send(200, []); }
     if (m[2]?.startsWith('/labels')) { if (labelsRefused === 'error') return send(500, {}); if (labelsRefused === 'lost') { i.labels = [...new Set([...i.labels, ...JSON.parse(data).labels])]; return send(500, {}); } if (labelsRefused) return send(200, []); const add = JSON.parse(data).labels; labelEvents.push(...add.filter((x) => !i.labels.includes(x)).map((x) => `${i.number}:${x}`)); if (add.includes(CLAIM)) receiptAtClaim = i.comments.filter((c) => c.body.startsWith(FIRE_MARK)).length; i.labels = [...new Set([...i.labels, ...add])]; return send(200, i.labels.map((name) => ({ name }))); }
     if (q.method === 'PATCH') { const j = JSON.parse(data); if (j.state) i.state = j.state; if (j.labels) i.labels = j.labels; return send(200, view(i)); }
@@ -317,6 +320,114 @@ ok(r8.code === 0 && /rests/.test(r8.out) && st.labels.includes(BACKSTOP_OFF) && 
 }
 const s = JSON.parse((await run(['status', '--repo', 'o/r'])).out);
 ok(s.state === st.number && s.emptyStreak === 0 && s.cap === DAILY_CAP && s.claim.length === 0 && s.failStreak === 0, 'status shows what the next decision reads');
+
+// --- the hand-off between projects (K056): the same decision, started from inside a session ---------
+{
+  const person = { login: 'owner', type: 'User' };
+  const it = woke(5, { labels: [] });
+  const d = decide({ event: 'handoff', issue: it, now });
+  ok(d.act === 'fire' && d.target === 5 && d.via === 'handoff' && decide({ event: 'handoff', now }).act === 'fire' && decide({ event: 'handoff', now }).target === null, 'a hand-off from another project starts a run, for its issue or for the queue as it stands');
+  ok(decide({ event: 'handoff', issue: it, claim: true, ledger: [fireAt(1)], now }).act === 'none' && decide({ event: 'handoff', issue: it, paused: true, now }).act === 'none'
+    && decide({ event: 'handoff', issue: woke(5, { labels: [STOPPED] }), now }).act === 'none' && decide({ event: 'handoff', issue: woke(5, { open: false }), now }).act === 'none',
+  'a hand-off starts nothing while a run is on, while wakes are paused, for a stopped issue or for a closed one: one run at a time and every stop hold');
+  ok(decide({ event: 'handoff', issue: it, ledger: Array.from({ length: DAILY_CAP }, (_, i) => fireAt((i + 1) * 23 / DAILY_CAP, 100 + i)), now }).act === 'capped'
+    && decide({ event: 'handoff', issue: it, ledger: Array.from({ length: ISSUE_CAP }, (_, i) => fireAt(i + 1, 5)), now }).act === 'capped'
+    && decide({ event: 'handoff', issue: it, ledger: [fireAt(5), { kind: 'fail', at: now - 5 * H + 1 }, fireAt(4), { kind: 'fail', at: now - 4 * H + 1 }, fireAt(3), { kind: 'fail', at: now - 3 * H + 1 }], now }).act === 'pause',
+  'a hand-off is under the same caps and the same stop after failed starts as a wake label: none of them changed');
+  const writer = { user: person, author_association: 'OWNER' }, stranger = { user: { login: 'passer-by', type: 'User' }, author_association: 'NONE' };
+  const l = ledger([
+    { ...writer, id: 11, created_at: '2026-11-07T10:00:00Z', body: `${HANDOFF_MARK}{"issue":5,"via":"handoff","from":"o/s"} -->\nStarting` },
+    { ...writer, created_at: '2026-11-07T10:01:00Z', body: `${HANDOFF_FAIL_MARK}\nNot started` },
+    { ...writer, author_association: 'COLLABORATOR', created_at: '2026-11-07T10:02:00Z', updated_at: '2026-11-07T11:00:00Z', body: `${HANDOFF_MARK}{"issue":6} -->\nedited later` },
+    { ...writer, created_at: '2026-11-07T10:03:00Z', body: `${FIRE_MARK}{"issue":7} -->\nforged` },
+    { ...writer, created_at: '2026-11-07T10:04:00Z', body: `${HANDOFF_MARK}null -->` },
+  ]);
+  ok(l.length === 4 && l[0].kind === 'fire' && l[0].via === 'handoff' && l[0].issue === 5 && l[0].id === 11 && l[1].kind === 'fail' && l[2].issue === 6 && l[3].issue === null && failStreak(l.slice(0, 2)) === 1,
+    'a hand-off receipt by an account that may write here counts as a run, its failed start as a failed start, a damaged one still counts, and nobody can forge the job\'s own receipt');
+  const flood = ledger([...Array.from({ length: DAILY_CAP }, (_, i) => ({ ...stranger, created_at: new Date(now - (i + 1) * 60e3).toISOString(), body: `${HANDOFF_MARK}{} -->` })),
+    ...[1, 2, 3].flatMap((i) => [{ ...stranger, created_at: new Date(now - i * H).toISOString(), body: `${HANDOFF_MARK}{} -->` }, { ...stranger, created_at: new Date(now - i * H + 1000).toISOString(), body: `${HANDOFF_FAIL_MARK}` }]),
+    { user: person, created_at: new Date(now - 5000).toISOString(), body: `${HANDOFF_MARK}{} -->` }]);
+  ok(flood.length === 0 && decide({ event: 'labeled', label: WAKE, issue: woke(), ledger: flood, now }).act === 'fire', 'a stranger\'s comments on a public repository count for nothing: they can neither use a cap up nor pause the wakes');
+  const hf = (id, s, via = 'handoff') => ({ kind: 'fire', id, at: now + s * 1000, via });
+  ok(keepsStart(2, [hf(2, 0)]) && keepsStart(2, [hf(2, 0), hf(3, 1)]) && !keepsStart(3, [hf(2, 0), hf(3, 1)]) && !keepsStart(3, [hf(2, 0), hf(3, 0)]) && keepsStart(2, [hf(2, 0), hf(3, 0)])
+    && !keepsStart(2, [hf(2, 0), hf(3, 1, 'label')]) && !keepsStart(2, [hf(1, -1, 'queue'), hf(2, 0)]) && !keepsStart(2, []),
+  'two starts written at the same moment: the earliest hand-off receipt keeps the run, a hand-off always yields to the job, and one that cannot read its own receipt back starts nothing');
+  ok(chainLength([{ ...fireAt(9, 7), via: 'queue' }, { ...fireAt(5, 8), via: 'handoff' }]) === 0, 'a hand-off is an outside wake: it ends a chain of runs that only started each other');
+  ok(runTaskOf('{"runTask":"trig_01AbC"}') === 'trig_01AbC' && runTaskOf('{"runTask":"https://evil.test/fire"}') === null && runTaskOf('{}') === null && runTaskOf('not json') === null, 'the run task is a scheduled task id from the receiving repository, nothing else');
+  const fireD = { act: 'fire', why: 'w' }, open = woke(5, { labels: [] });
+  ok(handoffPlan(fireD, { task: 'trig_1', issue: open }).say === 'START' && handoffPlan(fireD, { task: 'trig_1', issue: open }).label === false && handoffPlan(fireD, { task: 'trig_1' }).claim === true, 'START claims and sets no wake label: the run is started here, not by the label');
+  ok(handoffPlan(fireD, { task: null, issue: open }).say === 'QUEUED' && handoffPlan(fireD, { task: null }).say === 'NOTHING', 'a repository that names no run task gets the label to wait on, or nothing when no issue was named');
+  ok(handoffPlan({ act: 'none', why: 'a run is on' }, { task: 'trig_1', issue: open }).label === true && handoffPlan({ act: 'capped', why: 'c' }, { task: 'trig_1', issue: open }).say === 'QUEUED'
+    && handoffPlan({ act: 'pause', why: 'p' }, { task: 'trig_1', issue: open }).claim === false && handoffPlan({ act: 'stop-item', why: 's' }, { task: 'trig_1', issue: open }).label === false
+    && handoffPlan({ act: 'none', why: 'stopped' }, { task: 'trig_1', issue: woke(5, { labels: [STOPPED] }) }).say === 'NOTHING',
+  'refused, a hand-off leaves the wake label for the run that is on or the next start; it never sets a stop and never labels a stopped issue');
+}
+{
+  const handoff = (args, env) => run(['handoff', '--repo', 'o/r', ...args], { GITHUB_ACTIONS: '', HANDOFF_SETTLE_MS: '0', ...env });
+  const before = fires.length, marks = (m) => st.comments.filter((c) => c.body.startsWith(m)).length;
+  add({ number: 21, body: 'answered: the sender waits on this' });
+  const n0 = await handoff(['--issue', '21', '--from', 'o/sender']);
+  ok(n0.code === 0 && /HANDOFF: QUEUED .*names no coordinator-run task/.test(n0.out) && issues.get(21).labels.includes(WAKE) && !st.labels.includes(CLAIM) && marks(HANDOFF_MARK) === 0, 'a repository that names no run task: the wake label is set and waits; no claim, no receipt');
+  issues.get(21).labels = [];
+  const byHand = await handoff(['--issue', '21', '--task', 'trig_01SENDER', '--dry']), badTask = await handoff(['--issue', '21', '--task', 'https://evil.test/fire', '--dry']);
+  taskFile = '{"runTask":"trig_01RECV"}';
+  const own = await handoff(['--issue', '21', '--task', 'trig_01SENDER', '--dry']);
+  ok(/would START trig_01SENDER/.test(byHand.out) && /HANDOFF: QUEUED/.test(badTask.out) && /would START trig_01RECV/.test(own.out), 'the sender may name the run task only while the receiver names none, and only as a task id: the receiver\'s own file wins');
+  const dry = await handoff(['--issue', '21', '--dry']);
+  ok(/HANDOFF: DRY would START trig_01RECV/.test(dry.out) && !/HANDOFF: START/.test(dry.out) && !st.labels.includes(CLAIM) && marks(HANDOFF_MARK) === 0, '--dry prints the decision under its own word, never the START line a session obeys, and writes nothing');
+  const h1 = await handoff(['--issue', '21', '--from', 'o/sender']);
+  ok(h1.code === 0 && /HANDOFF: START trig_01RECV \(o\/r #21\)/.test(h1.out.trim().split('\n').at(-1)) && /with this id and no text/.test(h1.out) && !/hint:/.test(h1.out) && st.labels.includes(CLAIM) && st.comments.at(-1).body.startsWith(HANDOFF_MARK) && /o\/sender/.test(st.comments.at(-1).body)
+    && fires.length === before && !issues.get(21).labels.includes(WAKE), 'START: the claim and the receipt are written first, the last line names the task for fire_trigger, and no outside /fire call is made');
+  // K057: in a project that starts by label, this claim fires the label trigger too; the hand-off starts its own run
+  const byLabel = await run(['started', '--repo', 'o/r'], { GITHUB_ACTIONS: '', WAKE_REREAD_MS: '1' });
+  ok(byLabel.code === 4 && /^WAKE-START: REFUSED .*hand-off/m.test(byLabel.out) && !st.comments.some((c) => c.body.startsWith(USED_MARK)) && st.labels.includes(CLAIM),
+    'label start: a run the hand-off\'s claim label started is refused and writes nothing, so a hand-off is one working run (the one fire_trigger starts)');
+  add({ number: 22 });
+  const h2 = await handoff(['--issue', '22']);
+  ok(/HANDOFF: QUEUED a run is on/.test(h2.out) && issues.get(22).labels.includes(WAKE) && marks(HANDOFF_MARK) === 1, 'a second hand-off while that run is on starts nothing: its wake label waits for the run\'s end (one run at a time)');
+  ok(/HANDOFF: NOTHING no hand-off start is open/.test((await handoff(['--issue', '22', '--failed', 'another sender'])).out) && st.labels.includes(CLAIM), '--failed for another item releases nothing: the claim of the run that is on stays');
+  const f = await handoff(['--issue', '21', '--failed', 'fire_trigger refused: not allowed']);
+  ok(/HANDOFF: QUEUED the start failed/.test(f.out) && !st.labels.includes(CLAIM) && st.comments.at(-1).body.startsWith(HANDOFF_FAIL_MARK) && issues.get(21).labels.includes(WAKE), 'a start that failed releases the claim, is marked failed and leaves the wake label for the next start');
+  ok(/HANDOFF: NOTHING no hand-off start is open/.test((await handoff(['--failed', 'again'])).out) && marks(HANDOFF_FAIL_MARK) === 1, '--failed releases only a start a hand-off claimed: a second call does nothing');
+  // the receiver lowered its cap: a session cannot read its Actions variable, so its file carries the number
+  const fires24 = () => [...issues.values()].flatMap((i) => i.comments).filter((c) => c.body.startsWith(FIRE_MARK) || c.body.startsWith(HANDOFF_MARK)).length;
+  taskFile = JSON.stringify({ runTask: 'trig_01RECV', dailyCap: fires24() });
+  const cap = await handoff(['--issue', '22']);
+  taskFile = JSON.stringify({ runTask: 'trig_01RECV', dailyCap: fires24() + 1 });
+  const under = await handoff(['--issue', '22', '--dry']);
+  taskFile = '{"runTask":"trig_01RECV"}';
+  ok(/HANDOFF: QUEUED the daily cap is reached/.test(cap.out) && marks(HANDOFF_MARK) === 1 && /would START/.test(under.out) && capOf('{"dailyCap":500}') === DAILY_CAP && capOf('nope') === DAILY_CAP && capOf('{"dailyCap":3}') === 3,
+    'hand-off starts count against the same daily cap as the job\'s runs, and a cap the receiver lowered in its file holds for hand-offs too (lower only)');
+  issues.get(22).labels = [STOPPED];
+  ok(/HANDOFF: NOTHING #22 is stopped/.test((await handoff(['--issue', '22'])).out) && !issues.get(22).labels.includes(WAKE), 'a stopped issue is never labelled or started for');
+  {
+    // the wake job writes its own receipt in the same moment: the hand-off yields and starts nothing
+    for (const i of issues.values()) i.comments = i.comments.filter((c) => !c.body.startsWith(HANDOFF_MARK) && !c.body.startsWith(HANDOFF_FAIL_MARK) && !c.body.startsWith(FIRE_MARK));
+    st.labels = []; issues.get(21).labels = [];
+    rival = `${FIRE_MARK}{"issue":9,"via":"label","sig":""} -->\nStarting a run (wake label).`;
+    const lost = await handoff(['--issue', '21']);
+    ok(/HANDOFF: QUEUED another start was written at the same moment/.test(lost.out) && !/HANDOFF: START/.test(lost.out) && issues.get(21).labels.includes(WAKE) && st.labels.includes(CLAIM), 'two starts at the same moment: the hand-off that does not keep the run starts nothing, leaves the claim with the other and queues its item');
+    st.labels = []; issues.get(21).labels = [];
+    for (const i of issues.values()) i.comments = i.comments.filter((c) => !c.body.startsWith(HANDOFF_MARK) && !c.body.startsWith(FIRE_MARK));
+  }
+  {
+    // two senders hand off to the same project in the same moment: exactly one of them starts the run
+    add({ number: 23 }); add({ number: 24 });
+    const both = await Promise.all([handoff(['--issue', '23'], { HANDOFF_SETTLE_MS: '400' }), handoff(['--issue', '24'], { HANDOFF_SETTLE_MS: '400' })]);
+    const starts = both.filter((r) => /HANDOFF: START/.test(r.out)).length, queued = both.filter((r) => /HANDOFF: QUEUED/.test(r.out)).length;
+    ok(starts === 1 && queued === 1 && st.labels.includes(CLAIM), 'two hand-offs at the same moment start exactly one run; the other queues its item (one run at a time)');
+    // the one that kept the run could not start it: its release works whichever receipt is the newer
+    const winner = /HANDOFF: START/.test(both[0].out) ? '23' : '24', loser = winner === '23' ? '24' : '23';
+    ok(/HANDOFF: QUEUED the start failed/.test((await handoff(['--issue', winner, '--failed', 'refused'])).out) && !st.labels.includes(CLAIM), 'a start that kept the run and then failed is released, also when the yielding hand-off wrote the newer receipt: no claim is left with no run behind it');
+    ok(/HANDOFF: NOTHING no hand-off start is open/.test((await handoff(['--issue', winner, '--failed', 'again'])).out), 'a start already marked failed is not released twice');
+    void loser;
+    st.labels = []; for (const n of [21, 23, 24]) issues.get(n).labels = [];
+    for (const i of issues.values()) i.comments = i.comments.filter((c) => !c.body.startsWith(HANDOFF_MARK));
+  }
+  st.labels = [PAUSED];
+  ok(/HANDOFF: QUEUED wakes are paused/.test((await handoff(['--issue', '21'])).out) && st.labels.join() === PAUSED, 'while wakes are paused a hand-off starts nothing and lifts nothing');
+  st.labels = []; issues.get(21).labels = []; issues.get(22).labels = []; taskFile = null;
+}
 srv.close();
 
 // --- the installed workflow ---------------------------------------------------------------------
