@@ -63,7 +63,7 @@ export const FIRE_MARK = '<!-- wake-fire ';            // + JSON + ' -->': a rec
 export const FAIL_MARK = '<!-- wake-fail -->';         // the fire after the last receipt did not start
 export const HANDOFF_MARK = '<!-- wake-handoff ';      // + JSON + ' -->': a receipt a session wrote BEFORE it started a run from inside (K056)
 export const HANDOFF_FAIL_MARK = '<!-- wake-handoff-fail -->';   // that start did not happen
-export const RUN_TASK_FILE = '.github/wake.json';     // in the receiving repository: { "runTask": "trig_…" }, its coordinator-run scheduled task
+export const RUN_TASK_FILE = '.github/wake.json';     // in the receiving repository: { "runTask": "trig_…", "dailyCap": n }: its coordinator-run scheduled task, and its daily cap where lowered
 export const EMPTY_MARK = '<!-- wake-backstop-empty -->';
 export const STUCK_MARK = '<!-- wake-stuck ';          // + JSON + ' -->': the backstop stopped on no progress
 export const CAPPED_MARK = '<!-- wake-capped -->';
@@ -379,6 +379,11 @@ export function runTaskOf(text) {
   return /^trig_[A-Za-z0-9]+$/.test(String(j?.runTask || '')) ? j.runTask : null;
 }
 
+/** The receiving repository's daily cap as its file states it (`dailyCap`): lower only, as WAKE_DAILY_CAP. */
+export function capOf(text) {
+  try { return capFrom(JSON.parse(text)?.dailyCap); } catch { return DAILY_CAP; }
+}
+
 /** What a hand-off does with the decision. Pure.
  *  out: { say: START|QUEUED|NOTHING, why, claim (set it and write the receipt), label (set `wake` on the issue) } */
 export function handoffPlan(d, { task, issue = null }) {
@@ -445,10 +450,14 @@ async function runHandoff(repo, { issue, from, failed, dry, task: given }) {
   const labelled = async (l) => (await pages(`/repos/${repo}/issues?state=open&labels=${l}`)).map((i) => i.number);
   const claimed = await labelled(CLAIM), paused = (await labelled(PAUSED)).length > 0;
   const queue = (await pages(`/repos/${repo}/issues?state=open&labels=${WAKE}&sort=created&direction=asc`)).filter((i) => i.number !== st.number && !names(i).includes(STOPPED)).map((i) => i.number);
-  const d = decide({ event: 'handoff', issue: it, claim: claimed.length > 0, paused, ledger: led, queue, now: Date.now(), cap: capFrom(process.env.WAKE_DAILY_CAP) });
+  // the receiver's own file: its run task, and its daily cap where it lowered one (WAKE_DAILY_CAP is an
+  // Actions variable no session can read, so a repository that lowers it writes the same number here)
+  let file = '';
+  try { file = Buffer.from((await gh('GET', `/repos/${repo}/contents/${RUN_TASK_FILE}`)).content || '', 'base64').toString('utf8'); } catch { /* no file */ }
+  const d = decide({ event: 'handoff', issue: it, claim: claimed.length > 0, paused, ledger: led, queue, now: Date.now(), cap: Math.min(capOf(file), capFrom(process.env.WAKE_DAILY_CAP)) });
   let task = null;
   if (d.act === 'fire') {
-    try { task = runTaskOf(Buffer.from((await gh('GET', `/repos/${repo}/contents/${RUN_TASK_FILE}`)).content || '', 'base64').toString('utf8')); } catch { /* no file: no task */ }
+    task = runTaskOf(file);
     // the sender may name the task only while the receiver names none: the receiver's own word wins
     if (!task) task = runTaskOf(JSON.stringify({ runTask: given }));
   }

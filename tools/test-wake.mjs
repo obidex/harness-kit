@@ -8,7 +8,7 @@ import { createServer } from 'node:http';
 import { execFile } from 'node:child_process';
 import { join } from 'node:path';
 import { readFileSync } from 'node:fs';
-import { keepsStart, handoffPlan, runTaskOf, HANDOFF_MARK, HANDOFF_FAIL_MARK, RUN_TASK_FILE, decide, ledger, capFrom, fireUrlOk, isState, payload, signature, failStreak, chainLength, MOVABLE, WAKE, CLAIM, STOPPED, PAUSED, BACKSTOP_OFF, CHAIN_STOP, STATE, STATE_MARK, FIRE_MARK, FAIL_MARK, STUCK_MARK, EMPTY_MARK, DAILY_CAP, ISSUE_CAP, ISSUE_TOTAL, EMPTY_STOP, STUCK_STOP } from '../.harness/tools/wake.mjs';
+import { capOf, keepsStart, handoffPlan, runTaskOf, HANDOFF_MARK, HANDOFF_FAIL_MARK, RUN_TASK_FILE, decide, ledger, capFrom, fireUrlOk, isState, payload, signature, failStreak, chainLength, MOVABLE, WAKE, CLAIM, STOPPED, PAUSED, BACKSTOP_OFF, CHAIN_STOP, STATE, STATE_MARK, FIRE_MARK, FAIL_MARK, STUCK_MARK, EMPTY_MARK, DAILY_CAP, ISSUE_CAP, ISSUE_TOTAL, EMPTY_STOP, STUCK_STOP } from '../.harness/tools/wake.mjs';
 import { parseYaml } from '../.harness/tools/lib.mjs';
 
 let n = 0;
@@ -277,8 +277,15 @@ ok(s.state === st.number && s.emptyStreak === 0 && s.cap === DAILY_CAP && s.clai
   const f = await handoff(['--issue', '21', '--failed', 'fire_trigger refused: not allowed']);
   ok(/HANDOFF: QUEUED the start failed/.test(f.out) && !st.labels.includes(CLAIM) && st.comments.at(-1).body.startsWith(HANDOFF_FAIL_MARK) && issues.get(21).labels.includes(WAKE), 'a start that failed releases the claim, is marked failed and leaves the wake label for the next start');
   ok(/HANDOFF: NOTHING no hand-off start is open/.test((await handoff(['--failed', 'again'])).out) && marks(HANDOFF_FAIL_MARK) === 1, '--failed releases only a start a hand-off claimed: a second call does nothing');
-  const cap = await handoff(['--issue', '22'], { WAKE_DAILY_CAP: '2' });
-  ok(/HANDOFF: QUEUED the daily cap is reached/.test(cap.out) && marks(HANDOFF_MARK) === 1, 'hand-off starts count against the same daily cap as the job\'s runs');
+  // the receiver lowered its cap: a session cannot read its Actions variable, so its file carries the number
+  const fires24 = () => [...issues.values()].flatMap((i) => i.comments).filter((c) => c.body.startsWith(FIRE_MARK) || c.body.startsWith(HANDOFF_MARK)).length;
+  taskFile = JSON.stringify({ runTask: 'trig_01RECV', dailyCap: fires24() });
+  const cap = await handoff(['--issue', '22']);
+  taskFile = JSON.stringify({ runTask: 'trig_01RECV', dailyCap: fires24() + 1 });
+  const under = await handoff(['--issue', '22', '--dry']);
+  taskFile = '{"runTask":"trig_01RECV"}';
+  ok(/HANDOFF: QUEUED the daily cap is reached/.test(cap.out) && marks(HANDOFF_MARK) === 1 && /would START/.test(under.out) && capOf('{"dailyCap":500}') === DAILY_CAP && capOf('nope') === DAILY_CAP && capOf('{"dailyCap":3}') === 3,
+    'hand-off starts count against the same daily cap as the job\'s runs, and a cap the receiver lowered in its file holds for hand-offs too (lower only)');
   issues.get(22).labels = [STOPPED];
   ok(/HANDOFF: NOTHING #22 is stopped/.test((await handoff(['--issue', '22'])).out) && !issues.get(22).labels.includes(WAKE), 'a stopped issue is never labelled or started for');
   {

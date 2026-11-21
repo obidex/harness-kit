@@ -105,7 +105,8 @@ blocked, a blocker closed, an action proven.
 **What the receiver provides.** `.github/wake.json` on its default branch, `{ "runTask": "trig_…" }`:
 the id of its coordinator-run scheduled task (Setup, step 1). Until it has one, the sender may
 name the task with `--task <trig id>`; the receiver's own file always wins. With neither, a
-hand-off only queues.
+hand-off only queues. A repository that lowered its cap (`WAKE_DAILY_CAP`) writes the same number
+there as `"dailyCap"`: a session cannot read an Actions variable, and the file can only lower the cap.
 A repository whose coordinator keeps its STATE issue by hand is read through the label
 `coordinator-state`; one with no STATE issue gets `NOTHING`.
 
