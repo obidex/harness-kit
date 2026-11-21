@@ -95,8 +95,10 @@ blocked, a blocker closed, an action proven.
    job: one run at a time, the same caps, every stop. Its last line is what the session obeys:
    - `HANDOFF: START <trig id> …`: the claim is set and the receipt written on the receiver's STATE
      issue. Call `fire_trigger` once with that id and the printed hint as text. Never twice. If the
-     call is refused or fails, run the command again with `--failed "<the error>"` (it releases the
-     claim, marks the start failed and leaves `wake` on the item), and try no other way (C14).
+     call is refused or answers with an error, run the command again with `--failed "<the error>"`
+     (it releases the claim, marks the start failed and leaves `wake` on the item), and try no other
+     way (C14). A call that timed out or lost its connection may have started the run: release
+     nothing then; a claim with no run behind it clears as a dead run's.
    - `HANDOFF: QUEUED …`: no start now (a run is on, a cap, a stop, no task named). The `wake` label
      is on the item; the run that is on takes it before it ends, or the next start does.
    - `HANDOFF: NOTHING …`: nothing there to start or queue. Go on.

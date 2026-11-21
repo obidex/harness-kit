@@ -477,7 +477,7 @@ async function runHandoff(repo, { issue, from, failed, dry, task: given }) {
     const near = (await receipts(repo)).filter((e) => e.kind === 'fire' && e.id != null && !seen.has(e.id));   // every start written since this decision read the receipts
     if (!near.some((e) => e.id === mine?.id)) {
       // its own receipt does not count here (an account that may not write): no start, and no claim left behind
-      await unclaim(repo, st.number);
+      if (!near.length) await unclaim(repo, st.number);   // the claim is its own only when no other start was written
       await queueIt();
       return done(can ? 'QUEUED' : 'NOTHING', `this account's receipt does not count in ${repo} (it may not write there), so it starts nothing`);
     }
