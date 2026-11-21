@@ -432,9 +432,9 @@ async function runHandoff(repo, { issue, from, failed, dry, task: given }) {
   const queueIt = async () => { if (can && !it.labels.includes(WAKE) && !dry) await gh('POST', `/repos/${repo}/issues/${it.number}/labels`, { labels: [WAKE] }); };
   if (failed !== undefined) {
     // the start being released is the newest hand-off receipt for this item (another sender's receipt, one
-    // that yielded, may be newer), recent, and not already marked failed
+    // that yielded, may be newer), recent, not already marked failed, and with no run of the job after it
     const last = led.filter((e) => e.kind === 'fire' && e.via === 'handoff' && (e.issue ?? null) === (it?.number ?? null)).at(-1);
-    if (!last || Date.now() - last.at > HANDOFF_RELEASE_MIN * 60e3 || led.some((e) => e.kind === 'fail' && e.via === 'handoff' && e.at >= last.at)) return done('NOTHING', 'no hand-off start is open here: nothing released');
+    if (!last || Date.now() - last.at > HANDOFF_RELEASE_MIN * 60e3 || led.some((e) => e.at >= last.at && ((e.kind === 'fail' && e.via === 'handoff') || (e.kind === 'fire' && e.via !== 'handoff')))) return done('NOTHING', 'no hand-off start is open here: nothing released');
     if (!dry) {
       await unclaim(repo, st.number);
       await comment(repo, st.number, `${HANDOFF_FAIL_MARK}\nNot started from inside (hand-off from ${who}): ${String(failed).replace(/\s+/g, ' ').slice(0, 160)}.`);
@@ -466,6 +466,12 @@ async function runHandoff(repo, { issue, from, failed, dry, task: given }) {
     // stays with the start that keeps it.
     await new Promise((r) => setTimeout(r, Number(process.env.HANDOFF_SETTLE_MS ?? HANDOFF_SETTLE_MS)));
     const near = (await receipts(repo)).filter((e) => e.kind === 'fire' && e.id != null && !seen.has(e.id));   // every start written since this decision read the receipts
+    if (!near.some((e) => e.id === mine?.id)) {
+      // its own receipt does not count here (an account that may not write): no start, and no claim left behind
+      await unclaim(repo, st.number);
+      await queueIt();
+      return done(can ? 'QUEUED' : 'NOTHING', `this account's receipt does not count in ${repo} (it may not write there), so it starts nothing`);
+    }
     if (!keepsStart(mine?.id, near)) {
       await queueIt();
       return done(can ? 'QUEUED' : 'NOTHING', `another start was written at the same moment and keeps the run${can ? `; \`${WAKE}\` is on #${it.number} for it` : ''}`);
