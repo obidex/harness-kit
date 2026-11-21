@@ -153,7 +153,9 @@ What differs from `/fire`:
   claim set by a person, an App or an agent starts a session. That session may not work: `wake.mjs
   started` passes only when the job's newest receipt is a start at most 15 minutes old, the claim
   sits on the STATE issue, and no run has taken that start yet (its "Run started" comment; of two
-  runs racing, the older comment wins). So one receipt is one working run, also when the claim is
+  runs racing, the older comment wins; only a comment from an account that may write to the
+  repository counts, so a stranger's comment refuses nothing). The command needs a token that may
+  comment. So one receipt is one working run, also when the claim is
   put back inside the 15 minutes. A forged claim costs one session that ends in seconds, and it blocks
   further runs like any claim until it is removed or 6 hours pass.
 - **Check the trigger's event before believing a failed proof.** A task whose trigger says "Pull

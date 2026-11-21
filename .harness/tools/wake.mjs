@@ -207,8 +207,13 @@ export function startOk({ ledger: led = [], stateClaimed = false, used = 0, now 
   return { ok: true, why: `the job signalled this start ${min} minute(s) ago`, issue: last.issue, at: last.at };
 }
 
-/** The USED_MARK comments made at or after a receipt's time, oldest first (anyone's: one can only refuse a run). */
-export const usedSince = (comments, at) => comments.filter((c) => String(c.body || '').startsWith(USED_MARK) && Date.parse(c.created_at) >= at - 1000)
+/** May this comment's author write to the repository? An installed App (a Bot) or a person GitHub
+ *  lists as owner, member or collaborator. A stranger's comment on a public repository is not a record. */
+export const writer = (c) => c?.user?.type === 'Bot' || ['OWNER', 'MEMBER', 'COLLABORATOR'].includes(c?.author_association);
+
+/** The USED_MARK comments made at or after a receipt's time by an account that may write, oldest first.
+ *  Such a comment can only refuse a run, and those accounts can pause wakes with a label anyway. */
+export const usedSince = (comments, at) => comments.filter((c) => writer(c) && String(c.body || '').startsWith(USED_MARK) && Date.parse(c.created_at) >= at)
   .sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at) || a.id - b.id);
 
 /** The fire URL must be a scheduled task's /fire endpoint, nothing else. */
@@ -371,8 +376,10 @@ async function runFire(repo, { event, issue, label }) {
       if (!(got || []).some((l) => (l?.name ?? l) === CLAIM)) failed = `GitHub did not confirm the \`${CLAIM}\` label on #${s.st.number}`;
     } catch (e) { failed = `the \`${CLAIM}\` label on #${s.st.number} was refused (${String(e.message).slice(0, 120)})`; }
     if (failed) {
-      await unclaim(repo, s.st.number);
+      // the failure is recorded BEFORE the claim goes: had GitHub set the label after all, the run it
+      // started reads this record and is refused (wake.mjs started), so no run works without a claim
       await comment(repo, s.st.number, `${FAIL_MARK}\nNot started: ${failed}.`).catch(() => {});
+      await unclaim(repo, s.st.number);
       if (d.target != null) await comment(repo, d.target, `No coordinator run started: ${failed}. The \`${WAKE}\` label stays; the next event or the daily backstop tries again (after ${STUCK_STOP} failures in a row, only a run started by hand).`).catch(() => {});
       throw new Error(failed);
     }
@@ -421,8 +428,17 @@ async function main() {
     let mine;
     try { mine = await gh('POST', `/repos/${repo}/issues/${st.number}/comments`, { body: `${USED_MARK}\nRun started (label start${r.issue != null ? `, woken by #${r.issue}` : ''}).` }); }
     catch (e) { return refuse(`the start could not be recorded on #${st.number} (${String(e.message).slice(0, 120)})`); }
-    const first = usedSince(await recentComments(repo), r.at)[0];
-    if (!first || first.id !== mine?.id) return refuse('another run took this start first');
+    if (!mine?.id || !writer(mine)) return refuse(`the start could not be recorded on #${st.number} by an account that may write`);
+    // two runs racing: the older record wins. A listing that does not show this run's own comment yet
+    // is read again; one that never shows it, and shows no other, is no reason to waste the start.
+    let seen = [];
+    for (let i = 0; i < 4; i++) {
+      seen = usedSince(await recentComments(repo), r.at);
+      if (seen.some((c) => c.id === mine.id)) break;
+      await new Promise((ok) => setTimeout(ok, Number(process.env.WAKE_REREAD_MS ?? 1500)));
+    }
+    const first = [...seen.filter((c) => c.id !== mine.id), mine].sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at) || a.id - b.id)[0];
+    if (first.id !== mine.id) return refuse('another run took this start first');
     console.log(`WAKE-START: OK — ${r.why}`);
     return;
   }
