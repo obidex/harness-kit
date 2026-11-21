@@ -86,8 +86,11 @@ The scheduled task's saved prompt says this. Each run:
 
 1. Reads the fire payload (a hint only; a run started by label, K056, gets none), then the STATE
    issue, then the board and the queue (open issues labelled `wake`). It acts on what GitHub shows,
-   never on the payload alone. A run started by label makes one comment on the STATE issue its first
-   write ("Run started: <time>"): that comment is the only proof the start arrived.
+   never on the payload alone. A run started by label (its first messages show a GitHub trigger
+   context) first runs `wake.mjs started --repo <repository>` and obeys the first word after
+   `WAKE-START:`. On `REFUSED` it writes nothing and ends: the job did not signal this start. On `OK`
+   its first write is one comment on the STATE issue ("Run started: <time>"): that comment is the
+   only proof the start arrived.
 2. Works the queue under the project's rules (`core.md`, the rulebook). It removes `wake` from each
    issue it has handled. It may set `wake` on an issue to hand work to the next run. That counts
    against the same caps.
@@ -145,6 +148,11 @@ What differs from `/fire`:
 - **A label set by the job's own token does start the task.** GitHub starts no workflow for such a
   label, but it still tells the Apps installed on the repository. Measured: a run 2 seconds after a
   job's label, and 3 seconds after a label set by a person's account.
+- **A claim label is not a way around the caps.** The trigger cannot tell who set the label, so a
+  claim set by a person, an App or an agent starts a session. That session may not work: `wake.mjs
+  started` passes only when the job's newest receipt is a start at most 15 minutes old and the claim
+  sits on the STATE issue. A forged claim costs one session that ends in seconds, and it blocks
+  further runs like any claim until it is removed or 6 hours pass.
 - **Check the trigger's event before believing a failed proof.** A task whose trigger says "Pull
   request: Opened" never starts on a label, and its silence looks like "labels start nothing".
 

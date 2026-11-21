@@ -8,7 +8,7 @@ import { createServer } from 'node:http';
 import { execFile } from 'node:child_process';
 import { join } from 'node:path';
 import { readFileSync } from 'node:fs';
-import { decide, ledger, capFrom, fireUrlOk, isState, payload, signature, failStreak, chainLength, MOVABLE, WAKE, CLAIM, STOPPED, PAUSED, BACKSTOP_OFF, CHAIN_STOP, STATE, STATE_MARK, FIRE_MARK, FAIL_MARK, STUCK_MARK, EMPTY_MARK, START_MARK, startByLabel, DAILY_CAP, ISSUE_CAP, ISSUE_TOTAL, EMPTY_STOP, STUCK_STOP } from '../.harness/tools/wake.mjs';
+import { decide, ledger, capFrom, fireUrlOk, isState, payload, signature, failStreak, chainLength, MOVABLE, WAKE, CLAIM, STOPPED, PAUSED, BACKSTOP_OFF, CHAIN_STOP, STATE, STATE_MARK, FIRE_MARK, FAIL_MARK, STUCK_MARK, EMPTY_MARK, START_MARK, startByLabel, startOk, START_WINDOW_MIN, DAILY_CAP, ISSUE_CAP, ISSUE_TOTAL, EMPTY_STOP, STUCK_STOP } from '../.harness/tools/wake.mjs';
 import { parseYaml } from '../.harness/tools/lib.mjs';
 
 let n = 0;
@@ -223,6 +223,9 @@ ok(r8.code === 0 && /rests/.test(r8.out) && st.labels.includes(BACKSTOP_OFF) && 
   const marks = st.comments.map((c) => c.body);
   ok(r.code === 0 && fires.length === before && st.labels.includes(CLAIM) && labelEvents.slice(at).join() === `${st.number}:${CLAIM}`, 'label start: no /fire call, no URL and no token needed; the claim label is set once, which is the event the task listens for');
   ok(receiptAtClaim === 1 && marks.findIndex((b) => b.startsWith(FIRE_MARK)) === 0 && marks.some((b) => b.startsWith(START_MARK)) && issues.get(40).comments.some((c) => /signalled/.test(c.body)) && ledger(st.comments).filter((e) => e.kind === 'fire').length === 1, 'label start: the receipt is already on the STATE issue when the claim label is set, so no run starts uncounted; it counts like any run and the woken issue is told');
+  const started = () => run(['started', '--repo', 'o/r'], { GITHUB_ACTIONS: '' });
+  const okd = await started();
+  ok(okd.code === 0 && /^WAKE-START: OK/m.test(okd.out), 'label start: a run the job signalled is told it may work');
   const again = await fire('labeled', 40, WAKE, LABEL);
   ok(again.code === 0 && labelEvents.length === at + 1 && /a run is on/.test(again.out), 'label start: while the claim is held, a second wake sets no second label');
   st.labels = []; st.comments = [];
@@ -235,6 +238,20 @@ ok(r8.code === 0 && /rests/.test(r8.out) && st.labels.includes(BACKSTOP_OFF) && 
   const lost = await fire('labeled', 40, WAKE, LABEL);
   labelsRefused = false;
   ok(lost.code === 1 && !st.labels.includes(CLAIM) && failStreak(ledger(st.comments)) === 1 && issues.get(40).comments.some((c) => /No coordinator run started/.test(c.body)), 'label start: a label GitHub refuses with an error is a failed start too: recorded, counted, no claim left, the woken issue told');
+  {
+    // a claim label set by anyone but the job has no receipt: that run must not work, so the caps hold
+    st.labels = [CLAIM]; st.comments = [];
+    const forged = await started();
+    ok(forged.code === 4 && /^WAKE-START: REFUSED/m.test(forged.out), 'label start: a claim label with no receipt from the job is refused, whoever set it');
+    st.comments = [{ user: { login: 'owner', type: 'User' }, body: `${FIRE_MARK}{"issue":40,"via":"label","sig":""} -->\nStarting a run.`, created_at: new Date().toISOString() }];
+    ok((await started()).code === 4, 'label start: a receipt a person posted does not count');
+    const M = 60000, f = (min, kind = 'fire') => ({ kind, at: now - min * M, issue: 40 });
+    ok(startOk({ ledger: [f(1)], stateClaimed: true, now }).ok && !startOk({ ledger: [f(1)], stateClaimed: false, now }).ok
+      && !startOk({ ledger: [f(START_WINDOW_MIN + 1)], stateClaimed: true, now }).ok && !startOk({ ledger: [f(2), f(1, 'fail')], stateClaimed: true, now }).ok
+      && !startOk({ ledger: [], stateClaimed: true, now }).ok && startOk({ ledger: [f(3, 'fail'), f(1)], stateClaimed: true, now }).ok,
+      `label start: only a claim on the STATE issue with the job's own start receipt as its newest, at most ${START_WINDOW_MIN} minutes old, lets a run work`);
+    st.labels = []; st.comments = [];
+  }
   ok((await fire('labeled', 40, WAKE, { ...LABEL, WAKE_START: 'yes' })).code === 1, 'any other value of WAKE_START still needs the /fire URL and token');
   issues.get(40).labels = []; st.labels = []; st.comments = [];
 }

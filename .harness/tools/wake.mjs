@@ -9,6 +9,10 @@
 //                                         the run's session link as the receipt; with WAKE_START=label
 //                                         (K056) it calls nothing outside GitHub: the claim label it
 //                                         sets is the start, and the task listens for that label
+//   node .harness/tools/wake.mjs started --repo owner/name
+//                                         for a run that a label started (K056): prints `WAKE-START: OK`
+//                                         only when the job itself signalled this start (its receipt, the
+//                                         claim on the STATE issue); else `WAKE-START: REFUSED` and exit 4
 //   node .harness/tools/wake.mjs status --repo owner/name
 //                                         the state the next decision reads (JSON; reads only)
 //
@@ -60,6 +64,7 @@ export const CLAIM_TTL_H = 6;        // a claim older than this belongs to a run
 export const EMPTY_STOP = 3;         // empty backstops in a row, then the backstop stops
 export const STUCK_STOP = 3;         // backstop runs in a row for the same work, or failed fires in a row: stop
 export const CHAIN_STOP = 8;         // hand-off runs in a row with no outside wake between, then pause
+export const START_WINDOW_MIN = 15;  // K056: a label-started run works only within this long of the job's receipt
 export const LEDGER_DAYS = 30;       // how far back the receipts are read
 const HOUR = 3600e3, DAY = 24 * HOUR;
 
@@ -183,6 +188,19 @@ export function decide({ event, label, issue = null, claim = false, paused = fal
 
 /** K056: does this project start its run by the claim label alone (no /fire call)? Only that one word. */
 export const startByLabel = (v) => String(v ?? '').trim().toLowerCase() === 'label';   // case as the workflow's `==` reads it
+
+/** K056: is a run that a label started one the job itself signalled? Only then may it work: the claim
+ *  sits on the STATE issue, and the job's newest receipt is a start no older than START_WINDOW_MIN
+ *  with no failure after it. A claim label set by anyone else has no such receipt, so that run ends
+ *  at once and the caps hold for work, whoever can set a label. */
+export function startOk({ ledger: led = [], stateClaimed = false, now = Date.now() }) {
+  if (!stateClaimed) return { ok: false, why: `the STATE issue does not carry \`${CLAIM}\`` };
+  const last = led.filter((e) => e.kind === 'fire' || e.kind === 'fail').at(-1);
+  if (!last || last.kind !== 'fire') return { ok: false, why: 'the job\'s newest receipt is not a start' };
+  const min = Math.round((now - last.at) / 60000);
+  if (min > START_WINDOW_MIN) return { ok: false, why: `the job's newest start receipt is ${min} minutes old (more than ${START_WINDOW_MIN})` };
+  return { ok: true, why: `the job signalled this start ${min} minute(s) ago`, issue: last.issue };
+}
 
 /** The fire URL must be a scheduled task's /fire endpoint, nothing else. */
 export function fireUrlOk(url, base = process.env.WAKE_FIRE_BASE || 'https://api.anthropic.com') {
@@ -380,6 +398,14 @@ async function main() {
   const issue = opt('--issue') ? Number(opt('--issue')) : null;
   if (issue !== null && !Number.isInteger(issue)) throw new Error('--issue must be a number');
   if (cmd === 'fire') return runFire(repo, { event: opt('--event'), issue, label: opt('--label') });
+  if (cmd === 'started') {
+    // reads only; any token. The run obeys the first word of the line.
+    const st = await stateIssue(repo, { open: false });
+    const r = st ? startOk({ ledger: await receipts(repo), stateClaimed: st.state === 'open' && names(st).includes(CLAIM) }) : { ok: false, why: 'there is no STATE issue' };
+    console.log(`WAKE-START: ${r.ok ? 'OK' : 'REFUSED'} — ${r.why}`);
+    if (!r.ok) process.exitCode = 4;
+    return;
+  }
   if (cmd === 'status') {
     const st = await stateIssue(repo, { open: false });
     if (!st) { console.log(JSON.stringify({ state: null })); return; }
@@ -394,7 +420,7 @@ async function main() {
       queue: (await pages(`/repos/${repo}/issues?state=open&labels=${WAKE}`)).filter((i) => i.number !== st.number).map((i) => i.number) }));
     return;
   }
-  throw new Error('usage: wake.mjs fire|status  (see the header of this file)');
+  throw new Error('usage: wake.mjs fire|started|status  (see the header of this file)');
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
