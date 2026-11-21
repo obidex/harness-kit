@@ -10,7 +10,8 @@
 // The rule, in one place and tested (tools/test-scope.mjs):
 //   - Anything but a pull request (a push to main, the nightly schedule, a run by hand) is full.
 //   - A pull request is light only when every path it touches (both names of a rename) is a document
-//     (DOCS below) and none is under a path the profile keeps full (`ci_scope.full`, else FULL_PATHS).
+//     (DOCS below) and none is under a path the profile keeps full (`ci_scope.full`, else FULL_PATHS),
+//     nor a page of a documentation site found in the checkout (SITE_CONFIGS).
 //     Agent rules (AGENTS.md, CLAUDE.md, .harness/*.md) are documents here: no test reads them. They are
 //     still tier 3 for review (tier3=true), which a workflow uses to call its reviewers.
 //   - A workflow that has no nightly schedule never runs light: the nightly full run on the default branch
@@ -23,10 +24,19 @@ import { fileURLToPath } from 'node:url';
 import { glob, highRisk } from './review.mjs';
 import { parseYaml } from './lib.mjs';
 
-/** Documents: text no build or test reads. Never .mdx, images or data (a site may compile them). */
-export const DOCS = /(^|\/)(LICEN[CS]E|NOTICE|CHANGELOG|README|CODEOWNERS)(\.(md|txt))?$|\.(md|txt|rst)$/i;
-/** Where a document may still be content a build reads, unless the profile names its own list. */
-export const FULL_PATHS = ['src/**', 'app/**', 'pages/**', 'content/**', 'public/**', 'lib/**', 'supabase/**', 'packages/**', 'test/**', 'tests/**', 'e2e/**'];
+/** Documents: text no build or test reads. Markdown, and the named notice files; never .mdx, .txt or .rst
+ *  in general (requirements.txt, CMakeLists.txt, a Sphinx page), images or data (a site may compile them). */
+export const DOCS = /(^|\/)(LICEN[CS]E|NOTICE|CHANGELOG|README|CODEOWNERS|AUTHORS|CONTRIBUTING|SECURITY)(\.(md|txt|rst))?$|\.md$/i;
+/** Where a document may still be content a build or a test reads, unless the profile names its own list. */
+export const FULL_PATHS = ['src/**', 'app/**', 'pages/**', 'content/**', 'public/**', 'lib/**', 'supabase/**', 'packages/**',
+  '**/test/**', '**/tests/**', '**/__tests__/**', '**/fixtures/**', '**/testdata/**', 'spec/**', 'e2e/**', 'cypress/**', 'playwright/**'];
+/** A documentation site builds its pages: with one of these files present, its pages are never documents. */
+export const SITE_CONFIGS = { docs: ['mkdocs.yml', 'mkdocs.yaml', 'docusaurus.config.js', 'docusaurus.config.ts', 'docusaurus.config.mjs', 'docs/conf.py', 'docs/.vitepress', '.vitepress'], root: ['_config.yml', 'book.toml', 'conf.py'] };
+/** Which pages a documentation site in this checkout builds: 'root' (every Markdown file), 'docs' (docs/ and blog/) or null. */
+export function docsSite(exists) {
+  if (SITE_CONFIGS.root.some((f) => exists(f))) return 'root';
+  return SITE_CONFIGS.docs.some((f) => exists(f)) ? 'docs' : null;
+}
 
 /** Whether a workflow file (its text) runs on a schedule: the nightly full run. */
 export function hasNightly(text) {
@@ -40,14 +50,15 @@ export function hasNightly(text) {
  * The decision. `files`: every changed path (null when it could not be read). `nightly`: the calling
  * workflow has a schedule. Returns { level, tier3, reason }.
  */
-export function decide({ event, files, profile, nightly }) {
+export function decide({ event, files, profile, nightly, site = null }) {
   const tier3 = Array.isArray(files) && highRisk(files, profile).length > 0;
   const full = (reason) => ({ level: 'full', tier3, reason });
   if (event !== 'pull_request') return full(`${event || 'unknown event'}: not a pull request, everything runs`);
   if (!Array.isArray(files)) return full('the changed files could not be read');
   if (!files.length) return full('no changed file found');
   if (!nightly) return full('this workflow has no nightly schedule, so every pull request runs everything');
-  const keep = (Array.isArray(profile?.ci_scope?.full) ? profile.ci_scope.full : FULL_PATHS).map(glob);
+  if (site === 'root') return full('a documentation site here builds every Markdown file');
+  const keep = [...(Array.isArray(profile?.ci_scope?.full) ? profile.ci_scope.full : FULL_PATHS), ...(site === 'docs' ? ['docs/**', 'blog/**'] : [])].map(glob);
   const code = files.find((f) => !DOCS.test(f));
   if (code) return full(`${code} is not a document`);
   const kept = files.find((f) => keep.some((re) => re.test(f)));
@@ -103,7 +114,7 @@ function main() {
   const wfFile = arg('workflow') || (process.env.GITHUB_WORKFLOW_REF ? `.github/workflows/${process.env.GITHUB_WORKFLOW_REF.replace(/@.*$/, '').split('/').pop()}` : '');
   const nightly = !!wfFile && existsSync(wfFile) && hasNightly(readFileSync(wfFile, 'utf8'));
   const files = event === 'pull_request' ? (base ? changedFiles(base, head) : null) : [];
-  const d = decide({ event, files, profile, nightly });
+  const d = decide({ event, files, profile, nightly, site: docsSite((f) => existsSync(f)) });
   const lines = [`level=${d.level}`, `tier3=${d.tier3}`, `reason=${d.reason.replace(/[\r\n]/g, ' ')}`];
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `${lines.join('\n')}\n`);
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `Checks for this change: **${d.level}** (${d.reason})${d.tier3 ? '; high-risk paths: reviewers run' : ''}\n`);

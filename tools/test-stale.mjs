@@ -414,10 +414,10 @@ for (const [f, prefix] of [[join(dir, 'harness-scrub.yml'), 'harness-scrub-'], [
   const wf = parseYaml(readFileSync(f, 'utf8'));
   const g = (github) => evalExpr(wf.concurrency.group.replace(prefix, ''), { github: { repository: 'o/r', run_id: '77', actor: 'someone', ...github } });
   const sweepOn = (github) => evalExpr(wf.jobs.scrub.steps.at(-1).env.SCRUB_SWEEP, { github: { repository: 'o/r', actor: 'someone', ...github } });
-  const pr = (full_name, actor = 'someone') => ({ actor, event: { pull_request: { head: { repo: full_name ? { full_name } : null } } } });
+  const pr = (full_name, actor = 'someone') => ({ actor, event: { pull_request: { number: 5, head: { repo: full_name ? { full_name } : null } } } });
   ok(String(wf.concurrency['cancel-in-progress']) === 'false' && wf.concurrency.group.startsWith(prefix)
-    && g({ event: { comment: { id: 1 }, issue: { number: 2 } } }) === 'all' && g({ event: { issue: { number: 3 } } }) === 'all' && g(pr('o/r')) === 'all',
-    `${f.split('/').pop()}: comments, issues and this repository's pull requests share one group (one running, one waiting)`);
+    && g({ event: { comment: { id: 1 }, issue: { number: 2, pull_request: {} } } }) === 'all' && g({ event: { issue: { number: 3 } } }) === 'all' && String(g(pr('o/r'))) === '5',
+    `${f.split('/').pop()}: comments and issues share one group (one running, one waiting); a pull request's own events keep one group per pull request, so its head commit never shows a scrub cancelled by a comment`);
   ok(g(pr('fork/r')) === '77' && g(pr(null)) === '77' && g(pr('o/r', 'dependabot[bot]')) === '77' && g({ actor: 'github-actions[bot]', event: {} }) === '77',
     `${f.split('/').pop()}: a fork's, a deleted fork's or Dependabot's pull request, and the Actions bot, never replace the shared waiting run`);
   ok(sweepOn(pr('o/r')) === 'on' && sweepOn({ event: { comment: { id: 1 } } }) === 'on' && sweepOn(pr('fork/r')) === 'off' && sweepOn(pr('o/r', 'dependabot[bot]')) === 'off',

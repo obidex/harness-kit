@@ -34,12 +34,15 @@ cuts that count most; the rest is moving it onto a chore lane.
 
 ## 2. One chore run per burst
 
-`harness-scrub` has one concurrency group for the whole repository: at most one run going and one
-waiting, and GitHub drops the older waiting run when a newer one arrives. Each run cleans its own
+`harness-scrub` has one concurrency group for the repository's issues and comments: at most one run
+going and one waiting, and GitHub drops the older waiting run when a newer one arrives. A pull
+request's own events (opened, edited, a review) keep one group per pull request, as before, so a
+comment never leaves a cancelled scrub check on a pull request's head commit. Each run cleans its own
 event's body and then sweeps every issue, pull request, comment and review comment updated since the
 newest earlier run that finished green (less 5 minutes; at most the last day), and the reviews of the
 pull requests among them (`scrub.mjs sweep`). A dropped run's body is cleaned by the run that replaced
-it. A fork's or Dependabot's pull-request event has a read-only token, so it keeps a group of its own
+it. A listing longer than 1,000 items, or any error but a body that is read-only or gone, fails the
+run, so the next one sweeps again from the last green run. A fork's or Dependabot's pull-request event has a read-only token, so it keeps a group of its own
 and sweeps nothing. `harness-audit` and `harness-guard` already keep one run per pull request
 (`cancel-in-progress`).
 
@@ -49,10 +52,14 @@ A project's own CI stays its own; the kit gives it the rule (`.harness/tools/sco
 the kit) and this pattern. The required check is the last job, `ci-ok`, which always runs and passes
 only when every job it needs passed, or, on a light run, was skipped. No required check is removed.
 
-- **light**: every changed path is a document (`.md`, `.txt`, `.rst`, a licence) outside the paths a
-  build may read (`ci_scope.full` in the profile; by default `src/`, `app/`, `pages/`, `content/`,
-  `public/`, `lib/`, `supabase/`, `packages/`, test folders). Runs the secret scan and the guards (the
-  kit's own workflows, always), and the project's lint.
+- **light**: every changed path is a document (Markdown, or a named notice file such as `LICENSE` or
+  `README.txt`; never another `.txt` or `.rst`, which may be `requirements.txt` or a Sphinx page)
+  outside the paths a build or a test may read (`ci_scope.full` in the profile; by default `src/`,
+  `app/`, `pages/`, `content/`, `public/`, `lib/`, `supabase/`, `packages/`, and every test, fixture
+  and test-data folder). A documentation site found in the checkout (MkDocs, Docusaurus, Sphinx,
+  VitePress: `docs/` and `blog/`; Jekyll or mdBook: every Markdown file) makes its pages full; a site
+  the tool does not know goes in `ci_scope.full`. Runs the secret scan and the guards (the kit's own
+  workflows, always), and the project's lint.
 - **full**: anything else; every push to the default branch; the nightly run; a run by hand; any
   doubt (an unreadable diff, an empty one). `tier3=true` when a path is high-risk (C09; the profile's
   `risk.tier3_paths` and agent configuration), which a project uses to start its reviewers.
@@ -140,9 +147,14 @@ jobs:
         run: node .harness/tools/scope.mjs gate
 ```
 
+`ci-ok` must need every job of the workflow directly: it judges only the jobs it names, so a job left
+out of its `needs` could fail unseen.
+
 Make `ci-ok` the required check (in `.github/harness-settings.json`) before the old per-job checks
 leave the list, in the same settings change, so the gate is never open in between. A failed nightly
-run is a red default branch (C13): the next card, and only fix PRs until it is green.
+run is a red default branch (C13): the next card, and only fix PRs until it is green. GitHub stops a
+public repository's schedules after 60 days without activity; the stale check's missed-run rows
+(`stale.mjs schedules`) are what notice it.
 
 ## 4. Split the long test job
 

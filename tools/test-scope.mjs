@@ -7,7 +7,7 @@ import { mkdtempSync, writeFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { decide, gate, hasNightly, changedFiles, DOCS } from '../.harness/tools/scope.mjs';
+import { decide, gate, hasNightly, changedFiles, docsSite, DOCS } from '../.harness/tools/scope.mjs';
 
 let n = 0;
 const ok = (cond, what) => { n++; if (!cond) { console.log(`test-scope: FAIL ${n}. ${what}`); process.exit(1); } console.log(`test-scope: ok ${n}. ${what}`); };
@@ -23,6 +23,14 @@ ok(pr(['docs/plan.md', 'src/app.ts']).level === 'full', 'one code file makes the
 ok(pr(['content/blog/post.md']).level === 'full' && pr(['src/README.md']).level === 'full' && pr(['public/robots.txt']).level === 'full', 'a document under a content or code path is full (a site may build it)');
 ok(['page.mdx', 'logo.svg', 'data.json', 'package-lock.json', '.github/workflows/ci.yml', '.harness/tools/scope.mjs', 'supabase/migrations/1.sql', 'Dockerfile', '.env.example'].every((f) => pr([f]).level === 'full'),
   'MDX, images, data, lockfiles, workflows, kit tools, migrations, Dockerfiles and env examples are full');
+ok(['requirements.txt', 'requirements-dev.txt', 'constraints.txt', 'CMakeLists.txt', 'docs/conf.rst', 'testdata/golden.txt', 'spec/fixtures/a.md', '__tests__/x.md', 'pkg/__tests__/x.md', 'cypress/fixtures/a.txt', 'a/fixtures/b.md', 'playwright/a.md', 'svc/tests/a.md'].every((f) => pr([f]).level === 'full'),
+  'build inputs that end in .txt or .rst, and anything in a test, fixture or test-data folder, are full');
+ok(['NOTICE.txt', 'LICENSE.rst', 'CONTRIBUTING.md', 'docs/guide.md'].every((f) => pr([f]).level === 'light'), 'the named notice files in any of their forms, and Markdown, are documents');
+ok(pr(['docs/intro.md'], { site: 'docs' }).level === 'full' && pr(['blog/p.md'], { site: 'docs' }).level === 'full' && pr(['AGENTS.md'], { site: 'docs' }).level === 'light' && pr(['AGENTS.md'], { site: 'root' }).level === 'full',
+  "a documentation site's pages are full: docs/ and blog/ for MkDocs, Docusaurus, Sphinx or VitePress; every Markdown file for a site built from the root");
+const has = (...l) => (f) => l.includes(f);
+ok(docsSite(has('mkdocs.yml')) === 'docs' && docsSite(has('docs/conf.py')) === 'docs' && docsSite(has('_config.yml')) === 'root' && docsSite(has('book.toml', 'mkdocs.yml')) === 'root' && docsSite(has('package.json')) === null,
+  'the documentation site is found by its configuration file');
 ok(pr(['docs/a.md'], { profile: { ci_scope: { full: ['docs/**'] } } }).level === 'full' && pr(['src/a.md'], { profile: { ci_scope: { full: ['content/**'] } } }).level === 'light',
   "the profile's ci_scope.full replaces the default list of paths that always run everything");
 ok(pr(['supabase/migrations/1.sql'], { profile: { risk: { tier3_paths: ['supabase/migrations/**'] } } }).tier3 === true, "the profile's tier-3 paths mark a change for its reviewers");
@@ -31,7 +39,7 @@ ok(pr(['supabase/migrations/1.sql'], { profile: { risk: { tier3_paths: ['supabas
 ok(['push', 'schedule', 'workflow_dispatch', 'merge_group', undefined].every((e) => decide({ event: e, files: ['docs/a.md'], profile: null, nightly: true }).level === 'full'), 'a push to main, the nightly run, a run by hand and any other event are full');
 ok(pr(null).level === 'full' && pr([]).level === 'full', 'unreadable or empty changes are full, never light');
 ok(pr(['docs/a.md'], { nightly: false }).level === 'full' && /nightly/.test(pr(['docs/a.md'], { nightly: false }).reason), 'a workflow without a nightly schedule never runs light');
-ok(DOCS.test('NOTICE') && DOCS.test('docs/x.TXT') && !DOCS.test('notes.md.js') && !DOCS.test('READMEsrc.ts'), 'the document pattern matches whole names and extensions only');
+ok(DOCS.test('NOTICE') && DOCS.test('docs/x.MD') && !DOCS.test('docs/x.txt') && !DOCS.test('notes.md.js') && !DOCS.test('READMEsrc.ts'), 'the document pattern matches whole names and extensions only');
 
 // --- the nightly schedule is read from the calling workflow ---------------------------------------
 ok(hasNightly("name: ci\non:\n  pull_request:\n  schedule:\n    - cron: '7 1 * * *'\njobs: {}\n") && !hasNightly('name: ci\non:\n  pull_request:\njobs: {}\n') && !hasNightly('') && !hasNightly(null),

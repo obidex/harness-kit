@@ -199,11 +199,15 @@ export async function sweep(repo, since, get = api) {
   const saved = [];
   const fix = async (path, method, listed, pr) => {
     if (scrub(listed) === listed) return;
-    const now = await get('GET', path);
-    const clean = scrub(now.body);
-    if (clean === now.body) return;
-    try { await get(method, path, { body: clean }); } catch (e) {
+    let now;
+    try {
+      now = await get('GET', path);
+      const clean = scrub(now.body);
+      if (clean === now.body) return;
+      await get(method, path, { body: clean });
+    } catch (e) {
       if (e.status === 403) { console.log(`::warning::scrub: ${path}: attribution left; the token is read-only here`); return; }
+      if (e.status === 404 || e.status === 410) { console.log(`::warning::scrub: ${path}: gone since it was listed`); return; }
       throw e;
     }
     saved.push(path);
@@ -214,7 +218,7 @@ export async function sweep(repo, since, get = api) {
   const issues = await pages(`/repos/${repo}/issues?state=all&${q}`, get);
   const comments = await pages(`/repos/${repo}/issues/comments?${q}`, get);
   const reviewComments = await pages(`/repos/${repo}/pulls/comments?${q}`, get);
-  for (const l of [issues, comments, reviewComments]) if (l.capped) console.log(`::warning::scrub: more than ${SWEEP_PAGES * 100} items since ${since}; the rest wait for the next run`);
+  const capped = [issues, comments, reviewComments].some((l) => l.capped);
   for (const i of issues.items) await fix(`/repos/${repo}/issues/${i.number}`, 'PATCH', i.body, i.pull_request ? i.number : null);
   for (const c of comments.items) await fix(`/repos/${repo}/issues/comments/${c.id}`, 'PATCH', c.body);
   for (const c of reviewComments.items) await fix(`/repos/${repo}/pulls/comments/${c.id}`, 'PATCH', c.body);
@@ -222,6 +226,8 @@ export async function sweep(repo, since, get = api) {
     const reviews = await get('GET', `/repos/${repo}/pulls/${p.number}/reviews?per_page=100`);
     for (const r of reviews || []) await fix(`/repos/${repo}/pulls/${p.number}/reviews/${r.id}`, 'PUT', r.body);
   }
+  // a cut listing leaves bodies behind: the run fails, so the next one sweeps from the last green run again
+  if (capped) { const e = new Error(`more than ${SWEEP_PAGES * 100} items in one listing since ${since}; the next run sweeps them`); e.capped = true; e.saved = saved; throw e; }
   return saved;
 }
 

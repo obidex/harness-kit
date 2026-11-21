@@ -113,6 +113,16 @@ eq(sweepSince([r(5, '2026-11-01T00:00:00Z', 'success')], { repo: 'o/r', currentI
   eq(JSON.stringify((await sweep('o/r', '2026-11-21T17:00:00Z', get))), '[]', 'a second sweep over the same window writes nothing');
   db['/repos/o/r/issues/comments/11'].body = FOOT; readOnly = true;
   eq(JSON.stringify(await sweep('o/r', '2026-11-21T17:00:00Z', get)), '[]', 'a read-only token leaves the body with a warning; the sweep does not fail');
+  // a body deleted after the listing is a warning, not a red run
+  db['/repos/o/r/issues/comments/11'] = undefined;
+  const get404 = async (m, p, b) => { if (m === 'GET' && p === '/repos/o/r/issues/comments/11') { const e = new Error('404'); e.status = 404; throw e; } return get(m, p, b); };
+  const listed11 = async (m, p, b) => (m === 'GET' && p.startsWith('/repos/o/r/issues/comments?') ? [{ id: 11, body: FOOT }] : m === 'GET' && /\/(issues|pulls\/comments)\?/.test(p) ? [] : get404(m, p, b));
+  eq(JSON.stringify(await sweep('o/r', '2026-11-21T17:00:00Z', listed11)), '[]', 'a body deleted between the listing and the save is a warning; the sweep goes on');
+  // a listing cut at the page cap fails the run, so the next sweep starts from the last green run again
+  const full = Array.from({ length: 100 }, (_, i) => ({ id: 1000 + i, body: 'fine' }));
+  const many = async (m, p, b) => (m === 'GET' && p.startsWith('/repos/o/r/issues/comments?') ? full : m === 'GET' && /\/(issues|pulls\/comments)\?/.test(p) ? [] : get(m, p, b));
+  let capped = null; try { await sweep('o/r', '2026-11-21T17:00:00Z', many); } catch (e) { capped = e; }
+  eq(String(!!capped?.capped), 'true', 'a listing longer than the page cap fails the run (only a green run moves the window)');
   // a later edit between the listing and the save is never overwritten: the body is read again first
   readOnly = false;
   const stale = { id: 12, body: FOOT };

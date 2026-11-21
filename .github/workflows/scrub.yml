@@ -25,8 +25,9 @@ permissions:
   contents: read
 
 concurrency:
-  # one run going and one waiting for the repository; each run sweeps what a dropped one named (K059)
-  group: scrub-${{ ((github.event.pull_request && (github.event.pull_request.head.repo.full_name != github.repository || github.actor == 'dependabot[bot]')) || github.actor == 'github-actions[bot]') && github.run_id || 'all' }}
+  # issues and comments: one run going and one waiting for the repository; each run sweeps what a dropped
+  # one named (K059); a pull request's own events: one group per pull request
+  group: scrub-${{ ((github.event.pull_request && (github.event.pull_request.head.repo.full_name != github.repository || github.actor == 'dependabot[bot]')) || github.actor == 'github-actions[bot]') && github.run_id || github.event.pull_request.number || 'all' }}
   cancel-in-progress: false
 
 jobs:
