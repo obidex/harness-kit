@@ -204,8 +204,7 @@ What differs from `/fire`:
   starts its run with `fire_trigger`; `wake.mjs started` refuses a start whose newest receipt is a
   hand-off's, so the run the label began ends at once and one hand-off is one working run. A hand-off
   that yielded to a job receipt it had not read (its receipt names the newest it read, `seen`) started
-  nothing: `started` passes over it and the job's start works. A claim that appears after the job
-  decided is never taken over: the job marks its receipt not started.
+  nothing: `started` passes over it and the job's start works.
 - **The run needs GitHub write access** to run `started` (it writes the "Run started" comment): in a
   cloud session, the repository attached with push access. Without it every label start is refused.
 - **A label set by the job's own token does start the task.** GitHub starts no workflow for such a

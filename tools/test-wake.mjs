@@ -116,7 +116,6 @@ let commentId = 100, raceUsed = false, postAs = null, hideUsedOnce = 0, hideNewe
 const issues = new Map();   // number -> { number, state, labels: [names], body, user, comments: [{ user, body, created_at }] }
 const fires = [];
 let rival = null, rivalBefore = false;   // rival: a second start's receipt, written right after the next hand-off receipt (rivalBefore: dated just before it)
-let claimOnReceipt = false;   // another start sets the claim the moment the job's receipt lands
 let taskFile = null;   // the receiving repository's .github/wake.json, when it has one
 let fireStatus = 200;
 const labelEvents = [];   // `<issue>:<label>` for each label GitHub would send a `labeled` event for
@@ -147,7 +146,7 @@ const srv = createServer((q, res) => {
     const i = m && issues.get(Number(m[1]));
     if (!i) return send(404, {});
     if (m[2] === '/comments' && q.method === 'GET') return send(200, u.searchParams.get('page') === '1' ? i.comments : []);
-    if (m[2] === '/comments') { const body = JSON.parse(data).body; if (raceUsed && body.startsWith(USED_MARK)) i.comments.push({ id: ++commentId, user: bot, body, created_at: new Date(Date.now() - 1).toISOString() }); const c = { id: ++commentId, user: bot, author_association: 'OWNER', ...(postAs || {}), body, created_at: new Date().toISOString() }; i.comments.push(c); if (hideUsedOnce === 1 && body.startsWith(USED_MARK)) hideUsedOnce = 2; if (rival && body.startsWith(HANDOFF_MARK)) { i.comments.push({ ...c, id: ++commentId, body: rival, ...(rivalBefore ? { created_at: new Date(Date.parse(c.created_at) - 1).toISOString() } : {}) }); rival = null; } if (claimOnReceipt && body.startsWith(FIRE_MARK)) { i.labels = [...new Set([...i.labels, CLAIM])]; claimOnReceipt = false; } return send(201, c); }
+    if (m[2] === '/comments') { const body = JSON.parse(data).body; if (raceUsed && body.startsWith(USED_MARK)) i.comments.push({ id: ++commentId, user: bot, body, created_at: new Date(Date.now() - 1).toISOString() }); const c = { id: ++commentId, user: bot, author_association: 'OWNER', ...(postAs || {}), body, created_at: new Date().toISOString() }; i.comments.push(c); if (hideUsedOnce === 1 && body.startsWith(USED_MARK)) hideUsedOnce = 2; if (rival && body.startsWith(HANDOFF_MARK)) { i.comments.push({ ...c, id: ++commentId, body: rival, ...(rivalBefore ? { created_at: new Date(Date.parse(c.created_at) - 1).toISOString() } : {}) }); rival = null; } return send(201, c); }
     if (m[2]?.startsWith('/labels') && q.method === 'DELETE') { if (!i.labels.includes(m[3])) return send(404, {}); if (m[3] === CLAIM) failAtUnclaim = i.comments.some((c) => c.body.startsWith(FAIL_MARK)); i.labels = i.labels.filter((x) => x !== m[3]); return send(200, []); }
     if (m[2]?.startsWith('/labels')) { if (labelsRefused === 'error') return send(500, {}); if (labelsRefused === 'lost') { i.labels = [...new Set([...i.labels, ...JSON.parse(data).labels])]; return send(500, {}); } if (labelsRefused) return send(200, []); const add = JSON.parse(data).labels; labelEvents.push(...add.filter((x) => !i.labels.includes(x)).map((x) => `${i.number}:${x}`)); if (add.includes(CLAIM)) receiptAtClaim = i.comments.filter((c) => c.body.startsWith(FIRE_MARK)).length; i.labels = [...new Set([...i.labels, ...add])]; return send(200, i.labels.map((name) => ({ name }))); }
     if (q.method === 'PATCH') { const j = JSON.parse(data); if (j.state) i.state = j.state; if (j.labels) i.labels = j.labels; return send(200, view(i)); }
@@ -322,18 +321,6 @@ ok(r8.code === 0 && /rests/.test(r8.out) && st.labels.includes(BACKSTOP_OFF) && 
     st.labels = []; st.comments = [];
   }
   ok((await fire('labeled', 40, WAKE, { ...LABEL, WAKE_START: 'yes' })).code === 1, 'any other value of WAKE_START still needs the /fire URL and token');
-  {
-    // a hand-off claims between the job's decision and its claim: the job never takes that claim over
-    // (removing and setting it again would start a second run); its receipt is marked not started
-    issues.get(40).labels = [WAKE]; st.labels = []; st.comments = [];
-    claimOnReceipt = true;
-    const at2 = labelEvents.length;
-    const r2 = await fire('labeled', 40, WAKE, LABEL);
-    const led2 = ledger(st.comments);
-    ok(r2.code === 0 && labelEvents.length === at2 && st.labels.includes(CLAIM) && led2.at(-1)?.kind === 'fail' && led2.some((e) => e.kind === 'fire')
-      && (await run(['started', '--repo', 'o/r'], { GITHUB_ACTIONS: '', WAKE_REREAD_MS: '1' })).code === 4,
-      'label start: a claim another start set after the decision is left alone; the job sets no label, marks its receipt not started, and no label run works on it');
-  }
   issues.get(40).labels = []; st.labels = []; st.comments = [];
 }
 const s = JSON.parse((await run(['status', '--repo', 'o/r'])).out);

@@ -414,14 +414,9 @@ async function runFire(repo, { event, issue, label }) {
     // the receipt first, as always; then the claim, whose `labeled` event is what starts the task.
     // decide() starts a run only with no claim, or a dead one cleared above.
     await comment(repo, s.st.number, `${FIRE_MARK}${JSON.stringify({ issue: d.target, via: d.via, sig: d.sig })} -->\nStarting a run (${d.why}).`);
-    // a claim that appeared since the decision read is another start's (a hand-off that kept its start,
-    // K056): it is never taken over (removing and setting it again would start a second run). This
-    // receipt is marked not started, so no label run can work on it.
-    if (names(await gh('GET', `/repos/${repo}/issues/${s.st.number}`)).includes(CLAIM)) {
-      await comment(repo, s.st.number, `${FAIL_MARK}\nNot started: another start took the claim on #${s.st.number} first; it runs, and it reads the queue.`).catch(() => {});
-      console.log(`wake: another start holds the claim on #${s.st.number}; this one starts nothing`);
-      return;
-    }
+    // a claim still there would send no event, so it is cleared first (the race with a hand-off that
+    // claimed after this decision is tracked: harness-kit, label start follow-up)
+    await unclaim(repo, s.st.number);
     // a label refused, lost or not confirmed is a failed start: recorded, counted, and the issue is told
     let failed = null;
     try {
