@@ -103,6 +103,16 @@ ok(!/node \.harness\/tools\//.test(files['hands-update.yml']) && files['hands-up
 
 // cost (O13, K008): the settings workflow runs at most daily on its own, and only drifted repos get a job
 const hs = parseYaml(files['hands-settings.yml']);
+// K062: each apply records its repository's result (anything but success is a failure, a paused one none), the report
+// gets the drift check's own result, and a check that finds a repository matching closes its apply alert
+{
+  const rec = hs.jobs.apply.steps.find((x) => x.name === "Record this repository's result");
+  ok(rec && rec.if === 'always()' && /STATUS=failure/.test(rec.run) && /paused \(HANDS_PAUSED\)/.test(rec.run) && /result\.txt/.test(hs.jobs.apply.steps.find((x) => /upload-artifact/.test(x.uses || ''))?.with?.path || ''),
+    'hands-settings: every apply records its result for the report (K062)');
+  ok(hs.jobs.report.with?.whole === '${{ needs.discover.result }}', 'hands-settings: the report gets the drift check\'s own result as whole (K062)');
+  const res = hs.jobs.discover.steps.find((x) => /hands\/hands-settings\/\$repo/.test(x.run || ''));
+  ok(res && hs.jobs.discover.steps.find((x) => x.id === 'find').env.HANDS_MATCHED_FILE && /<\/dev\/null/.test(res.run), 'hands-settings: a repository found matching its file has its apply alert closed (K062)');
+}
 ok(hs.on.schedule.every((c) => /^\d+ \d+ \* \* [*\d]+$/.test(c.cron)), `hands-settings runs at most once a day on its schedule (${hs.on.schedule.map((c) => c.cron).join(', ')})`);
 ok(/hands\.mjs drift/.test(files['hands-settings.yml']) && /needs\.discover\.outputs\.repos != '\[\]'/.test(hs.jobs.apply.if) && /needs\.apply\.result == 'success'/.test(hs.jobs.report.if), 'apply runs only for drifted repositories, and the report only when something was applied or failed');
 
@@ -233,6 +243,11 @@ const run = (srv, args, env = {}) => new Promise((done) => {
   ok(missing.code === 1 && /not enrolled/.test(missing.stderr), 'a dispatch for a repository that is not enrolled fails, never passes silently');
   const ro = await run(srv, ['apply', '--repo', 'o/drift'], { HANDS_READ_ONLY: '1' });
   ok(ro.code === 1 && /refused POST/.test(ro.stderr) && state['o/drift'].labels.length === 0, 'with HANDS_READ_ONLY the tool refuses every write');
+  const mf = join(mkdtempSync(join(tmpdir(), 'matched-')), 'matched.txt');
+  const dm = await run(srv, ['drift'], { HANDS_MATCHED_FILE: mf });
+  ok(dm.code === 0 && readFileSync(mf, 'utf8') === 'o/same\n', `drift with HANDS_MATCHED_FILE lists the repositories that match their file, not one that differs (K062; ${JSON.stringify(readFileSync(mf, 'utf8'))})`);
+  await run(srv, ['drift'], { HANDS_MATCHED_FILE: mf, HANDS_PAUSED: 'o/same' });
+  ok(readFileSync(mf, 'utf8') === '', 'a paused repository is not listed as matching: its alert stays open (K062)');
   const p = await run(srv, ['drift'], { HANDS_PAUSED: 'o/drift' });
   ok(JSON.parse(p.stdout).length === 0 && /o\/drift: paused/.test(p.stderr), 'a paused repository is left alone by drift');
   const pa = await run(srv, ['apply', '--repo', 'o/drift'], { HANDS_PAUSED: '*' });

@@ -29,6 +29,12 @@ read the repository's administration settings, and quote its lines in the PR. A 
 the PR is about deleting: with it off, rulesets and labels the file does not name are never
 touched, and a ruleset's bypass list the file leaves out is kept as it is.
 
+A bypass actor must be one GitHub accepts on that repository. On a repository a personal account
+owns, GitHub refuses the GitHub Actions integration (`Integration` 15368) with 422 "must be part of
+the ruleset source or owner organization", and a refused write stops the rest of that repository's
+apply (the writes after it wait for the next one). An apply that fails is an alert for that
+repository alone; only its own green apply, or a check that finds it matching its file, closes it (K062).
+
 ## Emergency: pause, repair, agree, resume
 
 Use this when the file is wrong and a live setting must change before a PR can merge (for example
