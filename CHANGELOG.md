@@ -11,9 +11,10 @@ Opening the chore lane no longer needs a settings page. Nothing always-loaded ch
 - **`harness.mjs`**: installs the kit workflows with the profile's lane written in,
   `(vars.CHORE_RUNNER || '<label>')`, on init, update and rollback; new `lanes` command rewrites them
   after the profile changes; `status` fails while the two disagree. Without `chore_runner` every file is
-  installed byte for byte as before.
+  installed byte for byte as before. Before a rollback below 0.56.0, remove `chore_runner` and run
+  `lanes` (older versions know no lane and their schema refuses the key).
 - **`audit.mjs`**: A04 fails while the profile and the installed workflows disagree; A19 fails a profile
-  that names a chore lane on a public repository.
+  that names a chore lane, or a kit workflow installed with one, on a public repository.
 - **`lib.mjs`**: `choreLane`, `renderLane`, `unrenderLane`, `laneIn`.
 - **`ci.md`**, **`hands.md`**, **`review.md`**, **`README.md`**: where the lane is set and how to fall back.
 - To adopt: after this update, add `"chore_runner": "chores"` to `.harness/profile.json` and run

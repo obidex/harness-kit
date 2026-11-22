@@ -607,6 +607,8 @@ const checks = {
     // `vars.CHORE_RUNNER || …` (K059), fail only when that variable is set (404: not set, so GitHub-hosted)
     let runnerUnknown = false;
     if (pub && profile?.chore_runner) bad.push(`the profile names the chore lane '${profile.chore_runner}' on a public repository (K063)`);
+    // the installed workflows themselves, whatever the profile says (an invalid profile decides nothing)
+    if (pub) for (const w of workflows) { const l = laneIn(w.text); if (l !== null) bad.push(`${w.file}: installed with the chore lane ${l === undefined ? '(mixed labels)' : `'${l}'`} on a public repository (K063)`); }
     if (pub) for (const w of workflows) for (const [k, j] of w.jobs) {
       const r = runsOn(j);
       if (/self-hosted/.test(r)) bad.push(`${w.file}#${k}: a self-hosted runner on a public repository`);

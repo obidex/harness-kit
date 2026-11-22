@@ -21,7 +21,8 @@ job as `${{ (vars.CHORE_RUNNER || 'chores') || vars.RUNNER || 'ubuntu-latest' }}
 the Actions variable `CHORE_RUNNER`, when set, overrides it. To change it, edit the profile and run
 `node .harness/tools/harness.mjs lanes` in the same pull request (it rewrites the kit workflows and the
 lock); `harness.mjs status` and the audit (A04) fail while the two disagree, and every kit update or
-rollback writes the profile's lane by itself. Removing `chore_runner` and running `lanes` puts the
+rollback writes the profile's lane by itself. Before rolling back below 0.56.0 (which knows no lane and
+whose schema refuses the key), remove `chore_runner` and run `lanes` first. Removing `chore_runner` and running `lanes` puts the
 templates back byte for byte. No settings page and no owner step.
 
 To open the lane on a self-hosted machine (a root step for the machine's own project, which owns its

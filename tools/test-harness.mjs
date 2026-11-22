@@ -135,6 +135,15 @@ ok(r.status === 0 && res('A01') === 'PASS' && res('A04') === 'PASS', `audit on t
   ok(x.status === 0 && /'chores'\)/.test(wf('audit')) && lt(['status']).status === 0, `an update installs the new release's workflows with the profile's lane (${x.stdout.trim()})`);
   x = lt(['rollback']);
   ok(x.status === 0 && /'chores'\)/.test(wf('guard')) && lt(['status']).status === 0, 'and so does a rollback');
+  {
+    // an install before 0.56.0 knows no lane (a rollback below it): status checks none, lanes refuses (K063)
+    const lk = join(lp, '.harness/kit.lock.json'), keep = readFileSync(lk, 'utf8');
+    writeFileSync(lk, JSON.stringify({ ...JSON.parse(keep), version: '0.55.0' }, null, 2));
+    prof('other');
+    const st = lt(['status']), ln = lt(['lanes']);
+    ok(st.status === 0 && ln.status === 1 && /does not write a chore lane/.test(ln.stderr) && /'chores'\)/.test(wf('scrub')), 'on an install before 0.56.0 status checks no lane (a rollback\'s status does not stop it) and lanes refuses to write one');
+    writeFileSync(lk, keep); prof('chores');
+  }
   prof('two words');
   const before = wf('scrub');
   x = lt(['lanes']);

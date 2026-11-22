@@ -19,7 +19,9 @@
 // Recorded with their hashes in .harness/kit.lock.json. A kit workflow is installed with the profile's
 // `chore_runner` written into its lane expressions (K063, lib.mjs renderLane); the lock records the
 // file as written. After the profile's chore_runner changes, `lanes` rewrites them; `status` fails
-// until it has. Everything else is project-owned and never
+// until it has. A rollback below 0.56.0 writes plain templates and its schema refuses `chore_runner`:
+// remove it and run `lanes` first. init with a lane already in the profile treats a plain copy of a
+// kit workflow as the project's own (a clash). Everything else is project-owned and never
 // written by update or rollback. init writes three project-owned files only when they are absent or
 // lack the kit: .harness/profile.json (a skeleton), CLAUDE.md (created, or the kit imports added).
 //
@@ -120,8 +122,12 @@ function projectLane() {
 }
 /** A managed file's bytes as installed here: kit workflows carry the chore lane (K063). */
 const installed = (dest, src, lane) => (LANE_FILE_RE.test(dest) ? Buffer.from(renderLane(readFileSync(src, 'utf8'), lane)) : readFileSync(src));
+// the first version that writes the profile's lane; an older install carries the plain templates
+const LANES_FROM = '0.56.0';
+const knowsLanes = (lock) => VERSION_RE.test(lock?.version || '') && cmpVer(lock.version, LANES_FROM) >= 0;
 /** Installed kit workflows whose lane is not the profile's (the profile changed, `lanes` not run yet). */
 function laneDrift(lock, lane) {
+  if (!knowsLanes(lock)) return []; // an install before 0.56.0 has no lane to check (K063)
   return Object.keys(lock.files).filter((p) => LANE_FILE_RE.test(p) && existsSync(at(p))).filter((p) => {
     const t = readFileSync(at(p), 'utf8');
     return renderLane(unrenderLane(t), lane) !== t;
@@ -314,6 +320,7 @@ switch (cmd) {
     // the one way besides update that writes a kit file here: the same templates, the profile's lane (K063)
     const lock = readLock();
     if (!lock) die('the kit is not installed here');
+    if (!knowsLanes(lock)) die(`the installed kit ${lock.version} does not write a chore lane (from ${LANES_FROM}, K063): update it first`);
     const d = drift(lock);
     if (d.length) die(`kit-managed files were edited in this project; restore them first:\n  ${d.join('\n  ')}`);
     const lane = projectLane();
