@@ -3,6 +3,22 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.54.0 · 2026-11-22 · the second reviewer's settings live in a file in the repository (K060)
+
+No settings page and no owner step to switch the reviewer on, set it up or end it. Nothing
+always-loaded changed.
+
+- **`.github/harness-review.json`** (a project's own file, on the default branch): `until` with the
+  owner's `command`, the four identifiers, `sweep_rule`, lower caps. An Actions variable counts only
+  for a setting the file leaves out; caps take the lowest. A file that is unreadable, names an unknown
+  key, or gives an end time without the owner's command switches the reviewer off.
+- **`review.mjs`**: `settingsOf` and `settingsText`; `run` reads the file from the default branch first
+  (a fetch failure fails the job, never falls back); `switch` says where the end time lives.
+- **`sweep.mjs`**: reads the same file from its checkout of the default branch.
+- **`harness-review.yml`**: the job no longer needs `REVIEW_UNTIL` to start; on a private repository
+  without a self-hosted runner it still needs `REVIEW_FEDERATION_RULE`, so no new hosted minutes.
+- The kit's own file: on until 22 Dec 2026, 23:59 (UTC+3), the owner's one-time command.
+
 ## 0.53.1 · 2026-11-21 · the first clean-up run after a kit update reaches back a full day (K059)
 
 - **`scrub.mjs`**: a green run anchors the sweep only if it was created after the workflow file last
