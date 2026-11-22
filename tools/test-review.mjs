@@ -346,10 +346,16 @@ const text = readFileSync(join(ROOT, '.harness/templates/workflows/harness-revie
 const wf = parseYaml(text), job = wf.jobs.review, step0env = job.steps.at(-1).env;
 ok(Object.keys(wf.on).join() === 'workflow_run' && wf.on.workflow_run.types === '[completed]' && /harness-guard/.test(wf.on.workflow_run.workflows) && /harness-scrub/.test(wf.on.workflow_run.workflows) && !/harness-review/.test(wf.on.workflow_run.workflows) && !/pull_request_target|^\s+pull_request:/m.test(text),
   'harness-review starts only when another workflow finishes, so it always runs the default branch\'s file, never a pull request\'s; it never starts itself');
-ok(!/REVIEW_UNTIL/.test(job.if) && step0env.REVIEW_UNTIL === '${{ vars.REVIEW_UNTIL }}' && !/REVIEW_UNTIL:\s*['"]?\d/.test(text) && !/\buntil:/.test(text) && /Off by default \(K055\)/.test(text) && /Settings in a file \(K060\)/.test(text),
-  'the job no longer needs the variable REVIEW_UNTIL to start: the tool reads the end time from the settings file first, the variable only as its fallback, and the workflow sets no end time itself');
+ok(step0env.REVIEW_UNTIL === '${{ vars.REVIEW_UNTIL }}' && !/REVIEW_UNTIL:\s*['"]?\d/.test(text) && !/\buntil:/.test(text) && /Off by default \(K055\)/.test(text) && /Settings in a file \(K060\)/.test(text),
+  'the tool reads the end time from the settings file first, the variable only as its fallback, and the workflow sets no end time itself');
 ok(/\(vars\.CHORE_RUNNER != '' \|\| vars\.RUNNER != '' \|\| vars\.REVIEW_FEDERATION_RULE != '' \|\| !github\.event\.repository\.private\)/.test(job.if) && /workflow_run\.event == 'pull_request'/.test(job.if) && /workflow_run\.conclusion == 'success'/.test(job.if) && /workflow_run\.head_repository\.full_name == github\.repository/.test(job.if),
-  'on a private repository with no self-hosted runner the job starts only where the federation rule\'s variable is set (no new GitHub-hosted minutes), and it skips a fork\'s run before any step');
+  'the job skips a fork\'s run, a push run and a red run before any step');
+// the job's condition, evaluated: GitHub's expression for these cases is plain JavaScript once vars and the event are named
+const starts = (v, priv) => Function('vars', 'github', `return (${String(job.if).replace(/\s+/g, ' ')});`)(new Proxy(v, { get: (o, k) => o[k] ?? '' }),
+  { repository: 'o/r', event: { repository: { private: priv }, workflow_run: { event: 'pull_request', conclusion: 'success', head_repository: { full_name: 'o/r' } } } });
+ok(starts({ REVIEW_FEDERATION_RULE: 'fdrl_x' }, true) === false && starts({}, true) === false && starts({ REVIEW_FEDERATION_RULE: 'fdrl_x', REVIEW_UNTIL: 'x' }, true) === true
+  && starts({ RUNNER: 'self-hosted' }, true) === true && starts({ CHORE_RUNNER: 'chores' }, true) === true && starts({}, false) === true,
+  'on a private repository with no self-hosted runner the job starts only where both variables are set, as before (installed and off costs no GitHub-hosted minutes); on its own runner, or on a public repository, it starts and the settings file decides');
 ok(wf.permissions.contents === 'read' && Object.keys(wf.permissions).length === 1 && job.permissions['id-token'] === 'write' && job.permissions['pull-requests'] === 'write' && Object.entries(job.permissions).every(([k, v]) => ['id-token', 'pull-requests'].includes(k) || v === 'read') && !('contents' in job.permissions && job.permissions.contents !== 'read') && !('actions' in job.permissions),
   'it may write only pull-request comments and ask for its identity token; everything else is read-only');
 ok(Number(job['timeout-minutes']) === 5 && String(wf.concurrency['cancel-in-progress']) === 'false' && /workflow_run\.head_repository\.full_name \}\}-\$\{\{ github\.event\.workflow_run\.head_branch/.test(wf.concurrency.group) && !/head_sha|head_branch|pull_requests/.test(JSON.stringify(job.steps)) && !/\$\{\{\s*secrets\./.test(text),

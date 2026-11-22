@@ -111,8 +111,9 @@ once per repository, by whoever administers the Anthropic organisation:
 Until the federation rule is named the job asks nothing whatever the switch says, so installing the
 workflow changes nothing. The identifiers are the set-up, the end time is the switch. While the switch
 is off the job reads only the settings file and ends within seconds. On a private repository with no
-self-hosted `CHORE_RUNNER` or `RUNNER` it starts only where `REVIEW_FEDERATION_RULE` is set as a
-variable, so it adds no GitHub-hosted minutes its owner did not set up.
+self-hosted `CHORE_RUNNER` or `RUNNER` it starts only where the variables `REVIEW_FEDERATION_RULE` and
+`REVIEW_UNTIL` are both set, as before K060, so being installed and off costs no GitHub-hosted minutes;
+there the variable switches it on, and the file can only shorten or end it.
 
 ## Caps and cost (O13)
 

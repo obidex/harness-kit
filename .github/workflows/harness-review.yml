@@ -25,8 +25,9 @@
 # REVIEW_DAILY_CAP may only lower them), one review per commit, 5 minutes a run.
 # Cost (O13): the API calls, about $0.10 a review on the default model and twice that on high-risk
 # paths; and one short job per finished workflow listed below. On a private repository without a
-# self-hosted CHORE_RUNNER or RUNNER the job starts only when the variable REVIEW_FEDERATION_RULE is set,
-# so it adds no GitHub-hosted minutes its owner did not set up (about 1 a run; up to 3 while it waits).
+# self-hosted CHORE_RUNNER or RUNNER the job starts only when the variables REVIEW_FEDERATION_RULE and
+# REVIEW_UNTIL are both set, as before K060, so it adds no GitHub-hosted minutes (about 1 a run; up to 3
+# while it waits); such a repository is switched on by its variable, and the file can only shorten it.
 # A pull-request workflow with another name starts nothing here: its checks are seen only when they
 # finish within 90 seconds of a listed one.
 name: harness-review
@@ -47,7 +48,7 @@ jobs:
   review:
     name: harness-review
     if: >-
-      (vars.CHORE_RUNNER != '' || vars.RUNNER != '' || vars.REVIEW_FEDERATION_RULE != '' || !github.event.repository.private) &&
+      (vars.CHORE_RUNNER != '' || vars.RUNNER != '' || !github.event.repository.private || (vars.REVIEW_FEDERATION_RULE != '' && vars.REVIEW_UNTIL != '')) &&
       github.event.workflow_run.event == 'pull_request' &&
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.head_repository.full_name == github.repository
