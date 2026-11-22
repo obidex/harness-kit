@@ -108,6 +108,61 @@ ok(r.status === 0 && res('A01') === 'PASS' && res('A04') === 'PASS', `audit on t
   rmSync(nr, { recursive: true, force: true });
 }
 
+// 2a. the chore lane lives in the profile (K063): written into the kit workflows, checked, carried by updates
+{
+  const lp = join(work, 'lane'); cpSync(proj, lp, { recursive: true });
+  const lt = (args) => tool(args, lp);
+  const prof = (v) => { const p = JSON.parse(readFileSync(join(lp, '.harness/profile.json'), 'utf8')); if (v === undefined) delete p.chore_runner; else p.chore_runner = v; writeFileSync(join(lp, '.harness/profile.json'), `${JSON.stringify(p, null, 2)}\n`); };
+  const a04 = () => { spawnSync('node', [join(lp, '.harness/tools/audit.mjs'), lp, '--json', join(work, 'lane.json')], { encoding: 'utf8' }); return JSON.parse(readFileSync(join(work, 'lane.json'), 'utf8')).results.find((x) => x.id === 'A04'); };
+  const wf = (w) => readFileSync(join(lp, `.github/workflows/harness-${w}.yml`), 'utf8');
+  const tpl = (w) => readFileSync(join(kitSrc, `.harness/templates/workflows/harness-${w}.yml`), 'utf8');
+  const lockOf = () => JSON.parse(readFileSync(join(lp, '.harness/kit.lock.json'), 'utf8'));
+  ok(wf('scrub') === tpl('scrub'), 'with no chore_runner in the profile, the kit workflows are installed byte for byte');
+  prof('chores');
+  let x = lt(['status']);
+  ok(x.status === 1 && /chore_runner is 'chores'/.test(x.stdout) && /harness\.mjs lanes/.test(x.stdout), 'status fails once the profile names a lane the installed workflows do not carry, and says what to run');
+  x = a04();
+  ok(x.result === 'FAIL' && /harness\.mjs lanes/.test(x.evidence), `A04 fails on the same mismatch (${x.result})`);
+  x = lt(['lanes']);
+  ok(x.status === 0 && /rewrote 7 kit workflow/.test(x.stdout), `lanes writes the label into the seven chore workflows (${x.stdout.split('\n')[0]})`);
+  ok(/runs-on: \$\{\{ \(vars\.CHORE_RUNNER \|\| 'chores'\) \|\| vars\.RUNNER \|\| 'ubuntu-latest' \}\}/.test(wf('scrub')) && wf('sweep') === tpl('sweep'), 'scrub runs on the variable when set, else the profile\'s label; the long sweep is untouched');
+  ok(lockOf().files['.github/workflows/harness-scrub.yml'] === hash(join(lp, '.github/workflows/harness-scrub.yml')) && lt(['status']).status === 0 && a04().result === 'PASS', 'the lock records the written file; status and A04 pass');
+  ok(/# Runs on the chore lane \(CHORE_RUNNER, K059\)/.test(wf('scrub')), 'comment lines are left as they are');
+  x = lt(['lanes']);
+  ok(x.status === 0 && /already matches/.test(x.stdout), 'lanes again changes nothing');
+  git(lp, 'add', '-A'); git(lp, 'commit', '-q', '-m', 'lane');
+  x = lt(['update', '--version', v2]);
+  ok(x.status === 0 && /'chores'\)/.test(wf('audit')) && lt(['status']).status === 0, `an update installs the new release's workflows with the profile's lane (${x.stdout.trim()})`);
+  x = lt(['rollback']);
+  ok(x.status === 0 && /'chores'\)/.test(wf('guard')) && lt(['status']).status === 0, 'and so does a rollback');
+  {
+    // an install before 0.56.0 knows no lane (a rollback below it): status checks none, lanes refuses (K063)
+    const lk = join(lp, '.harness/kit.lock.json'), keep = readFileSync(lk, 'utf8');
+    writeFileSync(lk, JSON.stringify({ ...JSON.parse(keep), version: '0.55.0' }, null, 2));
+    prof('other');
+    const st = lt(['status']), ln = lt(['lanes']);
+    ok(st.status === 0 && ln.status === 1 && /does not write a chore lane/.test(ln.stderr) && /'chores'\)/.test(wf('scrub')), 'on an install before 0.56.0 status checks no lane (a rollback\'s status does not stop it) and lanes refuses to write one');
+    writeFileSync(lk, keep); prof('chores');
+  }
+  {
+    // this version's own apply writing a release before 0.56.0 (a rollback through it) installs plain templates
+    const old = join(work, 'kit-old'); cpSync(kitSrc, old, { recursive: true, filter: (p) => !p.includes('/.git') });
+    writeFileSync(join(old, '.harness/VERSION'), '0.55.9\n');
+    const cp = join(work, 'lane-old'); cpSync(lp, cp, { recursive: true });
+    const x = spawnSync('node', [join(kitSrc, '.harness/tools/harness.mjs'), '__apply', '--root', cp, '--kit-dir', old, '--kit-version', '0.55.9', '--kit-commit', 'local', '--kit-source', 'local'], { encoding: 'utf8' });
+    ok(x.status === 0 && readFileSync(join(cp, '.github/workflows/harness-scrub.yml'), 'utf8') === tpl('scrub') && tool(['status'], cp).status === 0, 'applying a release before 0.56.0 writes its plain templates though the profile names a lane, and status passes');
+    rmSync(cp, { recursive: true, force: true }); rmSync(old, { recursive: true, force: true });
+  }
+  prof('two words');
+  const before = wf('scrub');
+  x = lt(['lanes']);
+  ok(x.status === 1 && /not a runner label/.test(x.stderr) && wf('scrub') === before, 'a chore_runner GitHub could not use is refused and nothing is written');
+  prof(undefined);
+  x = lt(['lanes']);
+  ok(x.status === 0 && ['scrub', 'guard', 'audit', 'review', 'inbox', 'stale', 'wake'].every((w) => wf(w) === tpl(w)) && lt(['status']).status === 0, 'without chore_runner, lanes puts back the templates byte for byte (the variables alone decide again)');
+  rmSync(lp, { recursive: true, force: true });
+}
+
 // 2b. without git, file-scanning rules are UNKNOWN, never PASS
 const nogit = join(work, 'nogit');
 cpSync(proj, nogit, { recursive: true, filter: (p) => !p.includes('/.git') });

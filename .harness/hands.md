@@ -113,7 +113,8 @@ repository anyone can queue `harness-scrub` jobs on a self-hosted runner by post
 public project never sets `RUNNER` (A19; the audit fails it); hosted minutes are free there. The short
 jobs (`harness-scrub`, `-guard`, `-audit`, `-inbox`, `-review`, `-stale`, `-wake`) take the chore lane
 first: `${{ vars.CHORE_RUNNER || vars.RUNNER || 'ubuntu-latest' }}`, so a job of seconds never waits
-behind a test of minutes (K059, `ci.md`); a public project sets neither (A19). The control
+behind a test of minutes (K059, `ci.md`); the profile's `chore_runner` is written into that lane when
+the kit installs its workflows, with the variable overriding it (K063); a public project sets none (A19). The control
 repository's `hands-*` jobs stay on GitHub-hosted runners (the App key never moves to a general
 worker, K008). Estimates per month without a self-hosted `RUNNER`, with N enrolled settings
 repositories and K repositories that pin the kit:

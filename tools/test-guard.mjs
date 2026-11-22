@@ -225,6 +225,23 @@ ok(audit().A17.result === 'FAIL', 'A17 fails on a cooldown under 3 days');
   ok((await a19({ repoVar: 404, choreVar: 403 })).result === 'UNKNOWN', 'A19: an unreadable CHORE_RUNNER variable is UNKNOWN, never PASS');
   ok((await a19({ repoVar: 404, org: true, orgVars: [{ name: 'CHORE_RUNNER' }] })).result === 'FAIL', 'A19: an organisation-level CHORE_RUNNER fails');
   ok((await a19({ repoVar: 404 })).result === 'PASS', 'A19: with neither lane variable set, the chore lane passes too');
+  {
+    const pf = join(proj, '.harness/profile.json'), was = readFileSync(pf, 'utf8');
+    writeFileSync(pf, JSON.stringify({ ...JSON.parse(was), chore_runner: 'chores' }));
+    const x = await a19({ repoVar: 404 });
+    ok(x.result === 'FAIL' && /chore lane 'chores' on a public repository/.test(x.evidence), `A19: a public repository whose profile names a chore lane fails, variables or not (K063; ${x.result})`);
+    ok((await a19({ repoVar: 404, private: true })).result === 'PASS', 'A19: the same profile on a private repository passes');
+    writeFileSync(pf, JSON.stringify({ ...JSON.parse(was), chore_runner: 'chores', preset: 'not-a-preset' }));
+    put('.github/workflows/l.yml', "name: l\non:\n  issue_comment:\npermissions: {}\njobs:\n  l:\n    runs-on: ${{ (vars.CHORE_RUNNER || 'chores') || vars.RUNNER || 'ubuntu-latest' }}\n    timeout-minutes: 3\n    steps:\n      - run: true\n");
+    git('add', '-A');
+    const y = await a19({ repoVar: 404 });
+    ok(y.result === 'UNKNOWN' && /l\.yml: installed with the chore lane 'chores' on a public repository/.test(y.evidence), `A19: with an invalid profile, a workflow installed with a lane on a public repository is never PASS (UNKNOWN until the guard is adopted, as for the variables; ${y.result})`);
+    writeFileSync(pf, was);
+    const z = await a19({ repoVar: 404 });
+    ok(z.result === 'FAIL' && /l\.yml: installed with the chore lane 'chores' on a public repository/.test(z.evidence), `A19: a workflow installed with a lane fails on a public repository though the profile names none (K063; ${z.result})`);
+    rmSync(join(proj, '.github/workflows/l.yml')); git('add', '-A');
+    writeFileSync(pf, was);
+  }
   ok((await a19({ repoVar: 404, org: true, orgCode: 403 })).result === 'UNKNOWN', 'A19: unreadable organisation variables are UNKNOWN');
   ok((await a19({ repoVar: 404, org: true, orgVars: [{ name: 'X' }], orgTotal: 31 })).result === 'UNKNOWN', 'A19: an organisation list longer than one page is UNKNOWN, never clear');
   ok((await a19({ rule: 'A22', repoVar: 404, private: true })).result === 'NOT APPLICABLE', 'A22: a private repository is not applicable (GitHub answers 405 there), never UNKNOWN');
