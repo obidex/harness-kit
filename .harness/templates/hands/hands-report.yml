@@ -17,6 +17,11 @@ on:
       result:
         required: true
         type: string
+      # the result of the part that is not one repository's job (hands-settings: the drift check), K062
+      whole:
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -73,6 +78,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           JOB: ${{ inputs.job }}
           RESULT: ${{ inputs.result }}
+          WHOLE: ${{ inputs.whole }}
           ALERTS_STORE: github:${{ github.repository }}
           ALERTS_REQUIRE_SEND: '1'
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -88,14 +94,22 @@ jobs:
             while read -r repo res; do
               if [ "$res" = failure ]; then
                 failed=1
-                node kit/.harness/tools/notify.mjs ops --key "hands/$JOB/$repo" --text "$JOB failed for $repo in ${{ github.repository }}" --link "$url"
+                node kit/.harness/tools/notify.mjs ops --key "hands/$JOB/$repo" --text "$JOB failed for $repo in ${{ github.repository }}" --link "$url" </dev/null
               else
-                node kit/.harness/tools/notify.mjs resolve --key "hands/$JOB/$repo" --text "$JOB green again for $repo: $url"
+                node kit/.harness/tools/notify.mjs resolve --key "hands/$JOB/$repo" --text "$JOB green again for $repo: $url" </dev/null
               fi
             done <<<"$per"
-            # a failure outside the repository jobs (the drift check) is the job's own alert; nothing here closes
-            # that one: a full check with nothing left to apply does
-            if [ "$RESULT" = failure ] && [ "$failed" = 0 ]; then
+            # a failure outside the repository jobs (the drift check, or a job that recorded no result) is the
+            # job's own alert, whatever the applies did; nothing here closes it: a full check with nothing left to apply does
+            if [ "${WHOLE:-}" = failure ] || { [ "$RESULT" = failure ] && [ "$failed" = 0 ]; }; then
+              node kit/.harness/tools/notify.mjs ops --key "hands/$JOB" --text "$JOB failed in ${{ github.repository }}" --link "$url"
+            fi
+            exit 0
+          fi
+          # a caller that keeps alerts per repository (it passes `whole`) never closes its job's own alert on a
+          # green run, even when no result could be read (the download failed)
+          if [ -n "${WHOLE:-}" ]; then
+            if [ "$RESULT" = failure ]; then
               node kit/.harness/tools/notify.mjs ops --key "hands/$JOB" --text "$JOB failed in ${{ github.repository }}" --link "$url"
             fi
             exit 0

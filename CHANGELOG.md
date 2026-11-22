@@ -13,7 +13,8 @@ Nothing always-loaded changed.
   apply alerts.
 - **`hands-report.yml`**: with per-repository results, one alert per repository
   (`hands/<job>/<owner/name>`), closed only by that repository's green apply; a failure outside the
-  repository jobs stays the job's own alert. `hands-update` and `hands-keep` are unchanged.
+  repository jobs (input `whole`: the drift check's result) stays the job's own alert.
+  `hands-update` and `hands-keep` are unchanged.
 - **`hands.mjs drift`**: `HANDS_MATCHED_FILE`.
 - **`hands.md`**: GitHub refuses the GitHub Actions integration as a bypass actor on a personal
   account's repository, and a refused write stops the rest of that repository's apply.

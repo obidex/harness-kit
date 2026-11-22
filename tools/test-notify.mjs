@@ -349,7 +349,7 @@ ok(c.code === 0 && /bot @example_alerts_bot/.test(c.out) && /group "Owner alerts
   // only that repository's green apply closes it, never a green run that applied another repository
   const { mkdirSync } = await import('node:fs');
   const results = (lines) => { rmSync(join(w, 'logs'), { recursive: true, force: true }); for (const [i, l] of lines.entries()) { mkdirSync(join(w, 'logs', `log-${i}`), { recursive: true }); writeFileSync(join(w, 'logs', `log-${i}`, 'result.txt'), `${l}\n`); } };
-  const shs = (RESULT) => new Promise((done) => execFile('bash', ['-e', join(w, 'step.sh')], { cwd: w, env: { ...process.env, JOB: 'hands-settings', RESULT, ALERTS_STORE: 'github:o/hands', ALERTS_REQUIRE_SEND: '1', ALERTS_OPS_BOARD: '' } }, (err, out, errOut) => done({ code: err ? err.code : 0, out: out + errOut })));
+  const shs = (RESULT, WHOLE = 'success') => new Promise((done) => execFile('bash', ['-e', join(w, 'step.sh')], { cwd: w, env: { ...process.env, JOB: 'hands-settings', RESULT, WHOLE, ALERTS_STORE: 'github:o/hands', ALERTS_REQUIRE_SEND: '1', ALERTS_OPS_BOARD: '' } }, (err, out, errOut) => done({ code: err ? err.code : 0, out: out + errOut })));
   // the newest issue under that exact key (an earlier case here used hands/hands-settings too)
   const keyed = (k) => issues.findLast((i) => i.body?.includes(`"key":"${k}"`));
   results(['o/erp failure', 'o/infra success']); x = await shs('failure');
@@ -364,6 +364,13 @@ ok(c.code === 0 && /bot @example_alerts_bot/.test(c.out) && /group "Owner alerts
   ok(x.code === 0 && whole?.state === 'open', 'hands-report: a failed run whose applies were all green (the drift check failed) is the job\'s own alert');
   results(['o/infra success']); x = await shs('success');
   ok(x.code === 0 && whole.state === 'open', 'hands-report: a green apply does not close the job\'s own alert (a full check with nothing to apply does)');
+  results([]); const before = keyed('hands/hands-settings').state; x = await shs('success');
+  ok(x.code === 0 && keyed('hands/hands-settings').state === before && before === 'open', 'hands-report: with no result read (the download failed) a green run of a per-repository caller closes nothing');
+  results(['o/a failure', 'o/b failure']); x = await shs('failure');
+  ok(x.code === 0 && keyed('hands/hands-settings/o/a')?.state === 'open' && keyed('hands/hands-settings/o/b')?.state === 'open', 'hands-report: two failed applies open two alerts (each line is read)');
+  whole.state = 'closed';
+  results(['o/a failure']); x = await shs('failure', 'failure');
+  ok(x.code === 0 && keyed('hands/hands-settings')?.state === 'open', 'hands-report: a failed drift check is the job\'s own alert even when an apply failed too');
   rmSync(w, { recursive: true, force: true });
 }
 
