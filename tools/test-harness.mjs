@@ -144,6 +144,15 @@ ok(r.status === 0 && res('A01') === 'PASS' && res('A04') === 'PASS', `audit on t
     ok(st.status === 0 && ln.status === 1 && /does not write a chore lane/.test(ln.stderr) && /'chores'\)/.test(wf('scrub')), 'on an install before 0.56.0 status checks no lane (a rollback\'s status does not stop it) and lanes refuses to write one');
     writeFileSync(lk, keep); prof('chores');
   }
+  {
+    // this version's own apply writing a release before 0.56.0 (a rollback through it) installs plain templates
+    const old = join(work, 'kit-old'); cpSync(kitSrc, old, { recursive: true, filter: (p) => !p.includes('/.git') });
+    writeFileSync(join(old, '.harness/VERSION'), '0.55.9\n');
+    const cp = join(work, 'lane-old'); cpSync(lp, cp, { recursive: true });
+    const x = spawnSync('node', [join(kitSrc, '.harness/tools/harness.mjs'), '__apply', '--root', cp, '--kit-dir', old, '--kit-version', '0.55.9', '--kit-commit', 'local', '--kit-source', 'local'], { encoding: 'utf8' });
+    ok(x.status === 0 && readFileSync(join(cp, '.github/workflows/harness-scrub.yml'), 'utf8') === tpl('scrub') && tool(['status'], cp).status === 0, 'applying a release before 0.56.0 writes its plain templates though the profile names a lane, and status passes');
+    rmSync(cp, { recursive: true, force: true }); rmSync(old, { recursive: true, force: true });
+  }
   prof('two words');
   const before = wf('scrub');
   x = lt(['lanes']);

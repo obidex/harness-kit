@@ -147,7 +147,8 @@ function removeEmptyDirs(dir) {
 /** Write the kit's managed files; remove ones the previous lock had that the new kit dropped. */
 function apply(kit, oldLock) {
   const files = managedFrom(kit.dir);
-  const lane = projectLane();
+  // a version before 0.56.0 knows no lane: its workflows go in as its templates are (K063)
+  const lane = VERSION_RE.test(kit.version) && cmpVer(kit.version, LANES_FROM) < 0 ? null : projectLane();
   // A path the kit now claims that the project already holds, and the previous lock did not list,
   // is the project's file: refuse rather than overwrite it (init adopts an identical copy).
   const clash = Object.entries(files).filter(([dest, src]) => existsSync(at(dest)) && !(dest in (oldLock?.files || {}))
@@ -310,7 +311,7 @@ switch (cmd) {
     if (!lock) die('the kit is not installed here');
     const d = drift(lock);
     if (d.length) { console.log(`harness: kit ${lock.version}: ${d.length} managed file(s) drifted:\n  ${d.join('\n  ')}`); process.exit(1); }
-    const lane = projectLane();
+    const lane = knowsLanes(lock) ? projectLane() : null;
     const ld = laneDrift(lock, lane);
     if (ld.length) { console.log(`harness: the profile's chore_runner is ${lane ? `'${lane}'` : 'unset'}, but ${ld.length} kit workflow(s) were installed for another lane; run: node .harness/tools/harness.mjs lanes\n  ${ld.join('\n  ')}`); process.exit(1); }
     say(`kit ${lock.version} (${lock.commit.slice(0, 12)}): ${Object.keys(lock.files).length} managed files match the lock; chore lane ${lane ? `'${lane}' from the profile` : 'from the variables only'}`);
