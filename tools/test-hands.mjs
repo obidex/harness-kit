@@ -103,6 +103,16 @@ ok(!/node \.harness\/tools\//.test(files['hands-update.yml']) && files['hands-up
 
 // cost (O13, K008): the settings workflow runs at most daily on its own, and only drifted repos get a job
 const hs = parseYaml(files['hands-settings.yml']);
+// K062: each apply records its repository's result (anything but success is a failure, a paused one none), the report
+// gets the drift check's own result, and a check that finds a repository matching closes its apply alert
+{
+  const rec = hs.jobs.apply.steps.find((x) => x.name === "Record this repository's result");
+  ok(rec && rec.if === 'always()' && /STATUS=failure/.test(rec.run) && /paused \(HANDS_PAUSED\)/.test(rec.run) && /result\.txt/.test(hs.jobs.apply.steps.find((x) => /upload-artifact/.test(x.uses || ''))?.with?.path || ''),
+    'hands-settings: every apply records its result for the report (K062)');
+  ok(hs.jobs.report.with?.whole === '${{ needs.discover.result }}', 'hands-settings: the report gets the drift check\'s own result as whole (K062)');
+  const res = hs.jobs.discover.steps.find((x) => /hands\/hands-settings\/\$repo/.test(x.run || ''));
+  ok(res && hs.jobs.discover.steps.find((x) => x.id === 'find').env.HANDS_MATCHED_FILE && /<\/dev\/null/.test(res.run), 'hands-settings: a repository found matching its file has its apply alert closed (K062)');
+}
 ok(hs.on.schedule.every((c) => /^\d+ \d+ \* \* [*\d]+$/.test(c.cron)), `hands-settings runs at most once a day on its schedule (${hs.on.schedule.map((c) => c.cron).join(', ')})`);
 ok(/hands\.mjs drift/.test(files['hands-settings.yml']) && /needs\.discover\.outputs\.repos != '\[\]'/.test(hs.jobs.apply.if) && /needs\.apply\.result == 'success'/.test(hs.jobs.report.if), 'apply runs only for drifted repositories, and the report only when something was applied or failed');
 
