@@ -3,6 +3,13 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.54.1 · 2026-11-22 · what starts the reviewer on hosted minutes, said correctly (K060)
+
+- **`harness-review.yml`** (comment) and **`review.md`**: on a private repository without a self-hosted
+  runner both variables must be set, to any value, for the job to start; the settings file's `until`
+  then decides. 0.54.0 said the file could only shorten the variable's end time, which is not what the
+  code does. K060 carries the correction. No behaviour change.
+
 ## 0.54.0 · 2026-11-22 · the second reviewer's settings live in a file in the repository (K060)
 
 No settings page and no owner step to switch the reviewer on, set it up or end it. Nothing
