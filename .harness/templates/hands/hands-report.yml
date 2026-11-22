@@ -3,7 +3,9 @@
 # Each run that changed something adds one comment, listing every write, to this month's log issue
 # here. Alerts follow the owner's one standard (O10, K010, `.harness/alerts.md`): a failure is one
 # problem, kept as an issue here, sent once to the "Kit & Hands" topic; a repeat only comments on that
-# issue; the next green run replies RESOLVED to the Telegram message and closes the issue.
+# issue; the next green run replies RESOLVED to the Telegram message and closes the issue. A run whose jobs
+# record a result per repository (hands-settings' applies) keeps one alert per repository instead: only that
+# repository's own green apply closes it (K062).
 name: hands-report
 
 on:
@@ -79,6 +81,25 @@ jobs:
         run: |
           set -euo pipefail
           url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          # one line "<owner/name> success|failure" per repository job (K062); anything else is ignored
+          per="$(cat logs/result.txt logs/*/result.txt 2>/dev/null | grep -E '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+ (success|failure)$' || true)"
+          if [ -n "$per" ]; then
+            failed=0
+            while read -r repo res; do
+              if [ "$res" = failure ]; then
+                failed=1
+                node kit/.harness/tools/notify.mjs ops --key "hands/$JOB/$repo" --text "$JOB failed for $repo in ${{ github.repository }}" --link "$url"
+              else
+                node kit/.harness/tools/notify.mjs resolve --key "hands/$JOB/$repo" --text "$JOB green again for $repo: $url"
+              fi
+            done <<<"$per"
+            # a failure outside the repository jobs (the drift check) is the job's own alert; nothing here closes
+            # that one: a full check with nothing left to apply does
+            if [ "$RESULT" = failure ] && [ "$failed" = 0 ]; then
+              node kit/.harness/tools/notify.mjs ops --key "hands/$JOB" --text "$JOB failed in ${{ github.repository }}" --link "$url"
+            fi
+            exit 0
+          fi
           if [ "$RESULT" = failure ]; then
             # technical: recorded as this repository's alert issue, never the owner's Telegram (K039); a host's reader mirrors it to the Ops board
             node kit/.harness/tools/notify.mjs ops --key "hands/$JOB" --text "$JOB failed in ${{ github.repository }}" --link "$url"

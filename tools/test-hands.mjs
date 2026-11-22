@@ -233,6 +233,11 @@ const run = (srv, args, env = {}) => new Promise((done) => {
   ok(missing.code === 1 && /not enrolled/.test(missing.stderr), 'a dispatch for a repository that is not enrolled fails, never passes silently');
   const ro = await run(srv, ['apply', '--repo', 'o/drift'], { HANDS_READ_ONLY: '1' });
   ok(ro.code === 1 && /refused POST/.test(ro.stderr) && state['o/drift'].labels.length === 0, 'with HANDS_READ_ONLY the tool refuses every write');
+  const mf = join(mkdtempSync(join(tmpdir(), 'matched-')), 'matched.txt');
+  const dm = await run(srv, ['drift'], { HANDS_MATCHED_FILE: mf });
+  ok(dm.code === 0 && readFileSync(mf, 'utf8') === 'o/same\n', `drift with HANDS_MATCHED_FILE lists the repositories that match their file, not one that differs (K062; ${JSON.stringify(readFileSync(mf, 'utf8'))})`);
+  await run(srv, ['drift'], { HANDS_MATCHED_FILE: mf, HANDS_PAUSED: 'o/same' });
+  ok(readFileSync(mf, 'utf8') === '', 'a paused repository is not listed as matching: its alert stays open (K062)');
   const p = await run(srv, ['drift'], { HANDS_PAUSED: 'o/drift' });
   ok(JSON.parse(p.stdout).length === 0 && /o\/drift: paused/.test(p.stderr), 'a paused repository is left alone by drift');
   const pa = await run(srv, ['apply', '--repo', 'o/drift'], { HANDS_PAUSED: '*' });

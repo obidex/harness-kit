@@ -73,6 +73,7 @@ jobs:
           ONLY: ${{ inputs.repo }}
           HANDS_PAUSED: ${{ vars.HANDS_PAUSED }}
           HANDS_READ_ONLY: '1'
+          HANDS_MATCHED_FILE: ${{ runner.temp }}/matched.txt
         run: |
           set -uo pipefail
           # one repository's failed check must not stop the others being applied
@@ -91,6 +92,23 @@ jobs:
           ALERTS_CHAT_ID_FILE: ALERTS_CHAT_ID
         run: |
           node kit/.harness/tools/notify.mjs resolve --key hands/hands-settings --text "hands-settings green again: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+      # each repository's apply alert is its own (K062): it closes on that repository's green apply (the report)
+      # or here, once a check finds it matching its file; a paused or failed one is not listed
+      - name: Resolve the apply alert of each repository that matches its file
+        if: always() && steps.find.outcome != 'skipped'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ALERTS_STORE: github:${{ github.repository }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          ALERTS_CHAT_ID_FILE: ALERTS_CHAT_ID
+          MATCHED: ${{ runner.temp }}/matched.txt
+        run: |
+          set -euo pipefail
+          [ -s "$MATCHED" ] || exit 0
+          while read -r repo; do
+            [ -n "$repo" ] && node kit/.harness/tools/notify.mjs resolve --key "hands/hands-settings/$repo" --text "hands-settings: $repo matches its settings file again: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          done < "$MATCHED"
       - name: Escalate and remind this repository's open problems
         if: always() && github.event_name == 'schedule'
         continue-on-error: true
@@ -160,11 +178,21 @@ jobs:
         run: |
           set -euo pipefail
           node kit/.harness/tools/hands.mjs apply --repo "$REPO" | tee "$RUNNER_TEMP/log.txt"
+      # this repository's own result, so the report opens and closes its alert by repository (K062): a green
+      # apply of another repository never closes it
+      - name: Record this repository's result
+        if: always()
+        env:
+          REPO: ${{ matrix.repo }}
+          STATUS: ${{ job.status }}
+        run: printf '%s %s\n' "$REPO" "$STATUS" > "$RUNNER_TEMP/result.txt"
       - if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: log-${{ steps.name.outputs.name }}
-          path: ${{ runner.temp }}/log.txt
+          path: |
+            ${{ runner.temp }}/log.txt
+            ${{ runner.temp }}/result.txt
           if-no-files-found: ignore
           retention-days: 7
 
