@@ -51,7 +51,7 @@ default branch, never from the pull request, so a pull request cannot switch its
 - The identifiers are not secrets, but a public repository keeps them in its variables and names only
   `until` and `command` in its file.
 
-The identifiers below stay in place while it is off, so switching on is one variable per repository.
+The identifiers below stay in place while it is off, so switching on is one line, `until`, in each repository's settings file.
 
 ## What it is
 
