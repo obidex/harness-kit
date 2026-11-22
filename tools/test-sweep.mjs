@@ -107,7 +107,7 @@ const CLEAR = { status: 200, json: says('NO FINDINGS') };
 // off: nothing at all
 let w = world(); let r = await w.go({ env: { REVIEW_UNTIL: '' } });
 const wPast = world({ clock: Date.parse('2026-12-01T00:00:00Z') }); const rPast = await wPast.go();
-ok(r.status === 'off' && /REVIEW_UNTIL is not set/.test(r.why) && w.calls.length === 0 && w.asked.length === 0 && rPast.status === 'off' && wPast.calls.length === 0 && wPast.asked.length === 0, 'with the reviewer switched off, or past its end, the check reads nothing, asks nothing and files nothing');
+ok(r.status === 'off' && /no end time is set/.test(r.why) && w.calls.length === 0 && w.asked.length === 0 && rPast.status === 'off' && wPast.calls.length === 0 && wPast.asked.length === 0, 'with the reviewer switched off, or past its end, the check reads nothing, asks nothing and files nothing');
 
 // a public repository: its issues would publish the defects
 w = world({ private: false }); r = await w.go(); const wUnknown = world({ private: null }); const rUnknown = await wUnknown.go();
@@ -245,6 +245,26 @@ ok(!/OUTSIDE-SECRET|DOTENV-SECRET|UNTRACKED/.test(sentAll) && !/SHORT-LIVED|JWT\
 const c5 = await cli(['run', '--root', repo], { ...IDS, SWEEP_MODE: 'run', REVIEW_UNTIL: SOON, REVIEW_API_URL: '' });
 const c6 = await cli(['run', '--root', repo], { ...IDS, SWEEP_MODE: 'run', REVIEW_UNTIL: SOON, SWEEP_PATHS: '../x' });
 ok(c5.code === 1 && /only in GitHub Actions/.test(c5.err) && c6.code === 1 && /inside the repository/.test(c6.err) && (await cli(['nope'], {})).code === 2, 'the check runs only in Actions; a folder filter that leaves the repository is refused');
+// the settings file on the default branch (K060): the checkout's tracked .github/harness-review.json
+mkdirSync(join(repo, '.github'), { recursive: true });
+const settings = (o) => writeFileSync(join(repo, '.github/harness-review.json'), JSON.stringify(o));
+settings({ until: SOON, command: 'owner, in a test' });
+let at = seen.length;
+const c7 = await cli(['run', '--root', repo], { ...IDS, SWEEP_MODE: 'run' });
+ok(c7.code === 1 && /switched off/.test(c7.err) && seen.length === at, 'a settings file that is not tracked on the default branch switches nothing on');
+git('add', '.github/harness-review.json'); git('commit', '-q', '-m', 'settings');
+at = seen.length;
+const c8 = await cli(['run', '--root', repo], { ...IDS, SWEEP_MODE: 'run', REVIEW_UNTIL: '', REVIEW_SWEEP_RULE: 'fdrl_01Sweep' });
+const ex8 = seen.slice(at).find((s) => s.path === '/v1/oauth/token');
+ok(c8.code === 0 && /"status":"finished"/.test(c8.out) && JSON.parse(ex8.body).federation_rule_id === 'fdrl_01Sweep', 'the end time in the tracked settings file opens the check with no Actions variable for it');
+settings({ until: 'off', command: 'owner, in a test', sweep_rule: 'fdrl_01FromFile' }); git('commit', '-q', '-am', 'off');
+at = seen.length;
+const c9 = await cli(['run', '--root', repo], { ...IDS, SWEEP_MODE: 'run', REVIEW_UNTIL: SOON });
+ok(c9.code === 1 && /its end time says off/.test(c9.err) && seen.length === at, 'the file outranks the variable: "off" in the file stops the check although REVIEW_UNTIL is open, before any call');
+settings({ until: SOON, command: 'owner, in a test', sweep_rule: 'fdrl_01FromFile' }); git('commit', '-q', '-am', 'on');
+at = seen.length;
+const c10 = await cli(['run', '--root', repo], { ...IDS, SWEEP_MODE: 'run' });
+ok(c10.code === 0 && JSON.parse(seen.slice(at).find((s) => s.path === '/v1/oauth/token').body).federation_rule_id === 'fdrl_01FromFile', 'the sweep\'s own federation rule may come from the file, over its variable');
 srv.close();
 rmSync(tmp, { recursive: true, force: true });
 

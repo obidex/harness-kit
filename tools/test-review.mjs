@@ -9,7 +9,7 @@ import { execFile } from 'node:child_process';
 import { join } from 'node:path';
 import { readFileSync, writeFileSync, mkdtempSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { glob, highRisk, docsOnly, pick, cost, worstCase, capOf, runUsd, record, plain, body, spent, checks, question, verdict, review, identifiers, exchange, asker, switchOf, SWITCH_DAYS,
+import { glob, highRisk, docsOnly, pick, cost, worstCase, capOf, runUsd, record, plain, body, spent, checks, question, verdict, review, identifiers, exchange, asker, switchOf, SWITCH_DAYS, settingsOf, settingsText, SETTINGS, SETTING_VARS,
   MARK, MODEL, RISK_MODEL, PRICES, DAILY_USD, DAILY_CAP, MAX_DIFF, MAX_FILES, MAX_ANSWER, MAX_OUT, MAX_RULES, WAIT_MS, POLL_MS } from '../.harness/tools/review.mjs';
 import { parseYaml } from '../.harness/tools/lib.mjs';
 import { verdict as group } from '../.harness/tools/actions.mjs';
@@ -101,13 +101,42 @@ ok(verdict({ stop_reason: 'end_turn', content: [{ type: 'thinking', thinking: ''
 const UNTIL = '2026-11-30T23:59+03:00';
 ok(switchOf({ REVIEW_UNTIL: UNTIL }, NOW).on === true && switchOf({ REVIEW_UNTIL: UNTIL }, NOW).until === '2026-11-30T20:59:00.000Z' && switchOf({ REVIEW_UNTIL: ' 2026-11-30T20:59:00Z ' }, NOW).on === true,
   'the reviewer is on while REVIEW_UNTIL, a date and time with its offset, is still ahead');
-ok(switchOf({}, NOW).on === false && /not set/.test(switchOf({}, NOW).why) && switchOf({ REVIEW_UNTIL: '' }, NOW).on === false && switchOf(undefined, NOW).on === false, 'off by default: without REVIEW_UNTIL nothing is reviewed');
+ok(switchOf({}, NOW).on === false && /no end time is set/.test(switchOf({}, NOW).why) && switchOf({ REVIEW_UNTIL: '' }, NOW).on === false && switchOf(undefined, NOW).on === false, 'off by default: without REVIEW_UNTIL nothing is reviewed');
 ok(switchOf({ REVIEW_UNTIL: UNTIL }, Date.parse('2026-11-30T20:59:00Z')).on === false && /its time ended 2026-11-30T20:59:00\.000Z/.test(switchOf({ REVIEW_UNTIL: UNTIL }, Date.parse('2026-12-01T00:00:00Z')).why) && switchOf({ REVIEW_UNTIL: UNTIL }, Date.parse('2026-11-30T20:58:59Z')).on === true,
   'it switches itself off at the end time, to the second');
 ok(SWITCH_DAYS === 45 && ['9999-12-31T00:00Z', '2027-01-05T10:00:01Z', '2030-01-01T00:00+03:00'].every((v) => switchOf({ REVIEW_UNTIL: v }, NOW).on === false && /more than 45 days ahead/.test(switchOf({ REVIEW_UNTIL: v }, NOW).why)) && switchOf({ REVIEW_UNTIL: '2027-01-04T10:00:00Z' }, NOW).on === true,
   'no value means "on for good": an end time more than 45 days ahead is off');
 ok(['true', 'on', '1', 'always', '2026-11-30', '2026-11-30T23:59', '2026-11-30 23:59+03:00', '30 Nov 2026', '9999', '2026-13-45T99:99Z', 'Infinity', '2026-11-31T10:00Z', '2026-02-30T10:00Z', '2026-12-01T24:00Z', '2026-12-01T10:00+25:00', '2026-00-10T10:00Z'].every((v) => switchOf({ REVIEW_UNTIL: v }, NOW).on === false && /not a date and time with its offset/.test(switchOf({ REVIEW_UNTIL: v }, NOW).why)),
   'a value that is not a full date and time with its offset (a bare "on", a date alone, a time without its zone) is off, never "on for good"');
+
+// --- the settings file (K060) -----------------------------------------------------------------------
+const FILE_ON = { until: '2026-12-22T23:59+03:00', command: 'owner, in a test' };
+let st = settingsOf(null, { REVIEW_UNTIL: UNTIL, REVIEW_FEDERATION_RULE: 'fdrl_01V' });
+ok(SETTINGS === '.github/harness-review.json' && st.problem === null && st.env.REVIEW_UNTIL === UNTIL && st.from.until === 'variable' && st.from.workspace === 'none' && switchOf(st.env, NOW).on === true,
+  'without a settings file the Actions variables are read as before');
+st = settingsOf(JSON.stringify(FILE_ON), { REVIEW_UNTIL: UNTIL });
+ok(st.problem === null && st.env.REVIEW_UNTIL === FILE_ON.until && st.from.until === 'file' && switchOf(st.env, Date.parse('2026-12-10T00:00:00Z')).on === true && switchOf(st.env, Date.parse('2026-12-22T20:59:00Z')).on === false,
+  'the file\'s end time outranks the variable\'s, in both directions: the variable can neither shorten nor lengthen it, and it ends by itself');
+st = settingsOf(JSON.stringify({ ...FILE_ON, until: 'off' }), { REVIEW_UNTIL: UNTIL });
+ok(switchOf(st.env, NOW).on === false && /its end time says off/.test(switchOf(st.env, NOW).why), '"off" in the file switches the reviewer off although the variable is open');
+const broken = ['{', '[]', '"x"', 'null', JSON.stringify({ ...FILE_ON, untill: 'x' }), JSON.stringify({ ...FILE_ON, workspace: 5 }), JSON.stringify({ until: FILE_ON.until }), JSON.stringify({ until: FILE_ON.until, command: '  ' })];
+ok(broken.every((t) => { const b = settingsOf(t, { REVIEW_UNTIL: UNTIL, REVIEW_FEDERATION_RULE: 'fdrl_01V' }); return b.problem && b.env.REVIEW_UNTIL === '' && switchOf(b.env, NOW).on === false && new RegExp(SETTINGS.replace(/\./g, '\\.')).test(switchOf(b.env, NOW).why); }),
+  'a file that is not one JSON object of known keys, or an end time without the owner\'s command line, switches the reviewer off whatever the variables say (K055: only his command opens it)');
+st = settingsOf(JSON.stringify({ federation_rule: 'fdrl_01File', organization: '01234567-89ab-cdef-0123-456789abcdef', service_account: 'svac_01File', note: 'ids only' }), { REVIEW_FEDERATION_RULE: 'fdrl_01Var', REVIEW_WORKSPACE: 'wrkspc_01Var', REVIEW_UNTIL: UNTIL });
+ok(st.problem === null && identifiers(st.env).rule === 'fdrl_01File' && identifiers(st.env).workspace === 'wrkspc_01Var' && st.from.federation_rule === 'file' && st.from.workspace === 'variable' && st.env.REVIEW_UNTIL === UNTIL,
+  'an identifier in the file outranks its variable; a setting the file leaves out still comes from the variable');
+st = settingsOf(JSON.stringify({ daily_usd: 1, daily_cap: '50', sweep_usd: 'lots' }), { REVIEW_DAILY_USD: '2', REVIEW_DAILY_CAP: '10', REVIEW_SWEEP_USD: '' });
+ok(capOf(DAILY_USD, st.env.REVIEW_DAILY_USD) === 1 && capOf(DAILY_CAP, st.env.REVIEW_DAILY_CAP) === 10 && st.env.REVIEW_SWEEP_USD === '' && capOf(DAILY_USD, settingsOf(JSON.stringify({ daily_usd: 99 }), {}).env.REVIEW_DAILY_USD) === DAILY_USD,
+  'a cap takes the lowest of the built-in number, the file and the variable: the file can lower a cap, never raise it');
+const tgh = (answer) => { const calls = []; const g = async (m, p) => { calls.push(p); return answer(p); }; g.calls = calls; return g; };
+let g1 = tgh((p) => { if (p === '/repos/o/r') return { default_branch: 'trunk' }; if (p.startsWith('/repos/o/r/contents/')) throw new Error('GET x answered 404: Not Found'); throw new Error('unexpected'); });
+const g2 = tgh(() => '{"until":"off","command":"c"}'), g3 = tgh(() => { throw new Error('GET x answered 500: oops'); });
+ok(await settingsText(g1, 'o/r') === null && g1.calls.join() === '/repos/o/r,/repos/o/r/contents/.github/harness-review.json?ref=trunk' && await settingsText(g2, 'o/r', 'main') === '{"until":"off","command":"c"}' && g2.calls[0] === '/repos/o/r/contents/.github/harness-review.json?ref=main'
+  && await rejects(settingsText(g3, 'o/r', 'main'), /answered 500/) && await rejects(settingsText(g2, 'o/r; x', 'main'), /owner\/name/),
+  'the file is read from the default branch: none is no file, any other failure stops the run rather than fall back to a variable');
+const own = JSON.parse(readFileSync(join(ROOT, SETTINGS), 'utf8')), ownS = settingsOf(JSON.stringify(own), {});
+ok(ownS.problem === null && ownS.from.until === 'file' && switchOf({ REVIEW_UNTIL: own.until }, Date.parse(own.until) - 1000).on === true && Object.keys(own).every((k) => ['until', 'command', 'note'].includes(k)),
+  'the kit\'s own settings file is read whole, names an end time with the owner\'s command, and holds no identifier (a public repository keeps those in its variables)');
 
 // --- a stand-in GitHub, in memory -------------------------------------------------------------------
 function world(over = {}) {
@@ -170,7 +199,7 @@ ok(r.status === 'blockers' && w.asked[0].model === RISK_MODEL, 'a rule file is n
 w = world(); r = await w.go({ env: { REVIEW_UNTIL: '' } });
 const wPast = world(); wPast.clock = Date.parse('2026-12-01T00:00:00Z'); const rPast = await wPast.go();
 const wBad = world(); const rBad = await wBad.go({ env: { REVIEW_UNTIL: 'on' } });
-ok(r.status === 'skipped' && /switched off \(REVIEW_UNTIL is not set\)/.test(r.why) && w.calls.length === 0 && w.asked.length === 0 && rPast.status === 'skipped' && /its time ended/.test(rPast.why) && wPast.calls.length === 0 && wPast.asked.length === 0 && rBad.status === 'skipped' && wBad.asked.length === 0 && wBad.comments.length === 0,
+ok(r.status === 'skipped' && /switched off \(no end time is set/.test(r.why) && w.calls.length === 0 && w.asked.length === 0 && rPast.status === 'skipped' && /its time ended/.test(rPast.why) && wPast.calls.length === 0 && wPast.asked.length === 0 && rBad.status === 'skipped' && wBad.asked.length === 0 && wBad.comments.length === 0,
   'switched off (not set, past its end, or unreadable): nothing is read, asked or posted');
 
 // checks still running: a short wait, then left to the next finished workflow
@@ -227,7 +256,7 @@ ok(r.status === 'refused' && /the model declined this change \(cyber\)/.test(w.c
 const IDS = { REVIEW_FEDERATION_RULE: 'fdrl_01AbC', REVIEW_ORGANIZATION: '01234567-89ab-cdef-0123-456789abcdef', REVIEW_SERVICE_ACCOUNT: 'svac_01AbC', REVIEW_WORKSPACE: 'wrkspc_01AbC' };
 ok(identifiers(IDS).rule === 'fdrl_01AbC' && throws(() => identifiers({ ...IDS, REVIEW_WORKSPACE: '' }), /workspace/) && throws(() => identifiers({ ...IDS, REVIEW_FEDERATION_RULE: 'sk-ant-api03-zzz' }), /rule/) && throws(() => identifiers({ ...IDS, REVIEW_ORGANIZATION: 'x"y' }), /org/), 'the four identifiers are checked for shape; a missing one, or something key-shaped, is refused');
 const seen = [];
-let exchangeCode = 200;
+let exchangeCode = 200, settingsFile = null;
 const srv = createServer((qq, res) => {
   let data = '';
   qq.on('data', (c) => { data += c; });
@@ -239,6 +268,7 @@ const srv = createServer((qq, res) => {
     if (u.pathname === '/v1/oauth/token') return send(exchangeCode, exchangeCode === 200 ? { access_token: 'SHORT-LIVED', expires_in: 600 } : { error: { type: 'authentication_error' } });
     if (u.pathname === '/v1/messages') return send(200, { model: MODEL, stop_reason: 'end_turn', usage: { input_tokens: 10, output_tokens: 2 }, content: [{ type: 'text', text: 'NO BLOCKERS' }] });
     // the stand-in GitHub for the command line
+    if (u.pathname === '/repos/o/r/contents/.github/harness-review.json') return settingsFile === 'ERR' ? send(500, { message: 'oops' }) : u.searchParams.get('ref') === 'main' && settingsFile !== null ? send(200, settingsFile) : send(404, { message: 'Not Found' });
     if (u.pathname === '/repos/o/r/pulls/7') return qq.headers.accept === 'application/vnd.github.diff' ? send(200, '+y\n') : send(200, world().pr);
     if (u.pathname === '/repos/o/r/pulls/7/files') return send(200, [{ filename: 'src/a.ts' }]);
     if (u.pathname === '/repos/o/r/issues/7/comments' && qq.method === 'POST') return send(201, { id: 1, html_url: 'https://gh.test/c1', body: JSON.parse(data).body });
@@ -270,12 +300,15 @@ ok(a.status === 200 && sent.auth === 'Bearer SHORT-LIVED' && sent.version === '2
 
 // the command line, as the job runs it
 const tmp = mkdtempSync(join(tmpdir(), 'harness-review-'));
-writeFileSync(join(tmp, 'event.json'), JSON.stringify({ workflow_run: world().run }));
-const cli = (args, env) => new Promise((done) => execFile('node', [join(ROOT, '.harness/tools/review.mjs'), ...args], { env: { PATH: process.env.PATH, GITHUB_API_URL: base, GH_TOKEN: 'T', GITHUB_REPOSITORY: 'o/r', GITHUB_EVENT_PATH: join(tmp, 'event.json'), ...env } }, (e, out, err) => done({ code: e ? e.code : 0, out: String(out), err: String(err) })));
+writeFileSync(join(tmp, 'event.json'), JSON.stringify({ workflow_run: world().run, repository: { default_branch: 'main' } }));
+const cli = (args, env) => new Promise((done) => execFile('node', [join(ROOT, '.harness/tools/review.mjs'), ...args], { cwd: tmp, env: { PATH: process.env.PATH, GITHUB_API_URL: base, GH_TOKEN: 'T', GITHUB_REPOSITORY: 'o/r', GITHUB_EVENT_PATH: join(tmp, 'event.json'), ...env } }, (e, out, err) => done({ code: e ? e.code : 0, out: String(out), err: String(err) })));
 const before = seen.length;
+let at = 0;
 const SOON = new Date(Date.now() + 3600e3).toISOString().replace(/\.\d+Z$/, 'Z'), GONE = new Date(Date.now() - 60e3).toISOString().replace(/\.\d+Z$/, 'Z');
 const c0 = await cli(['run'], { ...ENV, REVIEW_API_URL: base }), c0b = await cli(['run'], { ...ENV, REVIEW_API_URL: base, REVIEW_UNTIL: GONE });
-ok(c0.code === 0 && /"status":"skipped"/.test(c0.out) && /REVIEW_UNTIL is not set/.test(c0.out) && c0b.code === 0 && /its time ended/.test(c0b.out) && seen.length === before, 'the command line, with the identifiers set but the switch off or past its end, reaches neither GitHub nor the API');
+const settingsReads = (from) => seen.slice(from).every((s) => s.path === '/repos/o/r/contents/.github/harness-review.json' && /ref=main/.test(s.query));
+ok(c0.code === 0 && /"status":"skipped"/.test(c0.out) && /no end time is set/.test(c0.out) && c0b.code === 0 && /its time ended/.test(c0b.out) && seen.length === before + 2 && settingsReads(before),
+  'the command line, with the identifiers set but the switch off or past its end, reads only the settings file on the default branch: no pull request, no API');
 const c1 = await cli(['run'], { ...ENV, REVIEW_API_URL: base, REVIEW_UNTIL: SOON });
 const posted = seen.slice(before).find((s) => s.path === '/repos/o/r/issues/7/comments' && s.body);
 ok(c1.code === 0 && /"status":"clear"/.test(c1.out) && posted && /no blockers found/.test(JSON.parse(posted.body).body) && /usd=/.test(c1.out) && !/SHORT-LIVED|JWT\.FROM/.test(c1.out.replace(/^::add-mask::.*$/gm, '')), 'the command line reviews the run in its event file and logs the tokens used and the cost, never a token');
@@ -284,7 +317,27 @@ const c3 = await cli(['run'], { ...ENV, REVIEW_UNTIL: SOON, GITHUB_ACTIONS: 'tru
 ok(c2.code === 1 && /only in GitHub Actions/.test(c2.err) && c3.code === 0 && /"status":"capped"/.test(c3.out), 'run works only in Actions, where the API\'s address cannot be changed; over a cap it ends well without asking for a token');
 ok((await cli(['spent', '--repo', 'o/r'], {})).out.includes('"reviews":0') && (await cli(['nope'], {})).code === 2 && /"since":"2026-11-01"/.test((await cli(['spent', '--repo', 'o/r', '--since', '2026-11-01'], {})).out) && (await cli(['spent', '--repo', 'o/r', '--since', 'last week'], {})).code === 1, 'spent reports today\'s reviews and the caps, or the reviews since a day');
 const s1 = await cli(['switch', '--until', SOON], {}), s2 = await cli(['switch', '--until', 'on'], {}), s3 = await cli(['switch'], {});
-ok(s1.code === 0 && JSON.parse(s1.out).on === true && JSON.parse(s1.out).variable === 'REVIEW_UNTIL' && s2.code === 1 && JSON.parse(s2.out).on === false && s3.code === 0 && JSON.parse(s3.out).on === false, 'switch checks a value for REVIEW_UNTIL and says when it ends; it sets nothing, and a bad value fails');
+ok(s1.code === 0 && JSON.parse(s1.out).on === true && JSON.parse(s1.out).value === SOON && s2.code === 1 && JSON.parse(s2.out).on === false && s3.code === 0 && JSON.parse(s3.out).on === false && JSON.parse(s3.out).source === 'none' && JSON.parse(s3.out).file === null,
+  'switch checks an end time and says when it ends; it sets nothing, and a bad value fails');
+// the settings file (K060), read by the job from the default branch
+at = seen.length;
+settingsFile = JSON.stringify({ until: SOON, command: 'owner, in a test' });
+const f1 = await cli(['run'], { ...ENV, REVIEW_API_URL: base });
+ok(f1.code === 0 && /"status":"clear"/.test(f1.out) && seen.slice(at).some((s) => s.path === '/v1/messages'), 'the end time in the default branch\'s settings file switches the reviewer on with no Actions variable for it');
+settingsFile = JSON.stringify({ until: 'off', command: 'owner, in a test' }); at = seen.length;
+const f2 = await cli(['run'], { ...ENV, REVIEW_API_URL: base, REVIEW_UNTIL: SOON });
+ok(f2.code === 0 && /its end time says off/.test(f2.out) && seen.length === at + 1 && settingsReads(at), 'the file outranks the variable: "off" in the file stops a review although REVIEW_UNTIL is open, and nothing else is read');
+settingsFile = JSON.stringify({ until: SOON }); at = seen.length;
+const f3 = await cli(['run'], { ...ENV, REVIEW_API_URL: base, REVIEW_UNTIL: SOON });
+ok(f3.code === 0 && /without a command line naming the owner's command/.test(f3.out) && seen.length === at + 1, 'an end time in the file without the owner\'s command line switches the reviewer off, whatever the variable says');
+settingsFile = 'ERR'; at = seen.length;
+const f4 = await cli(['run'], { ...ENV, REVIEW_API_URL: base, REVIEW_UNTIL: SOON });
+ok(f4.code === 1 && seen.length === at + 1, 'a settings file that cannot be fetched fails the job before anything else: it never falls back to the variable');
+settingsFile = null;
+writeFileSync(join(tmp, 'mine.json'), JSON.stringify({ until: SOON, command: 'owner, in a test' }));
+const s4 = await cli(['switch', '--file', 'mine.json'], { REVIEW_UNTIL: GONE }), s5 = await cli(['switch'], { REVIEW_UNTIL: SOON });
+ok(JSON.parse(s4.out).on === true && JSON.parse(s4.out).source === 'file' && JSON.parse(s4.out).file === 'mine.json' && JSON.parse(s5.out).on === true && JSON.parse(s5.out).source === 'variable',
+  'switch says where the end time lives now: the settings file, or the variable where there is no file');
 srv.close();
 rmSync(tmp, { recursive: true, force: true });
 
@@ -293,10 +346,16 @@ const text = readFileSync(join(ROOT, '.harness/templates/workflows/harness-revie
 const wf = parseYaml(text), job = wf.jobs.review, step0env = job.steps.at(-1).env;
 ok(Object.keys(wf.on).join() === 'workflow_run' && wf.on.workflow_run.types === '[completed]' && /harness-guard/.test(wf.on.workflow_run.workflows) && /harness-scrub/.test(wf.on.workflow_run.workflows) && !/harness-review/.test(wf.on.workflow_run.workflows) && !/pull_request_target|^\s+pull_request:/m.test(text),
   'harness-review starts only when another workflow finishes, so it always runs the default branch\'s file, never a pull request\'s; it never starts itself');
-ok(/vars\.REVIEW_UNTIL != ''/.test(job.if) && step0env.REVIEW_UNTIL === '${{ vars.REVIEW_UNTIL }}' && !/REVIEW_UNTIL:\s*['"]?\d/.test(text) && /Off by default \(K055\)/.test(text),
-  'the job is off by default: it needs REVIEW_UNTIL, which the file passes on from the Actions variable and never sets itself');
-ok(/vars\.REVIEW_FEDERATION_RULE != ''/.test(job.if) && /workflow_run\.event == 'pull_request'/.test(job.if) && /workflow_run\.conclusion == 'success'/.test(job.if) && /workflow_run\.head_repository\.full_name == github\.repository/.test(job.if),
-  'the job is off until the federation rule\'s variable is set, and skips a fork\'s run before any step');
+ok(step0env.REVIEW_UNTIL === '${{ vars.REVIEW_UNTIL }}' && !/REVIEW_UNTIL:\s*['"]?\d/.test(text) && !/\buntil:/.test(text) && /Off by default \(K055\)/.test(text) && /Settings in a file \(K060\)/.test(text),
+  'the tool reads the end time from the settings file first, the variable only as its fallback, and the workflow sets no end time itself');
+ok(/workflow_run\.event == 'pull_request'/.test(job.if) && /workflow_run\.conclusion == 'success'/.test(job.if) && /workflow_run\.head_repository\.full_name == github\.repository/.test(job.if),
+  'the job skips a fork\'s run, a push run and a red run before any step');
+// the job's condition, evaluated: GitHub's expression for these cases is plain JavaScript once vars and the event are named
+const starts = (v, priv) => Function('vars', 'github', `return (${String(job.if).replace(/\s+/g, ' ')});`)(new Proxy(v, { get: (o, k) => o[k] ?? '' }),
+  { repository: 'o/r', event: { repository: { private: priv }, workflow_run: { event: 'pull_request', conclusion: 'success', head_repository: { full_name: 'o/r' } } } });
+ok(starts({ REVIEW_FEDERATION_RULE: 'fdrl_x' }, true) === false && starts({}, true) === false && starts({ REVIEW_FEDERATION_RULE: 'fdrl_x', REVIEW_UNTIL: 'x' }, true) === true
+  && starts({ RUNNER: 'self-hosted' }, true) === true && starts({ CHORE_RUNNER: 'chores' }, true) === true && starts({}, false) === true,
+  'on a private repository with no self-hosted runner the job starts only where both variables are set, as before (installed and off costs no GitHub-hosted minutes); on its own runner, or on a public repository, it starts and the settings file decides');
 ok(wf.permissions.contents === 'read' && Object.keys(wf.permissions).length === 1 && job.permissions['id-token'] === 'write' && job.permissions['pull-requests'] === 'write' && Object.entries(job.permissions).every(([k, v]) => ['id-token', 'pull-requests'].includes(k) || v === 'read') && !('contents' in job.permissions && job.permissions.contents !== 'read') && !('actions' in job.permissions),
   'it may write only pull-request comments and ask for its identity token; everything else is read-only');
 ok(Number(job['timeout-minutes']) === 5 && String(wf.concurrency['cancel-in-progress']) === 'false' && /workflow_run\.head_repository\.full_name \}\}-\$\{\{ github\.event\.workflow_run\.head_branch/.test(wf.concurrency.group) && !/head_sha|head_branch|pull_requests/.test(JSON.stringify(job.steps)) && !/\$\{\{\s*secrets\./.test(text),
