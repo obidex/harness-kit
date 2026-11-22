@@ -11,7 +11,7 @@ import { readFileSync, writeFileSync, mkdtempSync, rmSync, existsSync } from 'no
 import { tmpdir } from 'node:os';
 import { glob, highRisk, docsOnly, pick, cost, worstCase, capOf, runUsd, record, plain, body, spent, checks, question, verdict, review, identifiers, exchange, asker, switchOf, SWITCH_DAYS, settingsOf, settingsText, SETTINGS, SETTING_VARS,
   MARK, MODEL, RISK_MODEL, PRICES, DAILY_USD, DAILY_CAP, MAX_DIFF, MAX_FILES, MAX_ANSWER, MAX_OUT, MAX_RULES, WAIT_MS, POLL_MS } from '../.harness/tools/review.mjs';
-import { parseYaml } from '../.harness/tools/lib.mjs';
+import { parseYaml, renderLane } from '../.harness/tools/lib.mjs';
 import { verdict as group } from '../.harness/tools/actions.mjs';
 
 let n = 0;
@@ -356,6 +356,13 @@ const starts = (v, priv) => Function('vars', 'github', `return (${String(job.if)
 ok(starts({ REVIEW_FEDERATION_RULE: 'fdrl_x' }, true) === false && starts({}, true) === false && starts({ REVIEW_FEDERATION_RULE: 'fdrl_x', REVIEW_UNTIL: 'x' }, true) === true
   && starts({ RUNNER: 'self-hosted' }, true) === true && starts({ CHORE_RUNNER: 'chores' }, true) === true && starts({}, false) === true,
   'on a private repository with no self-hosted runner the job starts only where both variables are set, as before (installed and off costs no GitHub-hosted minutes); on its own runner, or on a public repository, it starts and the settings file decides');
+{
+  // installed with the profile's chore_runner (K063): the job starts on the chore runner with no variable set
+  const rjob = parseYaml(renderLane(text, 'chores')).jobs.review;
+  const rstarts = (v, priv) => Function('vars', 'github', `return (${String(rjob.if).replace(/\s+/g, ' ')});`)(new Proxy(v, { get: (o, k) => o[k] ?? '' }),
+    { repository: 'o/r', event: { repository: { private: priv }, workflow_run: { event: 'pull_request', conclusion: 'success', head_repository: { full_name: 'o/r' } } } });
+  ok(rstarts({}, true) === true, 'installed with chore_runner, the job starts on a private repository with no variable set: it runs on the chore runner, and the settings file decides');
+}
 ok(wf.permissions.contents === 'read' && Object.keys(wf.permissions).length === 1 && job.permissions['id-token'] === 'write' && job.permissions['pull-requests'] === 'write' && Object.entries(job.permissions).every(([k, v]) => ['id-token', 'pull-requests'].includes(k) || v === 'read') && !('contents' in job.permissions && job.permissions.contents !== 'read') && !('actions' in job.permissions),
   'it may write only pull-request comments and ask for its identity token; everything else is read-only');
 ok(Number(job['timeout-minutes']) === 5 && String(wf.concurrency['cancel-in-progress']) === 'false' && /workflow_run\.head_repository\.full_name \}\}-\$\{\{ github\.event\.workflow_run\.head_branch/.test(wf.concurrency.group) && !/head_sha|head_branch|pull_requests/.test(JSON.stringify(job.steps)) && !/\$\{\{\s*secrets\./.test(text),

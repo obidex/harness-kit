@@ -225,6 +225,14 @@ ok(audit().A17.result === 'FAIL', 'A17 fails on a cooldown under 3 days');
   ok((await a19({ repoVar: 404, choreVar: 403 })).result === 'UNKNOWN', 'A19: an unreadable CHORE_RUNNER variable is UNKNOWN, never PASS');
   ok((await a19({ repoVar: 404, org: true, orgVars: [{ name: 'CHORE_RUNNER' }] })).result === 'FAIL', 'A19: an organisation-level CHORE_RUNNER fails');
   ok((await a19({ repoVar: 404 })).result === 'PASS', 'A19: with neither lane variable set, the chore lane passes too');
+  {
+    const pf = join(proj, '.harness/profile.json'), was = readFileSync(pf, 'utf8');
+    writeFileSync(pf, JSON.stringify({ ...JSON.parse(was), chore_runner: 'chores' }));
+    const x = await a19({ repoVar: 404 });
+    ok(x.result === 'FAIL' && /chore lane 'chores' on a public repository/.test(x.evidence), `A19: a public repository whose profile names a chore lane fails, variables or not (K063; ${x.result})`);
+    ok((await a19({ repoVar: 404, private: true })).result === 'PASS', 'A19: the same profile on a private repository passes');
+    writeFileSync(pf, was);
+  }
   ok((await a19({ repoVar: 404, org: true, orgCode: 403 })).result === 'UNKNOWN', 'A19: unreadable organisation variables are UNKNOWN');
   ok((await a19({ repoVar: 404, org: true, orgVars: [{ name: 'X' }], orgTotal: 31 })).result === 'UNKNOWN', 'A19: an organisation list longer than one page is UNKNOWN, never clear');
   ok((await a19({ rule: 'A22', repoVar: 404, private: true })).result === 'NOT APPLICABLE', 'A22: a private repository is not applicable (GitHub answers 405 there), never UNKNOWN');

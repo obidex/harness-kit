@@ -3,6 +3,22 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.56.0 · 2026-11-22 · the chore lane is set in the profile, the variable only overrides it (K063)
+
+Opening the chore lane no longer needs a settings page. Nothing always-loaded changed.
+
+- **`profile.schema.json`**: optional `chore_runner` (a runner label).
+- **`harness.mjs`**: installs the kit workflows with the profile's lane written in,
+  `(vars.CHORE_RUNNER || '<label>')`, on init, update and rollback; new `lanes` command rewrites them
+  after the profile changes; `status` fails while the two disagree. Without `chore_runner` every file is
+  installed byte for byte as before.
+- **`audit.mjs`**: A04 fails while the profile and the installed workflows disagree; A19 fails a profile
+  that names a chore lane on a public repository.
+- **`lib.mjs`**: `choreLane`, `renderLane`, `unrenderLane`, `laneIn`.
+- **`ci.md`**, **`hands.md`**, **`review.md`**, **`README.md`**: where the lane is set and how to fall back.
+- To adopt: after this update, add `"chore_runner": "chores"` to `.harness/profile.json` and run
+  `node .harness/tools/harness.mjs lanes` in the same pull request.
+
 ## 0.55.0 · 2026-11-22 · a failed settings apply is its repository's own alert (K062)
 
 A green run that applied another repository no longer closes the alert of one whose apply failed.

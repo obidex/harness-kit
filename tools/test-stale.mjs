@@ -11,7 +11,7 @@ import { readFileSync, readdirSync, mkdtempSync, mkdirSync, copyFileSync, writeF
 import { tmpdir } from 'node:os';
 import { parseCron, nextRun, scheduleState, overdueHours, schedules, alertSchedules, missedText, isTracking, isWakeChannel, checkState, classifyPr, classifyIssue, select, settings, loadData, render, signature, idleText, itemKey, itemText, topicOf, profileTopic, report, DEFAULTS, MARKER, STATE_LABEL, stateKey, stateFreshness } from '../.harness/tools/stale.mjs';
 import { body as inboxBody, setField } from '../.harness/tools/inbox.mjs';
-import { parseYaml } from '../.harness/tools/lib.mjs';
+import { parseYaml, renderLane } from '../.harness/tools/lib.mjs';
 
 let n = 0;
 const ok = (cond, what) => { n++; if (!cond) { console.log(`test-stale: FAIL ${n}. ${what}`); process.exit(1); } console.log(`test-stale: ok ${n}. ${what}`); };
@@ -408,6 +408,19 @@ for (const f of readdirSync(dir)) {
   if (f === 'harness-sweep.yml') ok(lanes.every((l) => l({ github: same, vars: both }) === 'self-hosted-vps'), `${f}: the long full check stays on RUNNER, never the chore lane it would hold for hours`);
   else ok(lanes.every((l) => l({ github: same, vars: both }) === 'chores' && l({ github: same, vars: { RUNNER: 'self-hosted-vps' } }) === 'self-hosted-vps' && l({ github: same, vars: {} }) === 'ubuntu-latest'),
     `${f}: CHORE_RUNNER when set, else RUNNER, else ubuntu-latest`);
+}
+// --- the chore lane from the profile (K063): as installed with chore_runner, the variable still overrides it --
+for (const f of readdirSync(dir)) {
+  const wf = parseYaml(renderLane(readFileSync(join(dir, f), 'utf8'), 'chores'));
+  const lanes = Object.values(wf.jobs || {}).map((j) => (ctx) => evalExpr(j['runs-on'], ctx));
+  const same = { event_name: 'pull_request', repository: 'o/r', event: { pull_request: { head: { repo: { full_name: 'o/r' } } } } };
+  const fork = { event_name: 'pull_request', repository: 'o/r', event: { pull_request: { head: { repo: { full_name: 'x/r' } } } } };
+  if (f === 'harness-sweep.yml') ok(lanes.every((l) => l({ github: same, vars: { RUNNER: 'self-hosted-vps' } }) === 'self-hosted-vps'), `${f}, installed with chore_runner: the sweep still runs on RUNNER`);
+  else {
+    ok(lanes.every((l) => l({ github: same, vars: {} }) === 'chores' && l({ github: same, vars: { RUNNER: 'self-hosted-vps' } }) === 'chores' && l({ github: same, vars: { CHORE_RUNNER: 'other', RUNNER: 'self-hosted-vps' } }) === 'other'),
+      `${f}, installed with chore_runner 'chores': the profile's label with no variable, the variable CHORE_RUNNER over it when set`);
+    if (/harness-(audit|guard)/.test(f)) ok(lanes.every((l) => l({ github: fork, vars: {} }) === 'ubuntu-latest'), `${f}, installed with chore_runner: a fork's pull request still runs GitHub-hosted, never on the chore runner`);
+  }
 }
 // --- one scrub run per burst (K059): one group for the repository; a read-only event has its own --------
 for (const [f, prefix] of [[join(dir, 'harness-scrub.yml'), 'harness-scrub-'], [join(kit, '.github/workflows/scrub.yml'), 'scrub-']]) {
