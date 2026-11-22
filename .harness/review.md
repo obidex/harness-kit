@@ -112,7 +112,7 @@ Until the federation rule is named the job asks nothing whatever the switch says
 workflow changes nothing. The identifiers are the set-up, the end time is the switch. While the switch
 is off the job reads only the settings file and ends within seconds. On a private repository with no
 self-hosted `CHORE_RUNNER` or `RUNNER` it starts only where the variables `REVIEW_FEDERATION_RULE` and
-`REVIEW_UNTIL` are both set, as before K060, so being installed and off costs no GitHub-hosted minutes;
+`REVIEW_UNTIL` are both set, as before K060, so being installed and off costs no GitHub-hosted minutes (K061);
 there the variables, set to any value, let the job start, and the file's `until` then decides, as everywhere.
 
 ## Caps and cost (O13)
