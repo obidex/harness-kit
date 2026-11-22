@@ -348,7 +348,7 @@ ok(Object.keys(wf.on).join() === 'workflow_run' && wf.on.workflow_run.types === 
   'harness-review starts only when another workflow finishes, so it always runs the default branch\'s file, never a pull request\'s; it never starts itself');
 ok(step0env.REVIEW_UNTIL === '${{ vars.REVIEW_UNTIL }}' && !/REVIEW_UNTIL:\s*['"]?\d/.test(text) && !/\buntil:/.test(text) && /Off by default \(K055\)/.test(text) && /Settings in a file \(K060\)/.test(text),
   'the tool reads the end time from the settings file first, the variable only as its fallback, and the workflow sets no end time itself');
-ok(/\(vars\.CHORE_RUNNER != '' \|\| vars\.RUNNER != '' \|\| vars\.REVIEW_FEDERATION_RULE != '' \|\| !github\.event\.repository\.private\)/.test(job.if) && /workflow_run\.event == 'pull_request'/.test(job.if) && /workflow_run\.conclusion == 'success'/.test(job.if) && /workflow_run\.head_repository\.full_name == github\.repository/.test(job.if),
+ok(/workflow_run\.event == 'pull_request'/.test(job.if) && /workflow_run\.conclusion == 'success'/.test(job.if) && /workflow_run\.head_repository\.full_name == github\.repository/.test(job.if),
   'the job skips a fork\'s run, a push run and a red run before any step');
 // the job's condition, evaluated: GitHub's expression for these cases is plain JavaScript once vars and the event are named
 const starts = (v, priv) => Function('vars', 'github', `return (${String(job.if).replace(/\s+/g, ' ')});`)(new Proxy(v, { get: (o, k) => o[k] ?? '' }),
