@@ -62,6 +62,7 @@
 
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ghClient, ghPages } from './lib.mjs';
 
 export const WAKE = 'wake';
 export const CLAIM = 'coordinator-running';
@@ -279,29 +280,8 @@ export function payload({ repo, why, target, stateIssue, work = [] }) {
 }
 
 // --- GitHub -----------------------------------------------------------------------------------------
-async function gh(method, path, data) {
-  const r = await fetch(`${process.env.GITHUB_API_URL || 'https://api.github.com'}${path}`, {
-    method,
-    headers: { accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28', 'user-agent': 'harness-wake',
-      ...(process.env.GH_TOKEN ? { authorization: `Bearer ${process.env.GH_TOKEN}` } : {}), ...(data ? { 'content-type': 'application/json' } : {}) },
-    body: data ? JSON.stringify(data) : undefined,
-  });
-  const text = await r.text();
-  let json = null;
-  try { json = text ? JSON.parse(text) : null; } catch { json = text; }
-  if (r.status < 200 || r.status > 299) throw new Error(`${method} ${path} answered ${r.status}: ${JSON.stringify(json).slice(0, 200)}`);
-  return json;
-}
-
-async function pages(path, max = 20) {
-  const out = [];
-  for (let page = 1; page <= max; page++) {
-    const l = await gh('GET', `${path}${path.includes('?') ? '&' : '?'}per_page=100&page=${page}`);
-    out.push(...l);
-    if (l.length < 100) break;
-  }
-  return out;
-}
+const gh = ghClient('harness-wake');
+const pages = async (path) => (await ghPages(gh, path, { max: 20 })).items;
 
 const names = (i) => (i.labels || []).map((l) => l.name ?? l);
 
@@ -310,9 +290,9 @@ const names = (i) => (i.labels || []).map((l) => l.name ?? l);
 async function receipts(repo, now = Date.now()) { return ledger(await recentComments(repo, now)); }
 async function recentComments(repo, now = Date.now()) {
   const since = new Date(now - LEDGER_DAYS * DAY).toISOString();
-  const max = 200, l = await pages(`/repos/${repo}/issues/comments?since=${since}&sort=created&direction=asc`, max);
-  if (l.length >= max * 100) throw new Error(`more than ${max * 100} comments in ${LEDGER_DAYS} days: the receipts cannot all be read, so no run starts`);
-  return l;
+  const max = 200, { items, cut } = await ghPages(gh, `/repos/${repo}/issues/comments?since=${since}&sort=created&direction=asc`, { max });
+  if (cut) throw new Error(`more than ${max * 100} comments in ${LEDGER_DAYS} days: the receipts cannot all be read, so no run starts`);
+  return items;
 }
 
 /** The STATE issue: the first open one this job opened with the marker; else the first closed one,

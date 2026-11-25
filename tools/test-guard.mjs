@@ -10,7 +10,7 @@ import { createServer } from 'node:http';
 import { execFile, execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { verdict, agentConfig, localState, WEB_FLOW_ID, DEPENDABOT_ID } from '../.harness/tools/guard.mjs';
-import { parseYaml } from '../.harness/tools/lib.mjs';
+import { parseYaml, gh, ghPages } from '../.harness/tools/lib.mjs';
 
 const kit = new URL('..', import.meta.url).pathname;
 let n = 0;
@@ -54,8 +54,10 @@ ok(localState([{ filename: '.claude/settings.local.json', previous_filename: 'no
 // --- the command, against a fake GitHub ------------------------------------------------------------
 const files = (k) => Array.from({ length: k }, (_, i) => ({ filename: i === 0 ? '.claude/settings.json' : `src/f${i}.js` }));
 let state = {};
+const heads = [];
 const srv = await new Promise((done) => {
   const s = createServer((req, res) => {
+    heads.push(req.headers);
     const u = new URL(req.url, 'http://x');
     const send = (code, data) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(data)); };
     const page = Number(u.searchParams.get('page') || 1);
@@ -118,6 +120,11 @@ r = await runBody(['--wait', '0']);
 ok(r.code === 0, 'pr-body: a quoted footer in a code block, or a sentence mentioning it, passes');
 r = await runBody(['--wait', 'abc']);
 ok(r.code === 1 && /--wait must be/.test(r.stdout + r.stderr), 'pr-body: a non-numeric --wait is refused, never an endless loop');
+// its GitHub client, pinned before the clean-up that shares it (0.56.1)
+ok(heads.length > 10 && heads.every((h) => h.authorization === 'Bearer t' && h['user-agent'] === 'harness-guard' && h.accept === 'application/vnd.github+json'), 'its GitHub client sends GH_TOKEN and its own user-agent');
+r = await new Promise((done) => execFile(process.execPath, [join(kit, '.harness/tools/guard.mjs'), 'agent-config', '--repo', 'o/r', '--pr', '404', '--profile', profile],
+  { env: { ...process.env, GITHUB_API_URL: `http://127.0.0.1:${srv.address().port}`, GH_TOKEN: 't', GITHUB_STEP_SUMMARY: '' } }, (err, stdout, stderr) => done({ code: err ? err.code : 0, stdout, stderr })));
+ok(r.code === 1 && /^guard: GET \/repos\/o\/r\/pulls\/404 answered 404: \{\}$/m.test(r.stderr), 'a refused call fails the check, naming the method, the path and the status, with the start of the answer');
 srv.close();
 
 // --- the template ------------------------------------------------------------------------------------
@@ -251,5 +258,43 @@ ok(audit().A17.result === 'FAIL', 'A17 fails on a cooldown under 3 days');
 }
 rmSync(proj, { recursive: true, force: true });
 rmSync(dir, { recursive: true, force: true });
+
+// --- its GitHub client, pinned before the clean-up that shares it (0.56.1): what it sends, how it answers
+const pinServer = async () => {
+  const seen = [];
+  const s = createServer((q, res) => { let b = ''; q.on('data', (c) => { b += c; }); q.on('end', () => {
+    seen.push({ method: q.method, url: q.url, h: q.headers, body: b });
+    const p = q.url.split('?')[0];
+    const [code, text] = p.includes('/no') ? [422, '{"message":"no"}'] : p === '/empty' ? [200, ''] : p === '/text' ? [200, 'plain'] : p.startsWith('/repos/') ? [200, '[]'] : [200, '{"a":1}'];
+    res.writeHead(code); res.end(text);
+  }); });
+  await new Promise((d) => s.listen(0, '127.0.0.1', d));
+  const was = { GITHUB_API_URL: process.env.GITHUB_API_URL, GH_TOKEN: process.env.GH_TOKEN, GITHUB_TOKEN: process.env.GITHUB_TOKEN };
+  process.env.GITHUB_API_URL = `http://127.0.0.1:${s.address().port}`;
+  return { seen, done: () => { s.close(); for (const [k, v] of Object.entries(was)) if (v === undefined) delete process.env[k]; else process.env[k] = v; } };
+};
+const failure = async (f) => { try { await f(); return null; } catch (e) { return e; } };
+{
+  // lib.mjs gh(): the audit's reader
+  const p = await pinServer();
+  Object.assign(process.env, { GITHUB_TOKEN: 'GT', GH_TOKEN: 'other' });
+  const got = [await gh('/x'), await gh('/empty'), await gh('/text'), await gh('/no')];
+  delete process.env.GITHUB_TOKEN; await gh('/x');
+  delete process.env.GH_TOKEN; await gh('/x');
+  const [g, , , , second, anon] = p.seen; p.done();
+  process.env.GITHUB_API_URL = 'http://127.0.0.1:1';
+  const down = await gh('/x');
+  delete process.env.GITHUB_API_URL;
+  ok(got[0].status === 200 && got[0].data.a === 1 && got[1].data === null && got[2].data === 'plain' && got[3].status === 422 && got[3].data.message === 'no' && down.status === 0 && typeof down.data === 'string',
+    'lib gh() never throws: the status and the parsed JSON (null when empty, the text when not JSON), status 0 when GitHub cannot be reached');
+  ok(g.h.authorization === 'Bearer GT' && second.h.authorization === 'Bearer other' && !anon.h.authorization && g.h['user-agent'] === 'harness-kit' && g.h.accept === 'application/vnd.github+json' && p.seen.every((c) => c.method === 'GET'),
+    'lib gh() reads with GITHUB_TOKEN, else GH_TOKEN, else no token, under the kit\'s user-agent');
+}
+
+{
+  const no = async (answer, key) => { try { await ghPages(async () => answer, '/l?x=1', { key }); return null; } catch (e) { return e.message; } };
+  ok(await no('abc') === 'GET /l answered no list' && await no(null) === 'GET /l answered no list' && await no({ total: 0 }, 'list') === 'GET /l answered no list in "list"' && await no([]) === null,
+    'the shared pager fails closed on an answer that is not a list (a 204, an empty or non-JSON 200): the guard never passes a pull request on a page it could not read');
+}
 
 console.log(`test-guard: OK · ${n} checks`);
