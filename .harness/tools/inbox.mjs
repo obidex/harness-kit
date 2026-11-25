@@ -116,12 +116,14 @@ export const ghClient = (agent, { token = () => process.env.GH_TOKEN, hint = () 
 };
 
 /** Every item of a listing, 100 a page, at most `max` pages: `{ items, cut }`, cut when the last page read
- *  was full (there may be more). `key` names the list inside an object answer. */
+ *  was full (there may be more). `key` names the list inside an object answer. An answer that is not a
+ *  list throws: a check never passes on a page it could not read. */
 export async function ghPages(call, path, { max = 10, key } = {}) {
   const items = [];
   for (let page = 1; page <= max; page++) {
     const got = await call('GET', `${path}${path.includes('?') ? '&' : '?'}per_page=100&page=${page}`);
-    const l = (key ? got?.[key] : got) || [];
+    const l = key ? got?.[key] : got;
+    if (!Array.isArray(l)) throw new Error(`GET ${path.split('?')[0]} answered no list${key ? ` in "${key}"` : ''}`);
     items.push(...l);
     if (l.length < 100) return { items, cut: false };
   }

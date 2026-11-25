@@ -10,7 +10,7 @@ import { createServer } from 'node:http';
 import { execFile, execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { verdict, agentConfig, localState, WEB_FLOW_ID, DEPENDABOT_ID } from '../.harness/tools/guard.mjs';
-import { parseYaml, gh } from '../.harness/tools/lib.mjs';
+import { parseYaml, gh, ghPages } from '../.harness/tools/lib.mjs';
 
 const kit = new URL('..', import.meta.url).pathname;
 let n = 0;
@@ -289,6 +289,12 @@ const failure = async (f) => { try { await f(); return null; } catch (e) { retur
     'lib gh() never throws: the status and the parsed JSON (null when empty, the text when not JSON), status 0 when GitHub cannot be reached');
   ok(g.h.authorization === 'Bearer GT' && second.h.authorization === 'Bearer other' && !anon.h.authorization && g.h['user-agent'] === 'harness-kit' && g.h.accept === 'application/vnd.github+json' && p.seen.every((c) => c.method === 'GET'),
     'lib gh() reads with GITHUB_TOKEN, else GH_TOKEN, else no token, under the kit\'s user-agent');
+}
+
+{
+  const no = async (answer, key) => { try { await ghPages(async () => answer, '/l?x=1', { key }); return null; } catch (e) { return e.message; } };
+  ok(await no('abc') === 'GET /l answered no list' && await no(null) === 'GET /l answered no list' && await no({ total: 0 }, 'list') === 'GET /l answered no list in "list"' && await no([]) === null,
+    'the shared pager fails closed on an answer that is not a list (a 204, an empty or non-JSON 200): the guard never passes a pull request on a page it could not read');
 }
 
 console.log(`test-guard: OK · ${n} checks`);
