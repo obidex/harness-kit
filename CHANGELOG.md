@@ -3,6 +3,23 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.58.0 · 2026-11-25 · builders on Opus, Fable for three uses (K066); C17 honours known commits (K067)
+
+The owner set the model mix so the weekly usage allowance lasts seven days, and the audit's C17 no longer
+fails for good after the kit's own "move the entry into a file" correction. Always-loaded text changed
+without growing (owner-defaults.md 4510 to 4502 bytes); adapter A23 changed: replay result
+`replay/results/0.58.0.json`.
+
+- **O06, O07, A23, `models.md` (K066)**: every builder thread, clear, bounded or risky, on Opus 5.5; Fable 5.2
+  only for a coordinator's planning, a tier-3 change and an independent review; Haiku unchanged. Sonnet is no
+  longer the default builder. The pull-request second reviewer (`review.md`) runs on API credit and is unchanged.
+- **`wake.md` §6**: the coordinator's state note carries one line on which models its threads used.
+- **`audit.mjs` C17 (K067)**: the lost-lines test skips exactly the commits the baseline lists for C17
+  (`commits`), as A10 and O09 do, and says so; every other C17 check and any other lost line still FAIL.
+  `audit/README.md` and `decisions.md` ("Switching a project") say how. Checks in `tools/test-decisions.mjs`.
+- To adopt: the next kit update. A project whose closed log failed C17 after the prescribed move adds one
+  baseline line naming that commit.
+
 ## 0.57.2 · 2026-11-25 · the second reviewer's period report says when it is only a floor
 
 `review.mjs spent --since` could read low for a pull request reviewed more than 60 times in the period,

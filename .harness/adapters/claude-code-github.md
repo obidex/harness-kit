@@ -73,17 +73,17 @@
   several-repository project on 7-8 Oct 2026: nine refusals, every one a shell edit or a shell
   command after one; eleven file-tool edits of rule files in one thread, none refused. A refused
   shell edit is still reported (C14).
-- **A23 Name the model and the effort on every thread.** O06's roles, named as of Nov 2026: building
-  on the smallest reliable model (Sonnet 5.5 for clear, bounded work); Opus 5.5 for architecture,
-  accounting, security, hard or risky work, whatever the tier, and preferred for tier-3 review
-  (C10, O07); Haiku 5.5 only for reading logs and summarizing when that saves real work, never for
+- **A23 Name the model and the effort on every thread.** O06's roles, named as of 25 Nov 2026 (K066): every
+  builder thread, clear, bounded or risky, on Opus 5.5; Claude Fable 5.2 only for a coordinator's
+  planning, a tier-3 change and an independent review (C10, O07), since it spends the weekly limit
+  faster; Haiku 5.5 only for reading logs and summarizing when that saves real work, never for
   review or for money, stock or permission code, and named on every scheduled helper task (a daily
   start, a check-in, a kickoff) so a weekly limit on the account default cannot stop it. Plain status stays on existing checks, with no
   extra turn. Effort (Anthropic's guidance, K049; facts in `models.md`): low for a log digest
   or a quick helper, medium where results hold, high for hard work and long unattended runs, xhigh or
   max only where a gain was measured. A subagent is named with its model and effort, or it inherits
-  the thread's. The coordinator names both when it starts a thread; only the coordinator switches a
-  thread's model. A long thread hands over (C04) and starts clean (`/clear`, or a fresh thread) rather
+  the thread's. The coordinator names both when it starts a thread, and its state note says which
+  models its threads used; only the coordinator switches a thread's model. A long thread hands over (C04) and starts clean (`/clear`, or a fresh thread) rather
   than compacting a cold context. The coordinator reads `/usage` once a week and puts one line in the
   weekly brief.
 - **A24 The one-time permission line.** When a step on an approved, reviewed card is stopped by a
@@ -178,5 +178,5 @@
 | A20 | the project has pull requests | `harness-guard` runs gitleaks on every PR and is required; a public repository's settings file turns on secret scanning and push protection. | K030 | script: `harness-guard.yml` is installed and the default branch's ruleset requires `harness-guard`; on a public repository the settings file enables both secret protections. |
 | A21 | agents work in the project | Agent-configuration changes pass only from trusted account IDs. | K030 | script: the profile names `trusted_actors` and `harness-guard.yml` is installed. judgment: sampled PRs that changed agent configuration or `.github/workflows/` came from those accounts; no untrusted PR touching `.github/workflows/` was merged on a green guard. |
 | A22 | GitHub hosts a public repo | The limit is declared and renewed before it lapses. | K030 | script: when the live repository has an interaction limit (read through the API), the settings file declares `interaction_limits`. |
-| A23 | a coordinator starts threads | Each thread runs on the model and effort its risk calls for, named at its start and switched only by the coordinator; subagents' model and effort are named or inherited knowingly; every scheduled helper task names Haiku (K058); long threads hand over instead of compacting cold; `/usage` is read weekly. | K032, K049; O06 | judgment: sampled threads' first messages name model and effort matching their work and risk; the weekly brief carries a usage line. |
+| A23 | a coordinator starts threads | Each thread runs on the model and effort its risk calls for (K066: builders on Opus 5.5, Fable 5.2 only for planning, tier 3 and independent review), named at its start and switched only by the coordinator, and the coordinator's state note names the models its threads used; subagents' model and effort are named or inherited knowingly; every scheduled helper task names Haiku (K058); long threads hand over instead of compacting cold; `/usage` is read weekly. | K032, K049, K066; O06 | judgment: sampled threads' first messages name model and effort matching their work and risk; state notes carry the models line; the weekly brief carries a usage line. |
 | A24 | a step on an approved card is stopped by a safety check or prompt on the owner's own machine, or a permission line would spare him a repeated manual step | The owner got one offer in the six-part shape (decision, whole edit with minutes, what the lines open, untested warning, read-back after done, result with proof) after existing routes and before any manual step; he alone edited the permission file; a refusal was never retried, reworded or routed around; no offer touched his reserved list; the lines are narrow or carry a reason and date; the project's list names each line, what it opens, its card and date. | K045 (owner, 11 Nov 2026: roadmap #101, from a runner-setup thread); C14; O17 | judgment: sampled stops on the owner's machine ended in the offer, not a workaround or a manual step; the list matches the owner's file as he reported it; no wide line covers a machine with real data. |

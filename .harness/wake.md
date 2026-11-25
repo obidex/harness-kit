@@ -35,7 +35,9 @@ each run is short and fresh: it starts on an event, reads the state, acts, write
    job opened counts; closed, it is reopened. Runs keep the marker line when they rewrite the body. It
    holds no count and no lock: if it is lost, the job opens a new one and every cap still holds.
 6. **State that cannot go stale (K042).** Everything volatile lives in the STATE issue and nowhere
-   else: Now, Next, what waits with its wake, what needs the owner, the last five results. It is
+   else: Now, Next, what waits with its wake, what needs the owner, the last five results, and one
+   line on which models its threads used since the last rewrite (O06, K066: `Models: <thread or card>
+   <model>, …`, so a model mix that drains the weekly limit shows before it stops work). It is
    rewritten at the end of every coordinator run, with no PR. The repository's state file
    (`canon.state`, usually `docs/STATE.md`) keeps only slow facts (programme, live flags, endpoints,
    plans): no counts, "last updated" dates, commit SHAs, kit versions or "built since" lists; each
@@ -165,7 +167,8 @@ The scheduled task's saved prompt says this. Each run:
 2. Works the queue under the project's rules (`core.md`, the rulebook). It removes `wake` from each
    issue it has handled. It may set `wake` on an issue to hand work to the next run. That counts
    against the same caps.
-3. Writes the STATE issue body: what changed, what is open, the next action and who owns it.
+3. Writes the STATE issue body: what changed, what is open, the next action and who owns it, and
+   the models its threads used (§6).
 4. Removes `coordinator-running` from the STATE issue as its last GitHub step, then ends. A run that
    cannot finish writes why in STATE and still removes the claim. A run never opens a new issue only
    to continue its own work past the per-issue cap.
