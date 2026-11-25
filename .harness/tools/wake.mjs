@@ -122,7 +122,8 @@ export function ledger(comments) {
     // a hand-off receipt (K056) is written by a session, under the account the project's sessions act as:
     // it counts when its author may write to the repository, and only then. Edited later, it still counts.
     if (b.startsWith(HANDOFF_MARK)) { if (byWriter(c)) { const j = json(b, HANDOFF_MARK); out.push({ kind: 'fire', at, issue: Number.isInteger(j.issue) ? j.issue : null, via: 'handoff', sig: '', id: c.id ?? null, seen: Number.isInteger(j.seen) ? j.seen : null, rule: j.rule === HANDOFF_RULE ? HANDOFF_RULE : null }); } continue; }
-    if (b.startsWith(HANDOFF_FAIL_MARK)) { if (byWriter(c)) out.push({ kind: 'fail', at, via: 'handoff' }); continue; }
+    // a failed start names the receipt it released (K064): a released start keeps nothing against the job
+    if (b.startsWith(HANDOFF_FAIL_MARK)) { if (byWriter(c)) { const m = b.match(/<!-- released (\{.*?\}) -->/); let rel = null; try { rel = m ? JSON.parse(m[1]).id : null; } catch { /* none */ } out.push({ kind: 'fail', at, via: 'handoff', id: c.id ?? null, released: Number.isInteger(rel) ? rel : null }); } continue; }
     if (!byJob(c)) continue;
     // the job never edits its comments: an edited one is counted as a run, whatever it says now
     if (c.updated_at && Math.abs(Date.parse(c.updated_at) - at) > 5000) { out.push({ kind: 'fire', at, issue: null, via: 'edited', sig: '' }); continue; }
@@ -249,7 +250,7 @@ export function startOk({ ledger: led = [], stateClaimed = false, used = 0, now 
     && jobs.some((j) => j.id != null && j.id > e.seen && j.at <= e.at + HANDOFF_SETTLE_MS);
   // K064: a job receipt that backed off from a hand-off which kept its start is no start either, judged
   // from the receipts alone, so a run that asks before the job's back-off note lands is refused as well
-  const backedOff = (e) => e.kind === 'fire' && e.via !== 'handoff' && hands.some((h) => jobBacksOff(h, e));
+  const backedOff = (e) => e.kind === 'fire' && e.via !== 'handoff' && hands.some((h) => jobBacksOff(h, e, led));
   const last = evs.filter((e) => !yielded(e) && !backedOff(e)).at(-1);
   if (!last || last.kind !== 'fire') return { ok: false, why: 'the job\'s newest receipt is not a start' };
   // a hand-off that kept its start: its claim fires the label trigger too, but it starts its own run (fire_trigger, K056)
@@ -424,7 +425,7 @@ async function runFire(repo, { event, issue, label }) {
   const backedOff = async (mine) => {
     const me = { kind: 'fire', via: d.via, id: mine?.id ?? null, at: Date.parse(mine?.created_at), seen };
     let keeper = null;
-    try { keeper = (await receipts(repo)).find((e) => jobBacksOff(e, me)) || null; }
+    try { const all = await receipts(repo); keeper = all.find((e) => jobBacksOff(e, me, all)) || null; }
     catch (e) { console.log(`wake: the receipts could not be read back (${String(e.message).slice(0, 120)}); starting as decided`); }
     if (!keeper) return false;
     await comment(repo, s.st.number, `${BACKOFF_MARK}\nNo run started by this receipt: a hand-off from another project${keeper.issue != null ? ` for #${keeper.issue}` : ''}, written before it and not read when this decision was made, keeps the run (K064). That run reads the \`${WAKE}\` queue; this receipt still counts in the caps.`).catch(() => {});
@@ -501,7 +502,11 @@ export function handoffPlan(d, { task, issue = null }) {
   return { say: can ? 'QUEUED' : 'NOTHING', why: d.why, claim: false, label: can };
 }
 
-export const HANDOFF_SETTLE_MS = 8000;   // how long a hand-off waits after its receipt before it reads who else started
+export const HANDOFF_SETTLE_MS = 8000;   // the settle time: a job receipt written within this long after a hand-off's makes it yield (K056, K064)
+// how long a hand-off waits after its receipt before it reads who else started: longer than the settle time,
+// because GitHub gives a comment's time in whole seconds, so a receipt the rule counts inside the settle time
+// can be written up to a second after it; the hand-off reads only once every such receipt exists (K064)
+export const HANDOFF_READ_MS = HANDOFF_SETTLE_MS + 2000;
 export const HANDOFF_RELEASE_MIN = 30;   // --failed releases only a start this recent
 
 /** K064: the one rule for who keeps the start between a hand-off's receipt `h` and a job receipt `j`
@@ -512,10 +517,12 @@ export const HANDOFF_RELEASE_MIN = 30;   // --failed releases only a start this 
  *  says. Pure, and judged from the receipts alone, so the job, the hand-off and `started` all agree.
  *  Receipts from before K064 (a job receipt without `seen`, a hand-off receipt without the rule) never
  *  back the job off: two such senders behave exactly as before. */
-export function jobBacksOff(h, j) {
+export function jobBacksOff(h, j, led = []) {
   if (h?.kind !== 'fire' || h.via !== 'handoff' || h.rule !== HANDOFF_RULE || h.id == null) return false;
   if (j?.kind !== 'fire' || j.via === 'handoff' || j.seen == null || j.id == null) return false;
   if (h.id <= j.seen) return false;   // the job read this hand-off's receipt: it judged with that start in view
+  // a start the hand-off released (`--failed`) before the job's receipt was written keeps nothing: the job starts
+  if (led.some((f) => f.kind === 'fail' && f.via === 'handoff' && f.released === h.id && f.id != null && f.id < j.id)) return false;
   return (h.seen != null && j.id <= h.seen) || j.at > h.at + HANDOFF_SETTLE_MS;
 }
 
@@ -559,10 +566,10 @@ async function runHandoff(repo, { issue, from, failed, dry, task: given }) {
     // that yielded, may be newer), recent, not already marked failed, and with no run of the job after it
     // (a job receipt that backed off from this start, K064, is no run: the claim is still this start's)
     const last = led.filter((e) => e.kind === 'fire' && e.via === 'handoff' && (e.issue ?? null) === (it?.number ?? null)).at(-1);
-    if (!last || Date.now() - last.at > HANDOFF_RELEASE_MIN * 60e3 || led.some((e) => e.at >= last.at && ((e.kind === 'fail' && e.via === 'handoff') || (e.kind === 'fire' && e.via !== 'handoff' && !jobBacksOff(last, e))))) return done('NOTHING', 'no hand-off start is open here: nothing released');
+    if (!last || Date.now() - last.at > HANDOFF_RELEASE_MIN * 60e3 || led.some((e) => e.at >= last.at && ((e.kind === 'fail' && e.via === 'handoff') || (e.kind === 'fire' && e.via !== 'handoff' && !jobBacksOff(last, e, led))))) return done('NOTHING', 'no hand-off start is open here: nothing released');
     if (!dry) {
       await unclaim(repo, st.number);
-      await comment(repo, st.number, `${HANDOFF_FAIL_MARK}\nNot started from inside (hand-off from ${who}): ${String(failed).replace(/\s+/g, ' ').slice(0, 160)}.`);
+      await comment(repo, st.number, `${HANDOFF_FAIL_MARK}<!-- released ${JSON.stringify({ id: last.id })} -->\nNot started from inside (hand-off from ${who}): ${String(failed).replace(/\s+/g, ' ').slice(0, 160)}.`);
       await queueIt();
     }
     return done(can ? 'QUEUED' : 'NOTHING', `the start failed and is marked so${can ? `; \`${WAKE}\` stays on #${it.number} for the next start` : ''}`);
@@ -596,7 +603,7 @@ async function runHandoff(repo, { issue, from, failed, dry, task: given }) {
     // one run at a time, also when two starts are written at the same moment: wait, then read who else
     // wrote a receipt around this one. The loser starts nothing; its receipt stays counted and the claim
     // stays with the start that keeps it.
-    await new Promise((r) => setTimeout(r, Number(process.env.HANDOFF_SETTLE_MS ?? HANDOFF_SETTLE_MS)));
+    await new Promise((r) => setTimeout(r, Number(process.env.HANDOFF_SETTLE_MS ?? HANDOFF_READ_MS)));
     const near = (await receipts(repo)).filter((e) => e.kind === 'fire' && e.id != null && !seen.has(e.id));   // every start written since this decision read the receipts
     if (!near.some((e) => e.id === mine?.id)) {
       // its own receipt does not count here (an account that may not write): no start, and no claim left behind

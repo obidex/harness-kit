@@ -11,7 +11,9 @@ Nothing always-loaded changed.
 - **`wake.mjs`**: the job's receipt names the newest receipt its decision read (`seen`), and a
   hand-off's names the rule (`"rule":"K064"`). New `jobBacksOff`: a hand-off the job had not read keeps
   the start when the job's receipt came more than the settle time after it (or it had read the job's
-  receipt); then the job backs off in both start modes: no claim touched, no label, no call, a
+  receipt), unless the hand-off released that start first (`--failed` now names the receipt it
+  releases). A hand-off reads the receipts 10 s after its own (was 8 s), because GitHub gives comment
+  times in whole seconds. Then the job backs off in both start modes: no claim touched, no label, no call, a
   `<!-- wake-backoff -->` note, and its receipt still counts. `keepsStart` yields to a job receipt only
   when that job does not back off; `started` refuses the run a backed-off receipt could begin; `--failed`
   still releases such a hand-off start. Receipts from earlier versions behave as before.

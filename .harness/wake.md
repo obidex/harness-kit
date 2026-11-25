@@ -121,16 +121,18 @@ is an outside wake, so it ends a chain of runs that only started each other. No 
 hand-off happens at the moment work changes hands, or not at all.
 
 **Two starts at the same moment.** A session is outside the job's one-at-a-time queue, so after its
-receipt the hand-off waits a few seconds (the settle time, 8 s) and reads the receipts again. Beside
-a receipt of the job it yields; between two hand-offs the earlier receipt keeps the run. The one that
+receipt the hand-off waits 10 seconds and reads the receipts again. Beside a receipt of the job
+written within the settle time (8 s) after its own it yields; between two hand-offs the earlier receipt keeps the run. The one that
 yields starts nothing, leaves the claim alone and prints `QUEUED`. `--failed` releases only the start
 for the same item, and only within 30 minutes of it.
 
 **The job and a hand-off: one rule (K064).** Each receipt names the newest receipt its writer read
 (`seen`). When neither had read the other's, the hand-off keeps the run if the job's receipt came more
 than the settle time after its own, or if the hand-off had read the job's receipt itself; otherwise it
-yields as above. The job applies the same rule right after writing its receipt: when a hand-off keeps
-the run, the job backs off. It touches no claim, starts nothing, notes it on the STATE issue, and the
+yields as above. GitHub gives a comment's time in whole seconds, so the hand-off reads 2 s after the
+settle time: every receipt the rule makes it yield to exists by then. A start the hand-off released
+(`--failed`, whose mark names the receipt) before the job's receipt keeps nothing. The job applies the
+same rule right after writing its receipt: when a hand-off keeps the run, the job backs off. It touches no claim, starts nothing, notes it on the STATE issue, and the
 `wake` label waits for that run; its receipt still counts in the caps. `wake.mjs started` judges by the
 same rule from the receipts alone, so the run a backed-off receipt could begin is refused even before
 the job's note lands. Receipts from before K064 never make the job back off: such pairs behave as
