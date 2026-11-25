@@ -103,4 +103,54 @@ rmSync(d, { recursive: true, force: true });
   rmSync(a, { recursive: true, force: true }); rmSync(join(a, '..', 'decisions-audit-out.json'), { force: true });
 }
 
+// audit C17: the closed log's entry moved into its own file, as decisions.md prescribes, removes lines from the
+// log; the baseline's `commits` exception skips exactly that commit for the lost-lines test, and nothing else (K067)
+{
+  const prof = JSON.parse(readFileSync(join(kit, 'examples/profile.example.json'), 'utf8'));
+  const main = prof.branches?.default || 'main';
+  const a = mkdtempSync(join(tmpdir(), 'decisions-move-'));
+  const out = join(a, '..', `${a.split('/').pop()}.json`);
+  const put = (p, text) => { mkdirSync(join(a, p, '..'), { recursive: true }); writeFileSync(join(a, p), text); };
+  const g = (...x) => spawnSync('git', ['-C', a, ...x], { encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' } });
+  const commit = (m) => { g('add', '-A'); g('commit', '-qm', m); return g('rev-parse', 'HEAD').stdout.trim(); };
+  const folder = folderFor(prof.canon.decisions);
+  const closed = '# d\n\n## K001 · first\n\ntext\n';
+  put('CLAUDE.md', '# x\n');
+  put(prof.canon.decisions, closed);
+  put('.harness/profile.json', JSON.stringify({ ...prof, canon: { ...prof.canon, caps: {}, generated: [] } }));
+  put(`${folder}/K002.md`, f('K002'));
+  g('init', '-q', '-b', main); commit('fixture');
+  const audit = (...x) => {
+    const r = spawnSync(process.execPath, [join(kit, '.harness/tools/audit.mjs'), a, '--json', out, ...x], { encoding: 'utf8' });
+    const c = (JSON.parse(readFileSync(out, 'utf8')).results).find((y) => y.id === 'C17');
+    return { ...c, strictFail: r.status !== 0 && /FAIL C17 /.test(r.stdout) };
+  };
+  put(prof.canon.decisions, `${closed}\n## K003 · appended to the closed log\n\nthe entry\n`); commit('a thread on the older kit appends');
+  put(prof.canon.decisions, closed); put(`${folder}/K003.md`, '## K003 · appended to the closed log\n\nthe entry\n');
+  const moved = commit('the entry moved into its own file');
+  let r = audit('--strict');
+  ok(r.result === 'FAIL' && r.evidence.includes(`lost lines in 1 of its recent commits (${moved.slice(0, 7)})`) && r.strictFail, 'the prescribed move removes lines from the closed log, and C17 fails on it under --strict');
+  const base = (commits, why = 'K003 moved word for word from the closed log to its own file') => writeFileSync(join(a, '.harness/audit-baseline.json'), JSON.stringify({ results: [{ id: 'C17', commits, why }] }));
+  base([moved.slice(0, 7)]);
+  r = audit('--strict');
+  ok(r.result === 'PASS' && /only gained lines in its last 50 commits; 1 known exception/.test(r.evidence) && !r.strictFail,
+    `listed in the baseline for C17 by its short SHA, the move is skipped and C17 passes, saying so (fails without K067: ${r.evidence})`);
+  base([moved]);
+  ok(audit('--strict').result === 'PASS', 'a full SHA in the baseline skips it too');
+  writeFileSync(join(a, '.harness/audit-baseline.json'), JSON.stringify({ results: [{ id: 'A10', commits: [moved.slice(0, 7)], why: 'another rule' }] }));
+  ok(audit().result === 'FAIL', 'a commit listed for another rule is not skipped by C17');
+  base([moved.slice(0, 7)]);
+  put(prof.canon.decisions, '# d\n\n## K001 · first, rewritten\n\ntext\n');
+  const edit = commit('an edit of the closed log');
+  r = audit('--strict');
+  ok(r.result === 'FAIL' && r.evidence.includes(`lost lines in 1 of its recent commits (${edit.slice(0, 7)})`) && !r.evidence.includes(moved.slice(0, 7)) && r.strictFail,
+    'a later commit that loses a line still fails C17, naming only that commit: the exception never accepts the rule');
+  put(prof.canon.decisions, closed); const undo = commit('the edit undone');
+  base([moved.slice(0, 7), edit.slice(0, 7), undo.slice(0, 7)]);
+  put('.harness/profile.json', JSON.stringify({ ...prof, canon: { ...prof.canon, caps: { 'CLAUDE.md': 1 }, generated: [] } })); commit('a cap');
+  r = audit('--strict');
+  ok(r.result === 'FAIL' && /CLAUDE\.md \d+ B > cap 1/.test(r.evidence) && !/lost lines/.test(r.evidence) && r.strictFail, 'a C17 commits entry never hides the rule\'s other checks: a cap over still fails under --strict');
+  rmSync(a, { recursive: true, force: true }); rmSync(out, { force: true });
+}
+
 console.log(`test-decisions: OK · ${n} checks`);
