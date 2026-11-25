@@ -9,7 +9,7 @@ import { execFile } from 'node:child_process';
 import { join } from 'node:path';
 import { readFileSync, writeFileSync, mkdtempSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { glob, highRisk, docsOnly, pick, cost, worstCase, capOf, runUsd, record, plain, body, spent, checks, question, verdict, review, identifiers, exchange, asker, switchOf, SWITCH_DAYS, settingsOf, settingsText, SETTINGS, SETTING_VARS,
+import { KEEP_RUNS, glob, highRisk, docsOnly, pick, cost, worstCase, capOf, runUsd, record, plain, body, spent, checks, question, verdict, review, identifiers, exchange, asker, switchOf, SWITCH_DAYS, settingsOf, settingsText, SETTINGS, SETTING_VARS,
   github, pages, MARK, MODEL, RISK_MODEL, PRICES, DAILY_USD, DAILY_CAP, MAX_DIFF, MAX_FILES, MAX_ANSWER, MAX_OUT, MAX_RULES, WAIT_MS, POLL_MS } from '../.harness/tools/review.mjs';
 import { parseYaml, renderLane } from '../.harness/tools/lib.mjs';
 import { verdict as group } from '../.harness/tools/actions.mjs';
@@ -66,6 +66,18 @@ ok(sp.reviews === 2 && sp.usd === 0.27 && sp.day === '2026-11-20', 'today\'s spe
 const old = { ...run1, at: '2026-11-12T10:00:00.000Z' };
 const since = spent([{ ...BOT, body: body([old, yesterday, run1], run1, 'x') }], NOW, '2026-11-19');
 ok(since.reviews === 2 && since.usd === 0.18 && since.since === '2026-11-19' && spent([{ ...BOT, body: body([old, yesterday, run1], run1, 'x') }], NOW, '2026-11-01').reviews === 3, 'for a report, the spend from a given day on is the same sum over more days');
+// a record keeps only its pull request's last KEEP_RUNS runs, so a report over a long period can miss
+// the oldest of a busy pull request's runs: the sum is then a floor and says so (harness-kit#84)
+const busy = Array.from({ length: 70 }, (_, i) => ({ ...run1, sha: String(i).padStart(40, '0'), at: new Date(Date.parse('2026-11-13T00:00:00Z') + i * 2.4 * 3600e3).toISOString() }));
+const onPull = (runs, n = 7) => ({ ...BOT, issue_url: `https://api.github.com/repos/o/r/issues/${n}`, html_url: `https://github.com/o/r/pull/${n}#c`, body: body(runs, runs.at(-1), 'x') });
+const floor = spent([onPull(busy), onPull(busy.slice(0, 5), 9)], NOW, '2026-11-12');
+ok(KEEP_RUNS === 60 && floor.reviews === 65 && floor.partial === true && JSON.stringify(floor.pulls) === '[7]',
+  'a report over a period with 70 runs on one pull request counts the 60 kept and says it is partial, naming that pull request');
+const after = spent([onPull(busy)], NOW, '2026-11-17'), short1 = spent([onPull(busy.slice(-59))], NOW, '2026-11-01');
+ok(!('partial' in after) && after.reviews > 0 && !('partial' in short1) && short1.reviews === 59
+  && spent([onPull(busy.map((r, i) => (i === 30 ? { ...r, at: 'soon' } : r)))], NOW, '2026-11-01').partial === true
+  && spent([{ ...BOT, html_url: 'https://github.com/o/r/pull/3#c', body: body(busy, busy.at(-1), 'x') }], NOW, '2026-11-01').pulls[0] === 'https://github.com/o/r/pull/3#c',
+  'not partial when the dropped runs fall before the period or the record is not full; an unreadable run time counts as partial; without the issue link the comment\'s link names it');
 ok(plain('y'.repeat(9000), 20000).length === 9000 && /cut at 100 characters/.test(plain('y'.repeat(200), 100)), 'a longer answer may be kept where a caller allows it (the full check\'s issues)');
 
 // --- the checks -------------------------------------------------------------------------------------

@@ -128,7 +128,10 @@ is the stop across repositories; the in-code caps stop one repository from using
 A typical review (25,000 tokens in, 4,000 out) costs about $0.09 on the default model and $0.18 on
 the high-risk one. `node .harness/tools/review.mjs spent --repo <owner/name>` prints today's count
 and cost; with `--since <YYYY-MM-DD>` it prints every day's from that day on, for the report that
-follows a switched-on period.
+follows a switched-on period. A pull request's comment keeps only its last 60 runs, so when one is full
+and its oldest kept run falls inside the period, the answer carries `"partial": true` and those pull
+requests (`pulls`): the figure is then a floor, and the reviews workspace's own spend figure on the
+Claude Console is the authority.
 
 Runner minutes: one short job per finished pull-request workflow the file lists, on the project's
 `RUNNER` lane (`hands.md`); it may wait up to 90 seconds for other checks.
