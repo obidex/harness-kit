@@ -3,7 +3,7 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
-## 0.58.0 · 2026-11-25 · builders on Opus, Fable for three uses (K066); C17 honours known commits (K067)
+## 0.58.0 · 2026-11-25 · builders on Opus, Fable for three uses (K066); C17 honours known commits (K067); specialist passes (K068)
 
 The owner set the model mix so the weekly usage allowance lasts seven days, and the audit's C17 no longer
 fails for good after the kit's own "move the entry into a file" correction. Always-loaded text changed
@@ -17,6 +17,10 @@ without growing (owner-defaults.md 4510 to 4502 bytes); adapter A23 changed: rep
 - **`audit.mjs` C17 (K067)**: the lost-lines test skips exactly the commits the baseline lists for C17
   (`commits`), as A10 and O09 do, and says so; every other C17 check and any other lost line still FAIL.
   `audit/README.md` and `decisions.md` ("Switching a project") say how. Checks in `tools/test-decisions.mjs`.
+- **`sweep.mjs`, `harness-sweep.yml` (K068)**: a `lens` input (`none`, `permissions`, `money-stock`,
+  `irreversible`, `arabic-rtl`) runs a specialist pass: the full check's question narrowed to that lens, every
+  batch on the high-risk model, its own record issue and its own $30 cap. A lens is a fixed name, never text.
+  `review.md` says how. Checks in `tools/test-sweep.mjs`.
 - To adopt: the next kit update. A project whose closed log failed C17 after the prescribed move adds one
   baseline line naming that commit.
 

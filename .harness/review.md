@@ -177,6 +177,13 @@ the owner asks for it: every tracked code file of the default branch, folder by 
 - **Runner:** one job of up to 350 minutes on the project's `RUNNER` lane, which holds that runner
   meanwhile; on GitHub-hosted minutes only after the owner has heard the estimate (O13).
 
+**A specialist pass (K068)** is the same job with its `lens` input set to one of `permissions`,
+`money-stock`, `irreversible` or `arabic-rtl`: the question is narrowed to that lens, every batch goes to
+the high-risk model, and the pass keeps its own record issue ("Second reviewer: specialist pass (<lens>)
+of the existing code") and its own $30 cap, so it never continues or uses up the full check. The lens is
+a fixed choice: no text a person types reaches the question. `estimate` with a lens prints that pass's
+worst case first.
+
 Like the reviewer it cannot run code and sees one batch at a time, so a finding that depends on
 another folder says so, and "no findings" is not evidence that the code works (C07).
 
