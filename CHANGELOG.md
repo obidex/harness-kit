@@ -3,6 +3,17 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.57.2 · 2026-11-25 · the second reviewer's period report says when it is only a floor
+
+`review.mjs spent --since` could read low for a pull request reviewed more than 60 times in the period,
+because its comment keeps only the last 60 runs. It now says so. Nothing always-loaded changed; no cap
+changed (one day's runs always fit).
+
+- **`review.mjs`**: `spent` adds `"partial": true` and `pulls` (the pull request numbers) when a record is
+  full and its oldest kept run falls inside the period, or a run time cannot be read. `KEEP_RUNS` is exported.
+- **`review.md`**: the period figure is then a floor; the reviews workspace's own spend figure is the authority.
+- Found by the second reviewer on K055's pull request (harness-kit#84). To adopt: the next kit update.
+
 ## 0.57.1 · 2026-11-25 · a hand-off's marks count only from an account that may really write (K065)
 
 A member of the owning organization, or an outside collaborator who may only read or triage, can no
