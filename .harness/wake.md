@@ -121,10 +121,20 @@ is an outside wake, so it ends a chain of runs that only started each other. No 
 hand-off happens at the moment work changes hands, or not at all.
 
 **Two starts at the same moment.** A session is outside the job's one-at-a-time queue, so after its
-receipt the hand-off waits a few seconds and reads the receipts again. Beside a receipt of the job
-it always yields; between two hand-offs the earlier receipt keeps the run. The one that yields
-starts nothing, leaves the claim alone and prints `QUEUED`. `--failed` releases only the start for
-the same item, and only within 30 minutes of it.
+receipt the hand-off waits a few seconds (the settle time, 8 s) and reads the receipts again. Beside
+a receipt of the job it yields; between two hand-offs the earlier receipt keeps the run. The one that
+yields starts nothing, leaves the claim alone and prints `QUEUED`. `--failed` releases only the start
+for the same item, and only within 30 minutes of it.
+
+**The job and a hand-off: one rule (K064).** Each receipt names the newest receipt its writer read
+(`seen`). When neither had read the other's, the hand-off keeps the run if the job's receipt came more
+than the settle time after its own, or if the hand-off had read the job's receipt itself; otherwise it
+yields as above. The job applies the same rule right after writing its receipt: when a hand-off keeps
+the run, the job backs off. It touches no claim, starts nothing, notes it on the STATE issue, and the
+`wake` label waits for that run; its receipt still counts in the caps. `wake.mjs started` judges by the
+same rule from the receipts alone, so the run a backed-off receipt could begin is refused even before
+the job's note lands. Receipts from before K064 never make the job back off: such pairs behave as
+before.
 
 **Where the job's outside call is refused**, a queued label or a released claim still starts the
 job, and its failed starts add up to `wake-paused` as before. A hand-off then only queues until a
@@ -204,7 +214,8 @@ What differs from `/fire`:
   starts its run with `fire_trigger`; `wake.mjs started` refuses a start whose newest receipt is a
   hand-off's, so the run the label began ends at once and one hand-off is one working run. A hand-off
   that yielded to a job receipt it had not read (its receipt names the newest it read, `seen`) started
-  nothing: `started` passes over it and the job's start works.
+  nothing: `started` passes over it and the job's start works. A job receipt that backed off from a
+  hand-off that kept its start (K064) is passed over the same way: one hand-off, one working run.
 - **The run needs GitHub write access** to run `started` (it writes the "Run started" comment): in a
   cloud session, the repository attached with push access. Without it every label start is refused.
 - **A label set by the job's own token does start the task.** GitHub starts no workflow for such a

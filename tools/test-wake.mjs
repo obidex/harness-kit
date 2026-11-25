@@ -8,7 +8,7 @@ import { createServer } from 'node:http';
 import { execFile } from 'node:child_process';
 import { join } from 'node:path';
 import { readFileSync } from 'node:fs';
-import { capOf, keepsStart, handoffPlan, runTaskOf, HANDOFF_MARK, HANDOFF_FAIL_MARK, RUN_TASK_FILE, decide, ledger, capFrom, fireUrlOk, isState, payload, signature, failStreak, chainLength, MOVABLE, WAKE, CLAIM, STOPPED, PAUSED, BACKSTOP_OFF, CHAIN_STOP, STATE, STATE_MARK, FIRE_MARK, FAIL_MARK, STUCK_MARK, EMPTY_MARK, START_MARK, USED_MARK, startByLabel, startOk, usedSince, START_WINDOW_MIN, DAILY_CAP, ISSUE_CAP, ISSUE_TOTAL, EMPTY_STOP, STUCK_STOP } from '../.harness/tools/wake.mjs';
+import { capOf, keepsStart, jobBacksOff, BACKOFF_MARK, HANDOFF_RULE, HANDOFF_SETTLE_MS, handoffPlan, runTaskOf, HANDOFF_MARK, HANDOFF_FAIL_MARK, RUN_TASK_FILE, decide, ledger, capFrom, fireUrlOk, isState, payload, signature, failStreak, chainLength, MOVABLE, WAKE, CLAIM, STOPPED, PAUSED, BACKSTOP_OFF, CHAIN_STOP, STATE, STATE_MARK, FIRE_MARK, FAIL_MARK, STUCK_MARK, EMPTY_MARK, START_MARK, USED_MARK, startByLabel, startOk, usedSince, START_WINDOW_MIN, DAILY_CAP, ISSUE_CAP, ISSUE_TOTAL, EMPTY_STOP, STUCK_STOP } from '../.harness/tools/wake.mjs';
 import { parseYaml } from '../.harness/tools/lib.mjs';
 
 let n = 0;
@@ -115,7 +115,8 @@ let commentId = 100, raceUsed = false, postAs = null, hideUsedOnce = 0, hideNewe
 // raceUsed: another run's record lands just before this run's own
 const issues = new Map();   // number -> { number, state, labels: [names], body, user, comments: [{ user, body, created_at }] }
 const fires = [];
-let rival = null, rivalBefore = false;   // rival: a second start's receipt, written right after the next hand-off receipt (rivalBefore: dated just before it)
+let rival = null, rivalBefore = false, rivalShift = 0;   // rival: a second start's receipt (or a function of the hand-off's comment giving it), written right after the next hand-off receipt (rivalBefore: dated just before it; rivalShift: dated this many ms after it)
+let lateHandoff = null;   // K064: ms: a hand-off's claim and receipt, dated this long before the job's next receipt, land while the job decides
 let taskFile = null;   // the receiving repository's .github/wake.json, when it has one
 let fireStatus = 200;
 const labelEvents = [];   // `<issue>:<label>` for each label GitHub would send a `labeled` event for
@@ -146,7 +147,7 @@ const srv = createServer((q, res) => {
     const i = m && issues.get(Number(m[1]));
     if (!i) return send(404, {});
     if (m[2] === '/comments' && q.method === 'GET') return send(200, u.searchParams.get('page') === '1' ? i.comments : []);
-    if (m[2] === '/comments') { const body = JSON.parse(data).body; if (raceUsed && body.startsWith(USED_MARK)) i.comments.push({ id: ++commentId, user: bot, body, created_at: new Date(Date.now() - 1).toISOString() }); const c = { id: ++commentId, user: bot, author_association: 'OWNER', ...(postAs || {}), body, created_at: new Date().toISOString() }; i.comments.push(c); if (hideUsedOnce === 1 && body.startsWith(USED_MARK)) hideUsedOnce = 2; if (rival && body.startsWith(HANDOFF_MARK)) { i.comments.push({ ...c, id: ++commentId, body: rival, ...(rivalBefore ? { created_at: new Date(Date.parse(c.created_at) - 1).toISOString() } : {}) }); rival = null; } return send(201, c); }
+    if (m[2] === '/comments') { const body = JSON.parse(data).body; if (lateHandoff != null && body.startsWith(FIRE_MARK)) { const seen = Math.max(0, ...[...issues.values()].flatMap((x) => x.comments).filter((x) => x.body.startsWith(FIRE_MARK) || x.body.startsWith(HANDOFF_MARK)).map((x) => x.id)); i.labels = [...new Set([...i.labels, CLAIM])]; i.comments.push({ id: ++commentId, user: { login: 'owner', type: 'User' }, author_association: 'OWNER', body: `${HANDOFF_MARK}${JSON.stringify({ issue: 41, via: 'handoff', from: 'o/sender', seen, rule: HANDOFF_RULE })} -->\nStarting a run from inside.`, created_at: new Date(Date.now() - lateHandoff).toISOString() }); lateHandoff = null; } if (raceUsed && body.startsWith(USED_MARK)) i.comments.push({ id: ++commentId, user: bot, body, created_at: new Date(Date.now() - 1).toISOString() }); const c = { id: ++commentId, user: bot, author_association: 'OWNER', ...(postAs || {}), body, created_at: new Date().toISOString() }; i.comments.push(c); if (hideUsedOnce === 1 && body.startsWith(USED_MARK)) hideUsedOnce = 2; if (rival && body.startsWith(HANDOFF_MARK)) { i.comments.push({ ...c, id: ++commentId, body: typeof rival === 'function' ? rival(c) : rival, ...(rivalBefore ? { created_at: new Date(Date.parse(c.created_at) - 1).toISOString() } : rivalShift ? { created_at: new Date(Date.parse(c.created_at) + rivalShift).toISOString() } : {}) }); rival = null; } return send(201, c); }
     if (m[2]?.startsWith('/labels') && q.method === 'DELETE') { if (!i.labels.includes(m[3])) return send(404, {}); if (m[3] === CLAIM) failAtUnclaim = i.comments.some((c) => c.body.startsWith(FAIL_MARK)); i.labels = i.labels.filter((x) => x !== m[3]); return send(200, []); }
     if (m[2]?.startsWith('/labels')) { if (labelsRefused === 'error') return send(500, {}); if (labelsRefused === 'lost') { i.labels = [...new Set([...i.labels, ...JSON.parse(data).labels])]; return send(500, {}); } if (labelsRefused) return send(200, []); const add = JSON.parse(data).labels; labelEvents.push(...add.filter((x) => !i.labels.includes(x)).map((x) => `${i.number}:${x}`)); if (add.includes(CLAIM)) receiptAtClaim = i.comments.filter((c) => c.body.startsWith(FIRE_MARK)).length; i.labels = [...new Set([...i.labels, ...add])]; return send(200, i.labels.map((name) => ({ name }))); }
     if (q.method === 'PATCH') { const j = JSON.parse(data); if (j.state) i.state = j.state; if (j.labels) i.labels = j.labels; return send(200, view(i)); }
@@ -320,6 +321,37 @@ ok(r8.code === 0 && /rests/.test(r8.out) && st.labels.includes(BACKSTOP_OFF) && 
       `label start: only a claim on the STATE issue with the job's own start receipt as its newest, at most ${START_WINDOW_MIN} minutes old and not yet taken by a run, lets a run work`);
     st.labels = []; st.comments = [];
   }
+  {
+    // K064 (harness-kit#90): the job decided with no claim on; before its receipt landed, a hand-off decided too,
+    // claimed, wrote its receipt, kept its start after its settle time and started its run. The job's receipt
+    // lands more than the settle time later: the job backs off, so only the hand-off's run works.
+    st.labels = []; st.comments = []; issues.get(40).comments = [];
+    const at = labelEvents.length;
+    lateHandoff = HANDOFF_SETTLE_MS + 2000;
+    const late = await fire('labeled', 40, WAKE, LABEL);
+    const labelRun = await started();
+    ok(late.code === 0 && /backed off/.test(late.out) && labelEvents.length === at && st.labels.includes(CLAIM) && st.comments.some((c) => c.body.startsWith(BACKOFF_MARK)) && !st.comments.some((c) => c.body.startsWith(START_MARK))
+      && /run another project started is on/.test(issues.get(40).comments.at(-1).body) && issues.get(40).labels.includes(WAKE)
+      && labelRun.code === 4 && /hand-off, which starts its own run/.test(labelRun.out) && !st.comments.some((c) => c.body.startsWith(USED_MARK)),
+    'label start (K064): a job receipt that lands more than the settle time after a hand-off that kept its start backs off: it leaves the claim alone, sets no label, starts nothing, and the label run the hand-off\'s claim began is refused: one working run');
+    // the same moment the other way round: the hand-off claimed first and then yielded to this receipt (written
+    // within its settle time). The job must not back off then, or no run works and the claim waits 6 hours.
+    st.labels = []; st.comments = []; issues.get(40).comments = [];
+    lateHandoff = 3000;
+    const same = await fire('labeled', 40, WAKE, LABEL);
+    const jobRun = await started();
+    ok(same.code === 0 && !/backed off/.test(same.out) && labelEvents.slice(at).join() === `${st.number}:${CLAIM}` && st.comments.some((c) => c.body.startsWith(START_MARK)) && !st.comments.some((c) => c.body.startsWith(BACKOFF_MARK))
+      && jobRun.code === 0 && /^WAKE-START: OK/m.test(jobRun.out),
+    'label start (K064): a hand-off that claimed first and yielded to the job\'s receipt within its settle time does not make the job back off: the job sets the claim again and its run works');
+    // /fire: the same back-off, and no call to the task
+    st.labels = []; st.comments = []; issues.get(40).comments = [];
+    const before = fires.length;
+    lateHandoff = HANDOFF_SETTLE_MS + 2000;
+    const lateFire = await fire('labeled', 40, WAKE);
+    ok(lateFire.code === 0 && /backed off/.test(lateFire.out) && fires.length === before && st.labels.includes(CLAIM) && st.comments.some((c) => c.body.startsWith(BACKOFF_MARK)),
+      '/fire (K064): the job backs off the same way: no call to the task, and the claim stays with the hand-off\'s run');
+    st.labels = []; st.comments = []; issues.get(40).comments = []; issues.get(40).labels = [WAKE];
+  }
   ok((await fire('labeled', 40, WAKE, { ...LABEL, WAKE_START: 'yes' })).code === 1, 'any other value of WAKE_START still needs the /fire URL and token');
   issues.get(40).labels = []; st.labels = []; st.comments = [];
 }
@@ -357,6 +389,25 @@ ok(s.state === st.number && s.emptyStreak === 0 && s.cap === DAILY_CAP && s.clai
   ok(keepsStart(2, [hf(2, 0)]) && keepsStart(2, [hf(2, 0), hf(3, 1)]) && !keepsStart(3, [hf(2, 0), hf(3, 1)]) && !keepsStart(3, [hf(2, 0), hf(3, 0)]) && keepsStart(2, [hf(2, 0), hf(3, 0)])
     && !keepsStart(2, [hf(2, 0), hf(3, 1, 'label')]) && !keepsStart(2, [hf(1, -1, 'queue'), hf(2, 0)]) && !keepsStart(2, []),
   'two starts written at the same moment: the earliest hand-off receipt keeps the run, a hand-off always yields to the job, and one that cannot read its own receipt back starts nothing');
+  {
+    // K064: one rule for the job and the hand-off. h: a hand-off receipt (id 20, read up to 10); j: a job receipt.
+    const S = HANDOFF_SETTLE_MS;
+    const h = { kind: 'fire', via: 'handoff', id: 20, at: now, seen: 10, rule: HANDOFF_RULE };
+    const j = (id, ms, seen, via = 'label') => ({ kind: 'fire', via, id, at: now + ms, seen });
+    ok(jobBacksOff(h, j(30, S + 1, 15)) && !jobBacksOff(h, j(30, S, 15)) && !jobBacksOff(h, j(30, 3000, 15)) && !jobBacksOff(h, j(15, -2000, 9))
+      && jobBacksOff(h, j(9, -2000, 5)) && !jobBacksOff(h, j(30, S + 1, 20)) && !jobBacksOff(h, j(30, S + 1, null)) && !jobBacksOff({ ...h, rule: null }, j(30, S + 1, 15))
+      && !jobBacksOff(h, j(30, S + 1, 15, 'handoff')) && !jobBacksOff(h, { ...j(30, S + 1, 15), kind: 'fail' }),
+    'K064: the job backs off from a hand-off it had not read only when the hand-off read the job\'s receipt or wrote its own more than the settle time before; never from one it read, and receipts from before K064 never back it off');
+    const kept = [h, j(30, S + 1000, 15)], same = [h, j(30, 3000, 15)];
+    ok(keepsStart(20, kept) && !keepsStart(20, same) && !keepsStart(20, [h, j(30, S + 1000, null)]) && !keepsStart(20, [h, j(30, S + 1000, 25)]),
+      'K064: a hand-off keeps its start against a job receipt that came after its settle time (the job backs off), and still yields to one within it, to one from before K064, and to one whose job read it');
+    const M = 60000, at = now + 2 * S;
+    ok(!startOk({ ledger: kept, stateClaimed: true, now: at }).ok && /hand-off/.test(startOk({ ledger: kept, stateClaimed: true, now: at }).why)
+      && startOk({ ledger: same, stateClaimed: true, now: at }).ok
+      && startOk({ ledger: [h, j(30, S + 1000, null)], stateClaimed: true, now: at }).ok
+      && startOk({ ledger: [...kept, j(40, 5 * M, 30)], stateClaimed: true, now: now + 6 * M }).ok,
+    'K064: `started` refuses the run a backed-off job receipt would start, judged from the receipts alone (before the job\'s note lands), still passes a job receipt the hand-off yielded to, and the next job receipt that read them starts again');
+  }
   ok(chainLength([{ ...fireAt(9, 7), via: 'queue' }, { ...fireAt(5, 8), via: 'handoff' }]) === 0, 'a hand-off is an outside wake: it ends a chain of runs that only started each other');
   ok(runTaskOf('{"runTask":"trig_01AbC"}') === 'trig_01AbC' && runTaskOf('{"runTask":"https://evil.test/fire"}') === null && runTaskOf('{}') === null && runTaskOf('not json') === null, 'the run task is a scheduled task id from the receiving repository, nothing else');
   const fireD = { act: 'fire', why: 'w' }, open = woke(5, { labels: [] });
@@ -437,6 +488,32 @@ ok(s.state === st.number && s.emptyStreak === 0 && s.cap === DAILY_CAP && s.clai
     const labelRun = await run(['started', '--repo', 'o/r'], { GITHUB_ACTIONS: '', WAKE_REREAD_MS: '1' });
     ok(/HANDOFF: START/.test(kept.out) && labelRun.code === 4 && /hand-off, which starts its own run/.test(labelRun.out) && !st.comments.some((c) => c.body.startsWith(USED_MARK)),
       'label start: a hand-off that read the job\'s receipt and kept its start leaves the job\'s label run refused: one working run');
+    st.labels = []; issues.get(21).labels = [];
+    for (const i of issues.values()) i.comments = i.comments.filter((c) => !c.body.startsWith(HANDOFF_MARK) && !c.body.startsWith(FIRE_MARK) && !c.body.startsWith(USED_MARK));
+  }
+  {
+    // K064, the hand-off's side: a job receipt that did not read this hand-off lands after its settle time (the
+    // job backs off): the hand-off keeps its start, the label run is refused, and a failed start is still released
+    rivalShift = HANDOFF_SETTLE_MS + 1000;
+    rival = (c) => `${FIRE_MARK}${JSON.stringify({ issue: 9, via: 'label', sig: '', seen: c.id - 1 })} -->\nStarting a run (wake label).`;
+    const keep = await handoff(['--issue', '21']);
+    rivalShift = 0;
+    const labelRun = await run(['started', '--repo', 'o/r'], { GITHUB_ACTIONS: '', WAKE_REREAD_MS: '1' });
+    ok(/HANDOFF: START/.test(keep.out) && JSON.parse(st.comments.find((c) => c.body.startsWith(HANDOFF_MARK)).body.slice(HANDOFF_MARK.length).split(' -->')[0]).rule === HANDOFF_RULE
+      && labelRun.code === 4 && /hand-off, which starts its own run/.test(labelRun.out),
+    'K064: a hand-off keeps its start against a job receipt written after its settle time, names the rule in its receipt, and the run the job\'s claim would begin is refused');
+    ok(/HANDOFF: QUEUED the start failed/.test((await handoff(['--issue', '21', '--failed', 'refused'])).out) && !st.labels.includes(CLAIM),
+      'K064: that start, failed, is released although a job receipt came after it: the job backed off, so no claim is left with no run behind it');
+    st.labels = []; issues.get(21).labels = [];
+    for (const i of issues.values()) i.comments = i.comments.filter((c) => !c.body.startsWith(HANDOFF_MARK) && !c.body.startsWith(HANDOFF_FAIL_MARK) && !c.body.startsWith(FIRE_MARK) && !c.body.startsWith(USED_MARK));
+    // within its settle time it still yields to a job receipt that carries `seen`, and the job's run works
+    rivalShift = 3000;
+    rival = (c) => `${FIRE_MARK}${JSON.stringify({ issue: 9, via: 'label', sig: '', seen: c.id - 1 })} -->\nStarting a run (wake label).`;
+    const yieldK = await handoff(['--issue', '21']);
+    rivalShift = 0;
+    const jobRun = await run(['started', '--repo', 'o/r'], { GITHUB_ACTIONS: '', WAKE_REREAD_MS: '1' });
+    ok(/HANDOFF: QUEUED another start/.test(yieldK.out) && jobRun.code === 0 && /^WAKE-START: OK/m.test(jobRun.out),
+      'K064: within its settle time a hand-off still yields to the job\'s receipt, and the job\'s run works');
     st.labels = []; issues.get(21).labels = [];
     for (const i of issues.values()) i.comments = i.comments.filter((c) => !c.body.startsWith(HANDOFF_MARK) && !c.body.startsWith(FIRE_MARK) && !c.body.startsWith(USED_MARK));
   }

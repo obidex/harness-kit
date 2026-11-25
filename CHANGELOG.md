@@ -3,6 +3,22 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.57.0 · 2026-11-25 · a slow job receipt can no longer start a second run beside a hand-off (K064)
+
+The job and a hand-off decide who keeps a start by one rule, read from the receipts alone.
+Nothing always-loaded changed.
+
+- **`wake.mjs`**: the job's receipt names the newest receipt its decision read (`seen`), and a
+  hand-off's names the rule (`"rule":"K064"`). New `jobBacksOff`: a hand-off the job had not read keeps
+  the start when the job's receipt came more than the settle time after it (or it had read the job's
+  receipt); then the job backs off in both start modes: no claim touched, no label, no call, a
+  `<!-- wake-backoff -->` note, and its receipt still counts. `keepsStart` yields to a job receipt only
+  when that job does not back off; `started` refuses the run a backed-off receipt could begin; `--failed`
+  still releases such a hand-off start. Receipts from earlier versions behave as before.
+- **`wake.md`**: "The job and a hand-off: one rule (K064)".
+- To adopt: the next kit update. A project's job and its senders get the rule as each updates; until
+  both sides carry it, nothing changes there.
+
 ## 0.56.0 · 2026-11-22 · the chore lane is set in the profile, the variable only overrides it (K063)
 
 Opening the chore lane no longer needs a settings page. Nothing always-loaded changed.
