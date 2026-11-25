@@ -599,7 +599,7 @@ const run = (srv, args, env = {}) => new Promise((done) => {
   rmSync(d, { recursive: true, force: true });
 }
 
-// --- its GitHub client, pinned before the clean-up that shares it (0.57.0): what it sends, how it answers
+// --- its GitHub client, pinned before the clean-up that shares it (0.56.1): what it sends, how it answers
 const pinServer = async () => {
   const seen = [];
   const s = createServer((q, res) => { let b = ''; q.on('data', (c) => { b += c; }); q.on('end', () => {

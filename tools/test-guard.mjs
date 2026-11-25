@@ -120,7 +120,7 @@ r = await runBody(['--wait', '0']);
 ok(r.code === 0, 'pr-body: a quoted footer in a code block, or a sentence mentioning it, passes');
 r = await runBody(['--wait', 'abc']);
 ok(r.code === 1 && /--wait must be/.test(r.stdout + r.stderr), 'pr-body: a non-numeric --wait is refused, never an endless loop');
-// its GitHub client, pinned before the clean-up that shares it (0.57.0)
+// its GitHub client, pinned before the clean-up that shares it (0.56.1)
 ok(heads.length > 10 && heads.every((h) => h.authorization === 'Bearer t' && h['user-agent'] === 'harness-guard' && h.accept === 'application/vnd.github+json'), 'its GitHub client sends GH_TOKEN and its own user-agent');
 r = await new Promise((done) => execFile(process.execPath, [join(kit, '.harness/tools/guard.mjs'), 'agent-config', '--repo', 'o/r', '--pr', '404', '--profile', profile],
   { env: { ...process.env, GITHUB_API_URL: `http://127.0.0.1:${srv.address().port}`, GH_TOKEN: 't', GITHUB_STEP_SUMMARY: '' } }, (err, stdout, stderr) => done({ code: err ? err.code : 0, stdout, stderr })));
@@ -259,7 +259,7 @@ ok(audit().A17.result === 'FAIL', 'A17 fails on a cooldown under 3 days');
 rmSync(proj, { recursive: true, force: true });
 rmSync(dir, { recursive: true, force: true });
 
-// --- its GitHub client, pinned before the clean-up that shares it (0.57.0): what it sends, how it answers
+// --- its GitHub client, pinned before the clean-up that shares it (0.56.1): what it sends, how it answers
 const pinServer = async () => {
   const seen = [];
   const s = createServer((q, res) => { let b = ''; q.on('data', (c) => { b += c; }); q.on('end', () => {

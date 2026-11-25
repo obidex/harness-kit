@@ -3,6 +3,24 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.56.1 · 2026-11-25 · one GitHub client for the kit's tools (clean-up pilot)
+
+Tool code only, from a clean-up card (`cards/cleanup.md`). Nothing always-loaded changed; no command,
+flag or exported name changed.
+
+- **`lib.mjs`**: `ghCall` (one call, never throws), `ghClient` (throws on anything but 2xx, with
+  `e.status`) and `ghPages` (every page up to a cap, and whether it was cut). `gh()` reads through them.
+- **`ask.mjs`**, **`explain.mjs`**, **`guard.mjs`**, **`hands.mjs`**, **`inbox.mjs`**, **`review.mjs`**,
+  **`scrub.mjs`**, **`stale.mjs`**, **`wake.mjs`**: their own REST call and hand-written pagers replaced
+  by the shared ones; each keeps its user-agent, token and page caps. `ask.mjs`, `explain.mjs` and
+  `inbox.mjs` are fetched alone by pin on some hosts, so `inbox.mjs` holds an exact copy for the three
+  (`test-inbox` checks the copy, and that the single-fetched sets import nothing outside themselves).
+- Behaviour changes: a refused call's error names the path without its query and quotes the first 300
+  characters of the answer, in every tool; `scrub` and `guard` take a success with an empty or non-JSON
+  body as a success (scrub could stop re-running failed checks after the first); `guard` takes any 2xx;
+  `gh()` returns an empty answer as `null`; `hands` and `inbox` read at most 20 and 50 pages (were 19, 49).
+- Tests: each tool's client is pinned (what it sends, how it answers and fails): 1,331 → 1,359 checks.
+
 ## 0.56.0 · 2026-11-22 · the chore lane is set in the profile, the variable only overrides it (K063)
 
 Opening the chore lane no longer needs a settings page. Nothing always-loaded changed.

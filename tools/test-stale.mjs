@@ -467,7 +467,7 @@ const res = (id) => audit.find((x) => x.id === id);
 ok(res('C15').result === 'PASS' && res('RJ02').result === 'PASS' && res('O10').result === 'PASS', `audit: C15 ${res('C15').result} (${res('C15').detail || res('C15').evidence || ''}), RJ02 ${res('RJ02').result}, O10 ${res('O10').result}`);
 rmSync(proj, { recursive: true, force: true });
 
-// --- its GitHub client, pinned before the clean-up that shares it (0.57.0): what it sends, how it answers
+// --- its GitHub client, pinned before the clean-up that shares it (0.56.1): what it sends, how it answers
 const pinServer = async () => {
   const seen = [];
   const s = createServer((q, res) => { let b = ''; q.on('data', (c) => { b += c; }); q.on('end', () => {

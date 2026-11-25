@@ -471,7 +471,7 @@ ok(job['timeout-minutes'] <= 3 && Object.entries(p).filter(([, v]) => v === 'wri
 ok(!/pull_request_target/.test(text) && /sparse-checkout: \.harness\/tools/.test(text) && /default_branch/.test(text) && /secrets\.WAKE_ROUTINE_TOKEN/.test(text), 'it never runs PR code: only the default branch\'s tools, and the token comes from a secret');
 ok(String(wf.on.schedule?.[0]?.cron || wf.on.schedule).includes('* * *') && wf.concurrency?.group === 'harness-wake', 'one daily backstop, one decision at a time');
 
-// its GitHub client, pinned before the clean-up that shares it (0.57.0)
+// its GitHub client, pinned before the clean-up that shares it (0.56.1)
 ok(ghHeads.filter((h) => h['user-agent'] === 'harness-wake').length > 50 && ghHeads.every((h) => h.authorization === 'Bearer t' && ['harness-wake', 'harness-stale'].includes(h['user-agent']) && h.accept === 'application/vnd.github+json'),
   'its GitHub client sends GH_TOKEN and its own user-agent (the backstop\'s stale-work read keeps the stale tool\'s)');
 

@@ -339,7 +339,7 @@ const hj = hw.jobs.wake, tok = hj.steps.find((x) => x.id === 'token').with;
 ok(Object.keys(hw.on).join() === 'workflow_dispatch' && /github\.ref == 'refs\/heads\/main'/.test(hj.if) && hj['timeout-minutes'] <= 3, 'hands-inbox runs only when dispatched, only from main, and is short');
 ok(/steps\.input\.outputs\.name/.test(tok.repositories) && tok['permission-issues'] === 'write' && tok['permission-pull-requests'] === 'write' && !Object.keys(tok).some((k) => /permission-(contents|administration|workflows)/.test(k)) && /only this owner/.test(hj.steps[0].run), 'its App token is for the one named repository of this owner, writes only comments, and the inputs are checked first');
 
-// --- its GitHub client, pinned before the clean-up that shares it (0.57.0): what it sends, how it answers
+// --- its GitHub client, pinned before the clean-up that shares it (0.56.1): what it sends, how it answers
 const pinServer = async () => {
   const seen = [];
   const s = createServer((q, res) => { let b = ''; q.on('data', (c) => { b += c; }); q.on('end', () => {

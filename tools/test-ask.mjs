@@ -152,7 +152,7 @@ ok(Object.keys(wf.on).join() === 'workflow_dispatch' && /github\.ref == 'refs\/h
 ok(/steps\.input\.outputs\.name/.test(tok.repositories) && tok['permission-issues'] === 'write' && tok['permission-pull-requests'] === 'write' && !Object.keys(tok).some((k) => /permission-(contents|administration|workflows|actions)/.test(k)) && /only this owner/.test(job.steps[0].run), 'its App token is for the one named repository of this owner and writes only comments; the inputs are checked first');
 ok(!/\$\{\{\s*inputs\./.test(job.steps.at(-1).run) && /--by "\$BY"/.test(job.steps.at(-1).run), 'the pressed values reach the tool only through the environment, never pasted into the script');
 
-// --- its GitHub client, pinned before the clean-up that shares it (0.57.0): what it sends, how it answers
+// --- its GitHub client, pinned before the clean-up that shares it (0.56.1): what it sends, how it answers
 const pinServer = async () => {
   const seen = [];
   const s = createServer((q, res) => { let b = ''; q.on('data', (c) => { b += c; }); q.on('end', () => {

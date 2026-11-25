@@ -374,7 +374,7 @@ ok(group(text).group === 'auto' && group(text).problem === null && /Cost \(O13\)
 const ownPath = join(ROOT, '.github/workflows/harness-review.yml');
 ok(existsSync(ownPath) && readFileSync(ownPath, 'utf8') === text, 'the kit\'s own harness-review workflow is the template, byte for byte');
 
-// --- its GitHub client, pinned before the clean-up that shares it (0.57.0): what it sends, how it answers
+// --- its GitHub client, pinned before the clean-up that shares it (0.56.1): what it sends, how it answers
 const pinServer = async () => {
   const seen = [];
   const s = createServer((q, res) => { let b = ''; q.on('data', (c) => { b += c; }); q.on('end', () => {
