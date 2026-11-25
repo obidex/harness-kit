@@ -404,6 +404,8 @@ const failure = async (f) => { try { await f(); return null; } catch (e) { retur
   const pager = (n) => async (m, path) => { const page = Number(new URL(path, 'http://x').searchParams.get('page')); return { list: Array.from({ length: Math.max(0, Math.min(100, n - (page - 1) * 100)) }, (_, i) => i) }; };
   ok((await pages(pager(250), '/l?x=1', 'list', 3)).length === 250 && (await pages(pager(300), '/l', 'list', 3)) === null && (await pages(pager(200), '/l', 'list', 3)).length === 200,
     'its pager reads every page up to the cap, and answers null rather than a list cut at the cap');
+  let asked = 0; const counted = async () => { asked++; return { list: [] }; };
+  ok((await pages(counted, '/l', 'list')) === null && asked === 0, 'with no cap given it reads nothing and answers null, as before the shared pager');
 }
 
 console.log(`test-review: OK · ${n} checks`);

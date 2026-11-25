@@ -282,7 +282,7 @@ export function verdict(msg) {
 export const REPO = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 /** Every item of a listing, or null when it is longer than `max` pages: the caller decides, never a
  *  partial list taken for whole. */
-export const pages = async (gh, path, key, max) => { const { items, cut } = await ghPages(gh, path, { key, max }); return cut ? null : items; };
+export const pages = async (gh, path, key, max = 0) => { const { items, cut } = await ghPages(gh, path, { key, max }); return cut ? null : items; };
 const file = async (gh, repo, path, ref) => { try { return await gh('GET', `/repos/${repo}/contents/${path.split('/').map(encodeURIComponent).join('/')}?ref=${encodeURIComponent(ref)}`, null, { accept: 'application/vnd.github.raw+json', raw: true }); } catch { return null; } };
 
 /** Review one finished pull-request workflow run. `gh(method, path, data, opts)` reaches GitHub,

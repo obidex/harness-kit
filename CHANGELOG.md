@@ -15,13 +15,16 @@ flag or exported name changed or went away (`lib.mjs` and `inbox.mjs` add `ghCal
   by the shared ones; each keeps its user-agent, token and page caps. `ask.mjs`, `explain.mjs` and
   `inbox.mjs` are fetched alone by pin on some hosts, so `inbox.mjs` holds an exact copy for the three
   (`test-inbox` checks the copy, and that the single-fetched sets import nothing outside themselves).
-- Behaviour changes: a refused call's error names the path without its query and quotes the first 300
-  characters of the answer, in every tool; `scrub` and `guard` take a success with an empty or non-JSON
-  body as a success (scrub could stop re-running failed checks after the first); `guard` takes any 2xx;
-  `gh()` returns an empty answer as `null`; a listing page that is not a list fails every pager (scrub's
-  and review's took a missing page as empty, guard's could pass on one); `hands` and `inbox` read at most
-  20 and 50 pages (were 19, 49).
-- Tests: each tool's client is pinned (what it sends, how it answers and fails): 1,331 → 1,360 checks.
+- Behaviour changes: a refused call's error names the path without its query, quotes the first 300
+  characters of the answer as sent (was 200 in review and wake, re-encoded JSON in most) and carries
+  `e.status`, in every tool; `scrub` and `guard` take a success with an empty or non-JSON body as a
+  success (scrub could stop re-running failed checks after the first); `scrub` sends no Authorization
+  header when GITHUB_TOKEN is unset or empty; `guard` takes any 2xx; `gh()` returns an empty answer as
+  `null`; a listing page that is not a list fails every pager (scrub's and review's took a missing page
+  as empty); each client takes an optional fourth argument `{ accept, raw }`, `ask.api` and
+  `explain.api` too. Page caps: hands reads at most 20 pages of pull requests and labels and 50 of
+  installed repositories, inbox 50 (the loops stopped at 19 and 49).
+- Tests: each tool's client is pinned (what it sends, how it answers and fails): 1,331 → 1,361 checks.
 
 ## 0.56.0 · 2026-11-22 · the chore lane is set in the profile, the variable only overrides it (K063)
 
