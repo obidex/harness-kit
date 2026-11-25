@@ -176,7 +176,7 @@ const failure = async (f) => { try { await f(); return null; } catch (e) { retur
   const [g, post, , , , anon] = p.seen; p.done();
   ok(got[0].a === 1 && got[1].a === 1 && got[2] === null && got[3] === 'plain', 'its GitHub client answers the parsed JSON, null for an empty answer and the text when it is not JSON');
   ok(g.h.authorization === 'Bearer PIN' && !anon.h.authorization && g.h['user-agent'] === 'harness-ask' && g.h.accept === 'application/vnd.github+json' && g.h['x-github-api-version'] === '2022-11-28' && !g.h['content-type'] && post.h['content-type'] === 'application/json' && JSON.parse(post.body).a === 1, 'it sends GH_TOKEN (nothing when unset), its own user-agent, and a JSON body only with data');
-  ok(e?.message === 'GET /no?page=2 answered 422: {"message":"no"}', 'a refused call throws, naming the method, the path and the status, with the start of the answer');
+  ok(e?.message === 'GET /no answered 422: {"message":"no"}' && e.status === 422, 'a refused call throws with its status, naming the method, the path without its query and the status, with the start of the answer');
 }
 
 console.log(`test-ask: OK · ${n} checks`);

@@ -61,6 +61,7 @@
 import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { ghClient, ghPages } from './lib.mjs';
 
 export const MARK = 'harness-review';
 export const MODEL = 'claude-sonnet-5-5', RISK_MODEL = 'claude-opus-5-5';
@@ -279,16 +280,9 @@ export function verdict(msg) {
 
 // --- one run ----------------------------------------------------------------------------------------
 export const REPO = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
-export const pages = async (gh, path, key, max) => {
-  const out = [];
-  for (let page = 1; page <= max; page++) {
-    const r = await gh('GET', `${path}${path.includes('?') ? '&' : '?'}per_page=100&page=${page}`);
-    const l = key ? r?.[key] || [] : r || [];
-    out.push(...l);
-    if (l.length < 100) return out;
-  }
-  return null;   // more than max pages: the caller decides, never a partial list taken for whole
-};
+/** Every item of a listing, or null when it is longer than `max` pages: the caller decides, never a
+ *  partial list taken for whole. */
+export const pages = async (gh, path, key, max) => { const { items, cut } = await ghPages(gh, path, { key, max }); return cut ? null : items; };
 const file = async (gh, repo, path, ref) => { try { return await gh('GET', `/repos/${repo}/contents/${path.split('/').map(encodeURIComponent).join('/')}?ref=${encodeURIComponent(ref)}`, null, { accept: 'application/vnd.github.raw+json', raw: true }); } catch { return null; } };
 
 /** Review one finished pull-request workflow run. `gh(method, path, data, opts)` reaches GitHub,
@@ -392,18 +386,8 @@ export async function review({ gh, ask, repo, run, env = {}, now = () => Date.no
 }
 
 // --- GitHub and the API -----------------------------------------------------------------------------
-export async function github(method, path, data, { accept, raw } = {}) {
-  const r = await fetch(`${process.env.GITHUB_API_URL || 'https://api.github.com'}${path}`, {
-    method,
-    headers: { accept: accept || 'application/vnd.github+json', 'x-github-api-version': '2022-11-28', 'user-agent': 'harness-review',
-      ...(process.env.GH_TOKEN ? { authorization: `Bearer ${process.env.GH_TOKEN}` } : {}), ...(data ? { 'content-type': 'application/json' } : {}) },
-    body: data ? JSON.stringify(data) : undefined,
-  });
-  const text = await r.text();
-  if (r.status < 200 || r.status > 299) throw new Error(`${method} ${path.split('?')[0]} answered ${r.status}: ${text.slice(0, 200)}`);
-  if (raw) return text;
-  try { return text ? JSON.parse(text) : null; } catch { return text; }
-}
+/** GitHub with GH_TOKEN: `(method, path, data, { accept, raw })`, throws on any answer but 2xx. */
+export const github = ghClient('harness-review');
 const ID = { rule: /^fdrl_[A-Za-z0-9]+$/, org: /^[0-9a-f-]{36}$/, account: /^svac_[A-Za-z0-9]+$/, workspace: /^wrkspc_[A-Za-z0-9]+$/ };
 /** The four identifiers, checked for shape (they travel in a request body, never in a URL). */
 export function identifiers(env) {

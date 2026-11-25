@@ -9,6 +9,8 @@ import { join } from 'node:path';
 import { readFileSync } from 'node:fs';
 import { body, parse, setField, tokenOwner, handoffLine, sourceOf, requests } from '../.harness/tools/inbox.mjs';
 import { parseYaml } from '../.harness/tools/lib.mjs';
+import * as kitLib from '../.harness/tools/lib.mjs';
+import * as inboxLib from '../.harness/tools/inbox.mjs';
 
 let n = 0;
 const ok = (cond, what) => { n++; if (!cond) { console.log(`test-inbox: FAIL ${n}. ${what}`); process.exit(1); } console.log(`test-inbox: ok ${n}. ${what}`); };
@@ -361,7 +363,14 @@ const failure = async (f) => { try { await f(); return null; } catch (e) { retur
   const [g, , anon] = p.seen; p.done();
   ok(Array.isArray(none) && !none.length && g.h.authorization === 'Bearer PIN' && !anon.h.authorization && g.h['user-agent'] === 'harness-inbox' && g.h.accept === 'application/vnd.github+json' && !g.h['content-type'],
     'its GitHub client sends GH_TOKEN (nothing when unset) and its own user-agent');
-  ok(e?.message === 'GET /repos/o/no/issues?labels=inbox&state=all&per_page=100&page=1 answered 422: {"message":"no"}', 'a refused call throws, naming the method, the path and the status, with the start of the answer');
+  ok(e?.message === 'GET /repos/o/no/issues answered 422: {"message":"no"}' && e.status === 422, 'a refused call throws with its status, naming the method, the path without its query and the status, with the start of the answer');
+  ok(['ghCall', 'ghClient', 'ghPages'].every((k) => typeof inboxLib[k] === 'function' && String(inboxLib[k]) === String(kitLib[k])),
+    'its GitHub client is an exact copy of lib.mjs\'s: the files a host fetches alone (this one, ask.mjs, explain.mjs) need no lib.mjs');
+  // what hosts fetch by pin, without the rest of the folder: each set imports only from itself
+  const kitImports = (f) => [...readFileSync(join(new URL('..', import.meta.url).pathname, '.harness/tools', f), 'utf8').matchAll(/^import [^;]* from '\.\/([\w-]+\.mjs)';$/gm)].map((m) => m[1]);
+  const sets = [['panel.mjs', 'notify.mjs', 'ask.mjs', 'inbox.mjs', 'explain.mjs'], ['notify.mjs'], ['metrics.mjs']];
+  ok(kitImports('ask.mjs').includes('inbox.mjs') && sets.every((set) => set.every((f) => kitImports(f).every((g) => set.includes(g)))),
+    'the files hosts fetch alone import nothing outside their set: panel, notify, ask, inbox and explain; notify alone; metrics alone');
 }
 
 console.log(`test-inbox: OK · ${n} checks`);

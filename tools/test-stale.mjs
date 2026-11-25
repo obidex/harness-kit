@@ -490,7 +490,7 @@ const failure = async (f) => { try { await f(); return null; } catch (e) { retur
   const [g] = p.seen; p.done();
   ok(Array.isArray(none) && !none.length && p.seen.length >= 2 && p.seen.slice(0, -1).every((c) => c.h.authorization === 'Bearer PIN' && c.h['user-agent'] === 'harness-stale' && /per_page=100&page=1$/.test(c.url)) && g.h.accept === 'application/vnd.github+json',
     'its GitHub client sends GH_TOKEN and its own user-agent, and pages each listing');
-  ok(/^GET \/repos\/o\/no\/(pulls|issues)\?state=open&per_page=100&page=1 answered 422: \{"message":"no"\}$/.test(e?.message), 'a refused call throws, naming the method, the path and the status, with the start of the answer');
+  ok(/^GET \/repos\/o\/no\/(pulls|issues) answered 422: \{"message":"no"\}$/.test(e?.message) && e.status === 422, 'a refused call throws with its status, naming the method, the path without its query and the status, with the start of the answer');
 }
 
 console.log(`test-stale: OK · ${n} checks`);

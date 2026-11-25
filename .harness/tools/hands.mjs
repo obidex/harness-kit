@@ -34,7 +34,7 @@
 import { readFileSync, existsSync, readdirSync, appendFileSync, writeFileSync, mkdirSync, rmSync, lstatSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { validateSchema, parseYaml, triggers, plainValueProblems } from './lib.mjs';
+import { validateSchema, parseYaml, triggers, plainValueProblems, ghCall, ghClient, ghPages } from './lib.mjs';
 
 export const SETTINGS_PATH = '.github/harness-settings.json';
 /** True when HANDS_PAUSED names the repository or is `*`. */
@@ -260,12 +260,7 @@ const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 /** One repository: every open kit update PR of the App's, each behind one updated. */
 async function keepRepo(repo, opts, log) {
   let seen = 0, updated = 0;
-  const open = [];
-  for (let page = 1; page < 20; page++) {
-    const l = await must('GET', `/repos/${repo}/pulls?state=open&per_page=100&page=${page}`);
-    open.push(...l);
-    if (l.length < 100) break;
-  }
+  const { items: open } = await ghPages(must, `/repos/${repo}/pulls?state=open`, { max: 20 });
   for (const listed of open) {
     if (!watched(keepAction({ ...listed, mergeable_state: 'unknown' }, opts))) continue;
     // the list leaves out mergeable_state; GitHub works it out on the first read of the PR itself
@@ -284,39 +279,23 @@ async function keepRepo(repo, opts, log) {
 }
 
 // --- GitHub ---------------------------------------------------------------------------------------
+// the drift check holds a token that could write; the tool refuses to (K008)
+const writable = (method, path) => { if (process.env.HANDS_READ_ONLY && method !== 'GET') throw new Error(`refused ${method} ${path}: HANDS_READ_ONLY is set`); };
+/** One call that never throws on an HTTP answer: `{ status, data }`. */
 export async function api(method, path, body) {
-  // the drift check holds a token that could write; the tool refuses to (K008)
-  if (process.env.HANDS_READ_ONLY && method !== 'GET') throw new Error(`refused ${method} ${path}: HANDS_READ_ONLY is set`);
-  const r = await fetch(`${process.env.GITHUB_API_URL || 'https://api.github.com'}${path}`, {
-    method,
-    headers: {
-      accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28', 'user-agent': 'harness-hands',
-      ...(process.env.GH_TOKEN ? { authorization: `Bearer ${process.env.GH_TOKEN}` } : {}),
-      ...(body ? { 'content-type': 'application/json' } : {}),
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  const text = await r.text();
-  let data = null;
-  try { data = text ? JSON.parse(text) : null; } catch { data = text; }
-  return { status: r.status, data };
+  writable(method, path);
+  const { status, data } = await ghCall(method, path, body, { agent: 'harness-hands', token: process.env.GH_TOKEN });
+  return { status, data };
 }
-const must = async (method, path, body) => {
-  const r = await api(method, path, body);
-  if (r.status < 200 || r.status > 299) throw new Error(`${method} ${path} answered ${r.status}: ${JSON.stringify(r.data).slice(0, 300)}`);
-  return r.data;
-};
+const client = ghClient('harness-hands');
+/** One call that must succeed: its data, or it throws. */
+const must = async (method, path, body) => { writable(method, path); return client(method, path, body); };
 
 async function liveState(repo, { interaction = true } = {}) {
   const repository = await must('GET', `/repos/${repo}`);
   const list = await must('GET', `/repos/${repo}/rulesets?per_page=100`);
   const rulesets = await Promise.all(list.filter((r) => r.source_type !== 'Organization').map((r) => must('GET', `/repos/${repo}/rulesets/${r.id}`)));
-  const labels = [];
-  for (let page = 1; page < 20; page++) {
-    const l = await must('GET', `/repos/${repo}/labels?per_page=100&page=${page}`);
-    labels.push(...l);
-    if (l.length < 100) break;
-  }
+  const { items: labels } = await ghPages(must, `/repos/${repo}/labels`, { max: 20 });
   // read only when the file names them, so a repository without them needs no extra access;
   // GitHub answers {} (or 204) when no limit is set
   let interaction_limits = {};
@@ -350,12 +329,7 @@ async function planRepo(repo, text) {
 
 /** The App's repositories that carry a settings file or a kit lock. */
 async function discover() {
-  const repos = [];
-  for (let page = 1; page < 50; page++) {
-    const r = await must('GET', `/installation/repositories?per_page=100&page=${page}`);
-    repos.push(...r.repositories);
-    if (r.repositories.length < 100) break;
-  }
+  const { items: repos } = await ghPages(must, '/installation/repositories', { max: 50, key: 'repositories' });
   const out = [];
   for (const r of repos.filter((x) => !x.archived)) {
     const [settings, kit] = await Promise.all([api('GET', `/repos/${r.full_name}/contents/${SETTINGS_PATH}`), api('GET', `/repos/${r.full_name}/contents/.harness/kit.lock.json`)]);
