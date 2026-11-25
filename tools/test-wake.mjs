@@ -117,6 +117,7 @@ const issues = new Map();   // number -> { number, state, labels: [names], body,
 const fires = [];
 let rival = null, rivalBefore = false, rivalShift = 0;   // rival: a second start's receipt (or a function of the hand-off's comment giving it), written right after the next hand-off receipt (rivalBefore: dated just before it; rivalShift: dated this many ms after it)
 let lateHandoff = null, lateFailed = false;   // K064: ms: a hand-off's claim and receipt, dated this long before the job's next receipt, land while the job decides (lateFailed: and its start is released with --failed before the job's receipt)
+let listDown = 0;   // 1: the repository comment listing fails from the job's next receipt on; 2: failing now
 let taskFile = null;   // the receiving repository's .github/wake.json, when it has one
 let fireStatus = 200;
 const labelEvents = [];   // `<issue>:<label>` for each label GitHub would send a `labeled` event for
@@ -140,6 +141,7 @@ const srv = createServer((q, res) => {
       return send(200, l.map(view));
     }
     if (u.pathname === '/repos/o/r/issues' && q.method === 'POST') { const j = JSON.parse(data); const i = add({ number: Math.max(0, ...issues.keys()) + 1, body: j.body, labels: j.labels, user: bot }); return send(201, view(i)); }
+    if (u.pathname === '/repos/o/r/issues/comments' && listDown === 2) return send(500, { message: 'listing down' });
     if (u.pathname === '/repos/o/r/issues/comments') return send(200, u.searchParams.get('page') === '1' && u.searchParams.get('since') ? [...issues.values()].flatMap((i) => i.comments).sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at)).slice(0, hideNewest ? -1 : undefined).filter((c) => { if (hideUsedOnce !== 2) return true; return !c.body.startsWith(USED_MARK); }).concat((hideUsedOnce === 2 ? (hideUsedOnce = 0, []) : [])) : []);
     if (u.pathname === `/repos/o/r/contents/${RUN_TASK_FILE}`) return taskFile == null ? send(404, {}) : send(200, { content: Buffer.from(taskFile).toString('base64') });
     if (u.pathname === '/repos/o/r/pulls' || u.pathname.startsWith('/repos/o/r/commits')) return send(200, []);
@@ -147,7 +149,7 @@ const srv = createServer((q, res) => {
     const i = m && issues.get(Number(m[1]));
     if (!i) return send(404, {});
     if (m[2] === '/comments' && q.method === 'GET') return send(200, u.searchParams.get('page') === '1' ? i.comments : []);
-    if (m[2] === '/comments') { const body = JSON.parse(data).body; if (lateHandoff != null && body.startsWith(FIRE_MARK)) { const seen = Math.max(0, ...[...issues.values()].flatMap((x) => x.comments).filter((x) => x.body.startsWith(FIRE_MARK) || x.body.startsWith(HANDOFF_MARK)).map((x) => x.id)); i.labels = [...new Set([...i.labels, CLAIM])]; i.comments.push({ id: ++commentId, user: { login: 'owner', type: 'User' }, author_association: 'OWNER', body: `${HANDOFF_MARK}${JSON.stringify({ issue: 41, via: 'handoff', from: 'o/sender', seen, rule: HANDOFF_RULE })} -->\nStarting a run from inside.`, created_at: new Date(Date.now() - lateHandoff).toISOString() }); if (lateFailed) { const hid = commentId; i.comments.push({ id: ++commentId, user: { login: 'owner', type: 'User' }, author_association: 'OWNER', body: `${HANDOFF_FAIL_MARK}<!-- released ${JSON.stringify({ id: hid })} -->\nNot started from inside.`, created_at: new Date(Date.now() - 1000).toISOString() }); } lateHandoff = null; lateFailed = false; } if (raceUsed && body.startsWith(USED_MARK)) i.comments.push({ id: ++commentId, user: bot, body, created_at: new Date(Date.now() - 1).toISOString() }); const c = { id: ++commentId, user: bot, author_association: 'OWNER', ...(postAs || {}), body, created_at: new Date().toISOString() }; i.comments.push(c); if (hideUsedOnce === 1 && body.startsWith(USED_MARK)) hideUsedOnce = 2; if (rival && body.startsWith(HANDOFF_MARK)) { i.comments.push({ ...c, id: ++commentId, body: typeof rival === 'function' ? rival(c) : rival, ...(rivalBefore ? { created_at: new Date(Date.parse(c.created_at) - 1).toISOString() } : rivalShift ? { created_at: new Date(Date.parse(c.created_at) + rivalShift).toISOString() } : {}) }); rival = null; } return send(201, c); }
+    if (m[2] === '/comments') { const body = JSON.parse(data).body; if (listDown === 1 && body.startsWith(FIRE_MARK)) listDown = 2; if (lateHandoff != null && body.startsWith(FIRE_MARK)) { const seen = Math.max(0, ...[...issues.values()].flatMap((x) => x.comments).filter((x) => x.body.startsWith(FIRE_MARK) || x.body.startsWith(HANDOFF_MARK)).map((x) => x.id)); i.labels = [...new Set([...i.labels, CLAIM])]; i.comments.push({ id: ++commentId, user: { login: 'owner', type: 'User' }, author_association: 'OWNER', body: `${HANDOFF_MARK}${JSON.stringify({ issue: 41, via: 'handoff', from: 'o/sender', seen, rule: HANDOFF_RULE })} -->\nStarting a run from inside.`, created_at: new Date(Date.now() - lateHandoff).toISOString() }); if (lateFailed) { const hid = commentId; i.comments.push({ id: ++commentId, user: { login: 'owner', type: 'User' }, author_association: 'OWNER', body: `${HANDOFF_FAIL_MARK}<!-- released ${JSON.stringify({ id: hid })} -->\nNot started from inside.`, created_at: new Date(Date.now() - 1000).toISOString() }); } lateHandoff = null; lateFailed = false; } if (raceUsed && body.startsWith(USED_MARK)) i.comments.push({ id: ++commentId, user: bot, body, created_at: new Date(Date.now() - 1).toISOString() }); const c = { id: ++commentId, user: bot, author_association: 'OWNER', ...(postAs || {}), body, created_at: new Date().toISOString() }; i.comments.push(c); if (hideUsedOnce === 1 && body.startsWith(USED_MARK)) hideUsedOnce = 2; if (rival && body.startsWith(HANDOFF_MARK)) { i.comments.push({ ...c, id: ++commentId, body: typeof rival === 'function' ? rival(c) : rival, ...(rivalBefore ? { created_at: new Date(Date.parse(c.created_at) - 1).toISOString() } : rivalShift ? { created_at: new Date(Date.parse(c.created_at) + rivalShift).toISOString() } : {}) }); rival = null; } return send(201, c); }
     if (m[2]?.startsWith('/labels') && q.method === 'DELETE') { if (!i.labels.includes(m[3])) return send(404, {}); if (m[3] === CLAIM) failAtUnclaim = i.comments.some((c) => c.body.startsWith(FAIL_MARK)); i.labels = i.labels.filter((x) => x !== m[3]); return send(200, []); }
     if (m[2]?.startsWith('/labels')) { if (labelsRefused === 'error') return send(500, {}); if (labelsRefused === 'lost') { i.labels = [...new Set([...i.labels, ...JSON.parse(data).labels])]; return send(500, {}); } if (labelsRefused) return send(200, []); const add = JSON.parse(data).labels; labelEvents.push(...add.filter((x) => !i.labels.includes(x)).map((x) => `${i.number}:${x}`)); if (add.includes(CLAIM)) receiptAtClaim = i.comments.filter((c) => c.body.startsWith(FIRE_MARK)).length; i.labels = [...new Set([...i.labels, ...add])]; return send(200, i.labels.map((name) => ({ name }))); }
     if (q.method === 'PATCH') { const j = JSON.parse(data); if (j.state) i.state = j.state; if (j.labels) i.labels = j.labels; return send(200, view(i)); }
@@ -357,6 +359,22 @@ ok(r8.code === 0 && /rests/.test(r8.out) && st.labels.includes(BACKSTOP_OFF) && 
     const released = await fire('labeled', 40, WAKE);
     ok(released.code === 0 && !/backed off/.test(released.out) && fires.length === before + 1 && !st.comments.some((c) => c.body.startsWith(BACKOFF_MARK)),
       '/fire (K064): a hand-off start released before the job\'s receipt keeps nothing: the job starts its run');
+    // the receipts cannot be read back after the job's receipt: it may hide a hand-off that kept its start, so the
+    // job fails closed: no call, its receipt marked failed, the claim left as it is, the job red
+    st.labels = []; st.comments = []; issues.get(40).comments = [];
+    lateHandoff = HANDOFF_SETTLE_MS + 2000; listDown = 1;
+    const blind = await fire('labeled', 40, WAKE, { WAKE_REREAD_MS: '1' });
+    listDown = 0;
+    const blindL = ledger(st.comments);
+    ok(blind.code === 1 && fires.length === before + 1 && st.labels.includes(CLAIM) && blindL.at(-1).kind === 'fail' && failStreak(blindL) === 1 && /could not be read back/.test(issues.get(40).comments.at(-1).body) && issues.get(40).labels.includes(WAKE),
+      '/fire (K064): a job that cannot read the receipts back after its own fails closed: no call to the task, its receipt marked failed, the claim left alone, the wake label kept');
+    st.labels = []; st.comments = []; issues.get(40).comments = [];
+    lateHandoff = HANDOFF_SETTLE_MS + 2000; listDown = 1;
+    const at2 = labelEvents.length;
+    const blindLabel = await fire('labeled', 40, WAKE, { ...LABEL, WAKE_REREAD_MS: '1' });
+    listDown = 0;
+    ok(blindLabel.code === 1 && labelEvents.length === at2 && (await started()).code === 4,
+      'label start (K064): the same blind read-back sets no claim label, and the run the hand-off\'s claim began is refused');
     st.labels = []; st.comments = []; issues.get(40).comments = []; issues.get(40).labels = [WAKE];
   }
   ok((await fire('labeled', 40, WAKE, { ...LABEL, WAKE_START: 'yes' })).code === 1, 'any other value of WAKE_START still needs the /fire URL and token');

@@ -14,7 +14,8 @@ Nothing always-loaded changed.
   receipt), unless the hand-off released that start first (`--failed` now names the receipt it
   releases). A hand-off reads the receipts 10 s after its own (was 8 s), because GitHub gives comment
   times in whole seconds. Then the job backs off in both start modes: no claim touched, no label, no call, a
-  `<!-- wake-backoff -->` note, and its receipt still counts. `keepsStart` yields to a job receipt only
+  `<!-- wake-backoff -->` note, and its receipt still counts. A job that cannot read the receipts back
+  (three tries) fails closed: its receipt marked failed, no start, the claim left as it is. `keepsStart` yields to a job receipt only
   when that job does not back off; `started` refuses the run a backed-off receipt could begin; `--failed`
   still releases such a hand-off start. Receipts from earlier versions behave as before.
 - **`wake.md`**: "The job and a hand-off: one rule (K064)".

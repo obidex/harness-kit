@@ -133,7 +133,9 @@ yields as above. GitHub gives a comment's time in whole seconds, so the hand-off
 settle time: every receipt the rule makes it yield to exists by then. A start the hand-off released
 (`--failed`, whose mark names the receipt) before the job's receipt keeps nothing. The job applies the
 same rule right after writing its receipt: when a hand-off keeps the run, the job backs off. It touches no claim, starts nothing, notes it on the STATE issue, and the
-`wake` label waits for that run; its receipt still counts in the caps. `wake.mjs started` judges by the
+`wake` label waits for that run; its receipt still counts in the caps. A job that cannot read the
+receipts back (three tries) fails closed: its receipt is marked failed, it starts nothing and leaves
+the claim as it is. `wake.mjs started` judges by the
 same rule from the receipts alone, so the run a backed-off receipt could begin is refused even before
 the job's note lands. Receipts from before K064 never make the job back off: such pairs behave as
 before.

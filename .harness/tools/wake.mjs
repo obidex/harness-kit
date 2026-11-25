@@ -424,9 +424,20 @@ async function runFire(repo, { event, issue, label }) {
   // receipt is no start. The job touches no claim (it is that run's), starts nothing, and the wake waits for that run.
   const backedOff = async (mine) => {
     const me = { kind: 'fire', via: d.via, id: mine?.id ?? null, at: Date.parse(mine?.created_at), seen };
-    let keeper = null;
-    try { const all = await receipts(repo); keeper = all.find((e) => jobBacksOff(e, me, all)) || null; }
-    catch (e) { console.log(`wake: the receipts could not be read back (${String(e.message).slice(0, 120)}); starting as decided`); }
+    let keeper = null, all = null, err = null;
+    for (let i = 0; i < 3 && !all; i++) {
+      try { all = await receipts(repo); } catch (e) { err = e; await new Promise((ok) => setTimeout(ok, Number(process.env.WAKE_REREAD_MS ?? 2000))); }
+    }
+    if (!all) {
+      // fail closed: unread receipts may hide a hand-off that already started its run, so nothing starts here.
+      // The receipt is marked failed (counted, and `started` refuses a run on it); the claim is left as it is,
+      // since it may be that hand-off's run's; at worst a start waits (the wake label stays), never two runs
+      const why = `the receipts could not be read back after this receipt (${String(err?.message).slice(0, 120)})`;
+      await comment(repo, s.st.number, `${FAIL_MARK}\nNot started: ${why}.`).catch(() => {});
+      if (d.target != null) await comment(repo, d.target, `No coordinator run started: ${why}. The \`${WAKE}\` label stays; the next event or the daily backstop tries again.`).catch(() => {});
+      throw new Error(why);
+    }
+    keeper = all.find((e) => jobBacksOff(e, me, all)) || null;
     if (!keeper) return false;
     await comment(repo, s.st.number, `${BACKOFF_MARK}\nNo run started by this receipt: a hand-off from another project${keeper.issue != null ? ` for #${keeper.issue}` : ''}, written before it and not read when this decision was made, keeps the run (K064). That run reads the \`${WAKE}\` queue; this receipt still counts in the caps.`).catch(() => {});
     if (d.target != null) await comment(repo, d.target, `No coordinator run started by this wake: a run another project started is on, and it reads the \`${WAKE}\` queue. The label stays.`).catch(() => {});
