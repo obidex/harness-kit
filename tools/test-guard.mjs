@@ -124,7 +124,7 @@ ok(r.code === 1 && /--wait must be/.test(r.stdout + r.stderr), 'pr-body: a non-n
 ok(heads.length > 10 && heads.every((h) => h.authorization === 'Bearer t' && h['user-agent'] === 'harness-guard' && h.accept === 'application/vnd.github+json'), 'its GitHub client sends GH_TOKEN and its own user-agent');
 r = await new Promise((done) => execFile(process.execPath, [join(kit, '.harness/tools/guard.mjs'), 'agent-config', '--repo', 'o/r', '--pr', '404', '--profile', profile],
   { env: { ...process.env, GITHUB_API_URL: `http://127.0.0.1:${srv.address().port}`, GH_TOKEN: 't', GITHUB_STEP_SUMMARY: '' } }, (err, stdout, stderr) => done({ code: err ? err.code : 0, stdout, stderr })));
-ok(r.code === 1 && /^guard: GET \/repos\/o\/r\/pulls\/404 answered 404$/m.test(r.stderr), 'a refused call fails the check, naming the method, the path and the status');
+ok(r.code === 1 && /^guard: GET \/repos\/o\/r\/pulls\/404 answered 404: \{\}$/m.test(r.stderr), 'a refused call fails the check, naming the method, the path and the status, with the start of the answer');
 srv.close();
 
 // --- the template ------------------------------------------------------------------------------------
