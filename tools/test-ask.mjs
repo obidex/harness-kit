@@ -152,4 +152,31 @@ ok(Object.keys(wf.on).join() === 'workflow_dispatch' && /github\.ref == 'refs\/h
 ok(/steps\.input\.outputs\.name/.test(tok.repositories) && tok['permission-issues'] === 'write' && tok['permission-pull-requests'] === 'write' && !Object.keys(tok).some((k) => /permission-(contents|administration|workflows|actions)/.test(k)) && /only this owner/.test(job.steps[0].run), 'its App token is for the one named repository of this owner and writes only comments; the inputs are checked first');
 ok(!/\$\{\{\s*inputs\./.test(job.steps.at(-1).run) && /--by "\$BY"/.test(job.steps.at(-1).run), 'the pressed values reach the tool only through the environment, never pasted into the script');
 
+// --- its GitHub client, pinned before the clean-up that shares it (0.57.0): what it sends, how it answers
+const pinServer = async () => {
+  const seen = [];
+  const s = createServer((q, res) => { let b = ''; q.on('data', (c) => { b += c; }); q.on('end', () => {
+    seen.push({ method: q.method, url: q.url, h: q.headers, body: b });
+    const p = q.url.split('?')[0];
+    const [code, text] = p.includes('/no') ? [422, '{"message":"no"}'] : p === '/empty' ? [200, ''] : p === '/text' ? [200, 'plain'] : p.startsWith('/repos/') ? [200, '[]'] : [200, '{"a":1}'];
+    res.writeHead(code); res.end(text);
+  }); });
+  await new Promise((d) => s.listen(0, '127.0.0.1', d));
+  const was = { GITHUB_API_URL: process.env.GITHUB_API_URL, GH_TOKEN: process.env.GH_TOKEN, GITHUB_TOKEN: process.env.GITHUB_TOKEN };
+  process.env.GITHUB_API_URL = `http://127.0.0.1:${s.address().port}`;
+  return { seen, done: () => { s.close(); for (const [k, v] of Object.entries(was)) if (v === undefined) delete process.env[k]; else process.env[k] = v; } };
+};
+const failure = async (f) => { try { await f(); return null; } catch (e) { return e; } };
+{
+  const p = await pinServer();
+  process.env.GH_TOKEN = 'PIN';
+  const got = [await api('GET', '/x'), await api('POST', '/x', { a: 1 }), await api('GET', '/empty'), await api('GET', '/text')];
+  const e = await failure(() => api('GET', '/no?page=2'));
+  delete process.env.GH_TOKEN; await api('GET', '/x');
+  const [g, post, , , , anon] = p.seen; p.done();
+  ok(got[0].a === 1 && got[1].a === 1 && got[2] === null && got[3] === 'plain', 'its GitHub client answers the parsed JSON, null for an empty answer and the text when it is not JSON');
+  ok(g.h.authorization === 'Bearer PIN' && !anon.h.authorization && g.h['user-agent'] === 'harness-ask' && g.h.accept === 'application/vnd.github+json' && g.h['x-github-api-version'] === '2022-11-28' && !g.h['content-type'] && post.h['content-type'] === 'application/json' && JSON.parse(post.body).a === 1, 'it sends GH_TOKEN (nothing when unset), its own user-agent, and a JSON body only with data');
+  ok(e?.message === 'GET /no?page=2 answered 422: {"message":"no"}', 'a refused call throws, naming the method, the path and the status, with the start of the answer');
+}
+
 console.log(`test-ask: OK · ${n} checks`);

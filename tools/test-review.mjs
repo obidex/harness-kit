@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { readFileSync, writeFileSync, mkdtempSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { glob, highRisk, docsOnly, pick, cost, worstCase, capOf, runUsd, record, plain, body, spent, checks, question, verdict, review, identifiers, exchange, asker, switchOf, SWITCH_DAYS, settingsOf, settingsText, SETTINGS, SETTING_VARS,
-  MARK, MODEL, RISK_MODEL, PRICES, DAILY_USD, DAILY_CAP, MAX_DIFF, MAX_FILES, MAX_ANSWER, MAX_OUT, MAX_RULES, WAIT_MS, POLL_MS } from '../.harness/tools/review.mjs';
+  github, pages, MARK, MODEL, RISK_MODEL, PRICES, DAILY_USD, DAILY_CAP, MAX_DIFF, MAX_FILES, MAX_ANSWER, MAX_OUT, MAX_RULES, WAIT_MS, POLL_MS } from '../.harness/tools/review.mjs';
 import { parseYaml, renderLane } from '../.harness/tools/lib.mjs';
 import { verdict as group } from '../.harness/tools/actions.mjs';
 
@@ -373,5 +373,37 @@ ok(group(text).group === 'auto' && group(text).problem === null && /Cost \(O13\)
 // the kit reviews its own pull requests with the same file
 const ownPath = join(ROOT, '.github/workflows/harness-review.yml');
 ok(existsSync(ownPath) && readFileSync(ownPath, 'utf8') === text, 'the kit\'s own harness-review workflow is the template, byte for byte');
+
+// --- its GitHub client, pinned before the clean-up that shares it (0.57.0): what it sends, how it answers
+const pinServer = async () => {
+  const seen = [];
+  const s = createServer((q, res) => { let b = ''; q.on('data', (c) => { b += c; }); q.on('end', () => {
+    seen.push({ method: q.method, url: q.url, h: q.headers, body: b });
+    const p = q.url.split('?')[0];
+    const [code, text] = p.includes('/no') ? [422, '{"message":"no"}'] : p === '/empty' ? [200, ''] : p === '/text' ? [200, 'plain'] : p.startsWith('/repos/') ? [200, '[]'] : [200, '{"a":1}'];
+    res.writeHead(code); res.end(text);
+  }); });
+  await new Promise((d) => s.listen(0, '127.0.0.1', d));
+  const was = { GITHUB_API_URL: process.env.GITHUB_API_URL, GH_TOKEN: process.env.GH_TOKEN, GITHUB_TOKEN: process.env.GITHUB_TOKEN };
+  process.env.GITHUB_API_URL = `http://127.0.0.1:${s.address().port}`;
+  return { seen, done: () => { s.close(); for (const [k, v] of Object.entries(was)) if (v === undefined) delete process.env[k]; else process.env[k] = v; } };
+};
+const failure = async (f) => { try { await f(); return null; } catch (e) { return e; } };
+{
+  const p = await pinServer();
+  process.env.GH_TOKEN = 'PIN';
+  const got = [await github('GET', '/x'), await github('POST', '/x', { a: 1 }), await github('GET', '/empty'), await github('GET', '/text'), await github('GET', '/x', null, { accept: 'application/vnd.github.diff', raw: true })];
+  const e = await failure(() => github('GET', '/no?page=2'));
+  delete process.env.GH_TOKEN; await github('GET', '/x');
+  const [g, post, , , diff, , anon] = p.seen; p.done();
+  ok(got[0].a === 1 && got[1].a === 1 && got[2] === null && got[3] === 'plain' && got[4] === '{"a":1}' && diff.h.accept === 'application/vnd.github.diff' && g.h.accept === 'application/vnd.github+json',
+    'its GitHub client answers the parsed JSON (null when empty, the text when not JSON), or the raw text in the format asked for');
+  ok(g.h.authorization === 'Bearer PIN' && !anon.h.authorization && g.h['user-agent'] === 'harness-review' && !g.h['content-type'] && post.h['content-type'] === 'application/json' && JSON.parse(post.body).a === 1,
+    'it sends GH_TOKEN (nothing when unset), its own user-agent, and a JSON body only with data');
+  ok(e?.message === 'GET /no answered 422: {"message":"no"}', 'a refused call throws, naming the method, the path without its query and the status, with the start of the answer');
+  const pager = (n) => async (m, path) => { const page = Number(new URL(path, 'http://x').searchParams.get('page')); return { list: Array.from({ length: Math.max(0, Math.min(100, n - (page - 1) * 100)) }, (_, i) => i) }; };
+  ok((await pages(pager(250), '/l?x=1', 'list', 3)).length === 250 && (await pages(pager(300), '/l', 'list', 3)) === null && (await pages(pager(200), '/l', 'list', 3)).length === 200,
+    'its pager reads every page up to the cap, and answers null rather than a list cut at the cap');
+}
 
 console.log(`test-review: OK · ${n} checks`);
