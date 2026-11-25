@@ -114,8 +114,11 @@ A repository whose coordinator keeps its STATE issue by hand is read through the
 `coordinator-state`; one with no STATE issue gets `NOTHING`.
 
 **Counts and stops.** A hand-off receipt counts as a run in every cap, and its failed start as a
-failed start, when its author may write to the repository (owner, member or collaborator); a
-stranger's comment counts for nothing. A hand-off sets no stop and lifts none, `backstop-off`
+failed start, when its author may write to the repository; a stranger's comment counts for nothing.
+"May write" is read from GitHub, not from the comment (K065): the owner counts; a member of the owning
+organization or a collaborator counts only when the collaborator permission endpoint gives write,
+maintain or admin (read once per author; a read that fails stops the decision, as a cut-off listing
+does). A member or an outside collaborator who may only read or triage counts for nothing. A hand-off sets no stop and lifts none, `backstop-off`
 included (only a run the job fires re-arms the backstop): paused, stopped or capped, it queues. It
 is an outside wake, so it ends a chain of runs that only started each other. No timer is added: a
 hand-off happens at the moment work changes hands, or not at all.
@@ -231,7 +234,7 @@ What differs from `/fire`:
   started` passes only when the job's newest receipt is a start at most 15 minutes old, the claim
   sits on the STATE issue, and no run has taken that start yet (its "Run started" comment; of two
   runs racing, the older comment wins; only a comment from an account that may write to the
-  repository counts, so a stranger's comment refuses nothing). The command needs a token that may
+  repository counts, read as for a hand-off (K065), so a stranger's comment refuses nothing). The command needs a token that may
   comment. So one receipt is one working run, also when the claim is
   put back inside the 15 minutes. A forged claim costs one session that ends in seconds, and it blocks
   further runs like any claim until it is removed or 6 hours pass.
