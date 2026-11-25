@@ -211,17 +211,12 @@ export async function ghPages(call, path, { max = 10, key } = {}) {
   return { items, cut: true };
 }
 
-/** Read JSON from GitHub's REST API. Returns { status, data }. Never throws on HTTP errors. */
+/** Read JSON from GitHub with GITHUB_TOKEN (else GH_TOKEN): `{ status, data }`. Never throws, also not
+ *  when GitHub cannot be reached (status 0). */
 export async function gh(path) {
-  const headers = { accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28', 'user-agent': 'harness-kit' };
-  const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
-  if (token) headers.authorization = `Bearer ${token}`;
   try {
-    const r = await fetch(`${process.env.GITHUB_API_URL || 'https://api.github.com'}${path}`, { headers });
-    const text = await r.text();
-    let data = null;
-    try { data = JSON.parse(text); } catch { data = text; }
-    return { status: r.status, data };
+    const { status, data } = await ghCall('GET', path, null, { token: process.env.GITHUB_TOKEN || process.env.GH_TOKEN });
+    return { status, data };
   } catch (e) {
     return { status: 0, data: String(e) };
   }

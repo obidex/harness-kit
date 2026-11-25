@@ -285,8 +285,8 @@ const failure = async (f) => { try { await f(); return null; } catch (e) { retur
   process.env.GITHUB_API_URL = 'http://127.0.0.1:1';
   const down = await gh('/x');
   delete process.env.GITHUB_API_URL;
-  ok(got[0].status === 200 && got[0].data.a === 1 && got[1].data === '' && got[2].data === 'plain' && got[3].status === 422 && got[3].data.message === 'no' && down.status === 0 && typeof down.data === 'string',
-    'lib gh() never throws: the status and the parsed JSON (the text when not JSON), status 0 when GitHub cannot be reached');
+  ok(got[0].status === 200 && got[0].data.a === 1 && got[1].data === null && got[2].data === 'plain' && got[3].status === 422 && got[3].data.message === 'no' && down.status === 0 && typeof down.data === 'string',
+    'lib gh() never throws: the status and the parsed JSON (null when empty, the text when not JSON), status 0 when GitHub cannot be reached');
   ok(g.h.authorization === 'Bearer GT' && second.h.authorization === 'Bearer other' && !anon.h.authorization && g.h['user-agent'] === 'harness-kit' && g.h.accept === 'application/vnd.github+json' && p.seen.every((c) => c.method === 'GET'),
     'lib gh() reads with GITHUB_TOKEN, else GH_TOKEN, else no token, under the kit\'s user-agent');
 }
