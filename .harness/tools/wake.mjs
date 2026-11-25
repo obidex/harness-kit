@@ -428,13 +428,19 @@ async function runFire(repo, { event, issue, label }) {
     for (let i = 0; i < 3 && !all; i++) {
       try { all = await receipts(repo); } catch (e) { err = e; await new Promise((ok) => setTimeout(ok, Number(process.env.WAKE_REREAD_MS ?? 2000))); }
     }
+    // the repository-wide listing failed: a hand-off writes its receipt on the STATE issue, so read that issue's
+    // own comments (from an hour before this receipt) before giving up
+    if (!all) {
+      try { all = ledger(await pages(`/repos/${repo}/issues/${s.st.number}/comments?since=${new Date((me.at || Date.now()) - HOUR).toISOString()}`)); }
+      catch (e) { err = e; }
+    }
     if (!all) {
       // fail closed: unread receipts may hide a hand-off that already started its run, so nothing starts here.
       // The receipt is marked failed (counted, and `started` refuses a run on it); the claim is left as it is,
       // since it may be that hand-off's run's; at worst a start waits (the wake label stays), never two runs
       const why = `the receipts could not be read back after this receipt (${String(err?.message).slice(0, 120)})`;
       await comment(repo, s.st.number, `${FAIL_MARK}\nNot started: ${why}.`).catch(() => {});
-      if (d.target != null) await comment(repo, d.target, `No coordinator run started: ${why}. The \`${WAKE}\` label stays; the next event or the daily backstop tries again.`).catch(() => {});
+      if (d.target != null) await comment(repo, d.target, `No coordinator run started: ${why}. The \`${WAKE}\` label stays; the run that is on takes it, or, if none is, the next start once the claim is released or counts as dead (${CLAIM_TTL_H} hours).`).catch(() => {});
       throw new Error(why);
     }
     keeper = all.find((e) => jobBacksOff(e, me, all)) || null;

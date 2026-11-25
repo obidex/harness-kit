@@ -117,7 +117,7 @@ const issues = new Map();   // number -> { number, state, labels: [names], body,
 const fires = [];
 let rival = null, rivalBefore = false, rivalShift = 0;   // rival: a second start's receipt (or a function of the hand-off's comment giving it), written right after the next hand-off receipt (rivalBefore: dated just before it; rivalShift: dated this many ms after it)
 let lateHandoff = null, lateFailed = false;   // K064: ms: a hand-off's claim and receipt, dated this long before the job's next receipt, land while the job decides (lateFailed: and its start is released with --failed before the job's receipt)
-let listDown = 0;   // 1: the repository comment listing fails from the job's next receipt on; 2: failing now
+let listDown = 0, listAll = false;   // 1: the repository comment listing fails from the job's next receipt on; 2: failing now (listAll: every comment listing, the STATE issue's own too)
 let taskFile = null;   // the receiving repository's .github/wake.json, when it has one
 let fireStatus = 200;
 const labelEvents = [];   // `<issue>:<label>` for each label GitHub would send a `labeled` event for
@@ -141,7 +141,7 @@ const srv = createServer((q, res) => {
       return send(200, l.map(view));
     }
     if (u.pathname === '/repos/o/r/issues' && q.method === 'POST') { const j = JSON.parse(data); const i = add({ number: Math.max(0, ...issues.keys()) + 1, body: j.body, labels: j.labels, user: bot }); return send(201, view(i)); }
-    if (u.pathname === '/repos/o/r/issues/comments' && listDown === 2) return send(500, { message: 'listing down' });
+    if (listDown === 2 && q.method === 'GET' && (u.pathname === '/repos/o/r/issues/comments' || (listAll && /\/comments$/.test(u.pathname)))) return send(500, { message: 'listing down' });
     if (u.pathname === '/repos/o/r/issues/comments') return send(200, u.searchParams.get('page') === '1' && u.searchParams.get('since') ? [...issues.values()].flatMap((i) => i.comments).sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at)).slice(0, hideNewest ? -1 : undefined).filter((c) => { if (hideUsedOnce !== 2) return true; return !c.body.startsWith(USED_MARK); }).concat((hideUsedOnce === 2 ? (hideUsedOnce = 0, []) : [])) : []);
     if (u.pathname === `/repos/o/r/contents/${RUN_TASK_FILE}`) return taskFile == null ? send(404, {}) : send(200, { content: Buffer.from(taskFile).toString('base64') });
     if (u.pathname === '/repos/o/r/pulls' || u.pathname.startsWith('/repos/o/r/commits')) return send(200, []);
@@ -361,18 +361,25 @@ ok(r8.code === 0 && /rests/.test(r8.out) && st.labels.includes(BACKSTOP_OFF) && 
       '/fire (K064): a hand-off start released before the job\'s receipt keeps nothing: the job starts its run');
     // the receipts cannot be read back after the job's receipt: it may hide a hand-off that kept its start, so the
     // job fails closed: no call, its receipt marked failed, the claim left as it is, the job red
+    // only the repository-wide listing fails: the STATE issue's own comments show the hand-off, so the job backs off
     st.labels = []; st.comments = []; issues.get(40).comments = [];
     lateHandoff = HANDOFF_SETTLE_MS + 2000; listDown = 1;
-    const blind = await fire('labeled', 40, WAKE, { WAKE_REREAD_MS: '1' });
+    const half = await fire('labeled', 40, WAKE, { WAKE_REREAD_MS: '1' });
     listDown = 0;
+    ok(half.code === 0 && /backed off/.test(half.out) && fires.length === before + 1 && st.comments.some((c) => c.body.startsWith(BACKOFF_MARK)),
+      '/fire (K064): when only the repository-wide listing fails, the job reads the STATE issue\'s own comments, finds the hand-off and backs off');
+    st.labels = []; st.comments = []; issues.get(40).comments = [];
+    lateHandoff = HANDOFF_SETTLE_MS + 2000; listDown = 1; listAll = true;
+    const blind = await fire('labeled', 40, WAKE, { WAKE_REREAD_MS: '1' });
+    listDown = 0; listAll = false;
     const blindL = ledger(st.comments);
     ok(blind.code === 1 && fires.length === before + 1 && st.labels.includes(CLAIM) && blindL.at(-1).kind === 'fail' && failStreak(blindL) === 1 && /could not be read back/.test(issues.get(40).comments.at(-1).body) && issues.get(40).labels.includes(WAKE),
       '/fire (K064): a job that cannot read the receipts back after its own fails closed: no call to the task, its receipt marked failed, the claim left alone, the wake label kept');
     st.labels = []; st.comments = []; issues.get(40).comments = [];
-    lateHandoff = HANDOFF_SETTLE_MS + 2000; listDown = 1;
+    lateHandoff = HANDOFF_SETTLE_MS + 2000; listDown = 1; listAll = true;
     const at2 = labelEvents.length;
     const blindLabel = await fire('labeled', 40, WAKE, { ...LABEL, WAKE_REREAD_MS: '1' });
-    listDown = 0;
+    listDown = 0; listAll = false;
     ok(blindLabel.code === 1 && labelEvents.length === at2 && (await started()).code === 4,
       'label start (K064): the same blind read-back sets no claim label, and the run the hand-off\'s claim began is refused');
     st.labels = []; st.comments = []; issues.get(40).comments = []; issues.get(40).labels = [WAKE];
