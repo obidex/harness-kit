@@ -9,7 +9,7 @@ import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { readFileSync, readdirSync, mkdtempSync, mkdirSync, copyFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { parseCron, nextRun, scheduleState, overdueHours, schedules, alertSchedules, missedText, isTracking, isWakeChannel, checkState, classifyPr, classifyIssue, select, settings, loadData, render, signature, idleText, itemKey, itemText, topicOf, profileTopic, report, DEFAULTS, MARKER, STATE_LABEL, stateKey, stateFreshness } from '../.harness/tools/stale.mjs';
+import { parseCron, nextRun, scheduleState, overdueHours, schedules, alertSchedules, missedText, isTracking, isWakeChannel, checkState, classifyPr, classifyIssue, select, settings, loadData, render, signature, idleText, itemKey, itemText, topicOf, profileTopic, report, scan, DEFAULTS, MARKER, STATE_LABEL, stateKey, stateFreshness } from '../.harness/tools/stale.mjs';
 import { body as inboxBody, setField } from '../.harness/tools/inbox.mjs';
 import { parseYaml, renderLane } from '../.harness/tools/lib.mjs';
 
@@ -466,5 +466,31 @@ const audit = JSON.parse(readFileSync(join(proj, 'a.json'), 'utf8')).results;
 const res = (id) => audit.find((x) => x.id === id);
 ok(res('C15').result === 'PASS' && res('RJ02').result === 'PASS' && res('O10').result === 'PASS', `audit: C15 ${res('C15').result} (${res('C15').detail || res('C15').evidence || ''}), RJ02 ${res('RJ02').result}, O10 ${res('O10').result}`);
 rmSync(proj, { recursive: true, force: true });
+
+// --- its GitHub client, pinned before the clean-up that shares it (0.56.1): what it sends, how it answers
+const pinServer = async () => {
+  const seen = [];
+  const s = createServer((q, res) => { let b = ''; q.on('data', (c) => { b += c; }); q.on('end', () => {
+    seen.push({ method: q.method, url: q.url, h: q.headers, body: b });
+    const p = q.url.split('?')[0];
+    const [code, text] = p.includes('/no') ? [422, '{"message":"no"}'] : p === '/empty' ? [200, ''] : p === '/text' ? [200, 'plain'] : p.startsWith('/repos/') ? [200, '[]'] : [200, '{"a":1}'];
+    res.writeHead(code); res.end(text);
+  }); });
+  await new Promise((d) => s.listen(0, '127.0.0.1', d));
+  const was = { GITHUB_API_URL: process.env.GITHUB_API_URL, GH_TOKEN: process.env.GH_TOKEN, GITHUB_TOKEN: process.env.GITHUB_TOKEN };
+  process.env.GITHUB_API_URL = `http://127.0.0.1:${s.address().port}`;
+  return { seen, done: () => { s.close(); for (const [k, v] of Object.entries(was)) if (v === undefined) delete process.env[k]; else process.env[k] = v; } };
+};
+const failure = async (f) => { try { await f(); return null; } catch (e) { return e; } };
+{
+  const p = await pinServer();
+  process.env.GH_TOKEN = 'PIN';
+  const none = await scan('o/r', NOW, settings({}));
+  const e = await failure(() => scan('o/no', NOW, settings({})));
+  const [g] = p.seen; p.done();
+  ok(Array.isArray(none) && !none.length && p.seen.length >= 2 && p.seen.slice(0, -1).every((c) => c.h.authorization === 'Bearer PIN' && c.h['user-agent'] === 'harness-stale' && /per_page=100&page=1$/.test(c.url)) && g.h.accept === 'application/vnd.github+json',
+    'its GitHub client sends GH_TOKEN and its own user-agent, and pages each listing');
+  ok(/^GET \/repos\/o\/no\/(pulls|issues) answered 422: \{"message":"no"\}$/.test(e?.message) && e.status === 422, 'a refused call throws with its status, naming the method, the path without its query and the status, with the start of the answer');
+}
 
 console.log(`test-stale: OK · ${n} checks`);

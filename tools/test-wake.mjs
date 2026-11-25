@@ -125,12 +125,14 @@ let labelsRefused = false;
 let receiptAtClaim = null;   // receipts already on the issue at the moment its claim label was set
 const add = (i) => { issues.set(i.number, { state: 'open', labels: [], comments: [], user: { login: 'owner', type: 'User' }, body: '', ...i }); return issues.get(i.number); };
 const view = (i) => ({ number: i.number, state: i.state, body: i.body, user: i.user, labels: i.labels.map((name) => ({ name })), html_url: `https://gh.test/o/r/issues/${i.number}` });
+const ghHeads = [];
 const srv = createServer((q, res) => {
   let data = '';
   q.on('data', (c) => { data += c; });
   q.on('end', () => {
     const u = new URL(q.url, 'http://x');
     const send = (code, j) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(j)); };
+    if (!u.pathname.endsWith('/fire')) ghHeads.push(q.headers);
     if (u.pathname.endsWith('/fire')) { fires.push({ auth: q.headers.authorization, body: JSON.parse(data) }); return fireStatus === 200 ? send(200, { type: 'routine_fire', claude_code_session_id: `session_0${fires.length}`, claude_code_session_url: `https://claude.ai/code/session_0${fires.length}` }) : send(fireStatus, { error: 'x' }); }
     if (u.pathname === '/repos/o/r/issues' && q.method === 'GET') {
       if (u.searchParams.get('page') !== '1') return send(200, []);
@@ -593,5 +595,9 @@ ok(/\(vars\.WAKE_ROUTINE_URL != '' \|\| vars\.WAKE_START == 'label'\) &&/.test(j
 ok(job['timeout-minutes'] <= 3 && Object.entries(p).filter(([, v]) => v === 'write').map(([k]) => k).join() === 'issues' && p.contents === 'read', 'it is short and writes only issues (labels and comments), never code');
 ok(!/pull_request_target/.test(text) && /sparse-checkout: \.harness\/tools/.test(text) && /default_branch/.test(text) && /secrets\.WAKE_ROUTINE_TOKEN/.test(text), 'it never runs PR code: only the default branch\'s tools, and the token comes from a secret');
 ok(String(wf.on.schedule?.[0]?.cron || wf.on.schedule).includes('* * *') && wf.concurrency?.group === 'harness-wake', 'one daily backstop, one decision at a time');
+
+// its GitHub client, pinned before the clean-up that shares it (0.56.1)
+ok(ghHeads.filter((h) => h['user-agent'] === 'harness-wake').length > 50 && ghHeads.every((h) => h.authorization === 'Bearer t' && ['harness-wake', 'harness-stale'].includes(h['user-agent']) && h.accept === 'application/vnd.github+json'),
+  'its GitHub client sends GH_TOKEN and its own user-agent (the backstop\'s stale-work read keeps the stale tool\'s)');
 
 console.log(`test-wake: OK · ${n} checks`);

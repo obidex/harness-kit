@@ -7,8 +7,10 @@ import { createServer } from 'node:http';
 import { execFile } from 'node:child_process';
 import { join } from 'node:path';
 import { readFileSync } from 'node:fs';
-import { body, parse, setField, tokenOwner, handoffLine, sourceOf } from '../.harness/tools/inbox.mjs';
+import { body, parse, setField, tokenOwner, handoffLine, sourceOf, requests } from '../.harness/tools/inbox.mjs';
 import { parseYaml } from '../.harness/tools/lib.mjs';
+import * as kitLib from '../.harness/tools/lib.mjs';
+import * as inboxLib from '../.harness/tools/inbox.mjs';
 
 let n = 0;
 const ok = (cond, what) => { n++; if (!cond) { console.log(`test-inbox: FAIL ${n}. ${what}`); process.exit(1); } console.log(`test-inbox: ok ${n}. ${what}`); };
@@ -336,5 +338,39 @@ const hw = parseYaml(readFileSync(join(new URL('..', import.meta.url).pathname, 
 const hj = hw.jobs.wake, tok = hj.steps.find((x) => x.id === 'token').with;
 ok(Object.keys(hw.on).join() === 'workflow_dispatch' && /github\.ref == 'refs\/heads\/main'/.test(hj.if) && hj['timeout-minutes'] <= 3, 'hands-inbox runs only when dispatched, only from main, and is short');
 ok(/steps\.input\.outputs\.name/.test(tok.repositories) && tok['permission-issues'] === 'write' && tok['permission-pull-requests'] === 'write' && !Object.keys(tok).some((k) => /permission-(contents|administration|workflows)/.test(k)) && /only this owner/.test(hj.steps[0].run), 'its App token is for the one named repository of this owner, writes only comments, and the inputs are checked first');
+
+// --- its GitHub client, pinned before the clean-up that shares it (0.56.1): what it sends, how it answers
+const pinServer = async () => {
+  const seen = [];
+  const s = createServer((q, res) => { let b = ''; q.on('data', (c) => { b += c; }); q.on('end', () => {
+    seen.push({ method: q.method, url: q.url, h: q.headers, body: b });
+    const p = q.url.split('?')[0];
+    const [code, text] = p.includes('/no') ? [422, '{"message":"no"}'] : p === '/empty' ? [200, ''] : p === '/text' ? [200, 'plain'] : p.startsWith('/repos/') ? [200, '[]'] : [200, '{"a":1}'];
+    res.writeHead(code); res.end(text);
+  }); });
+  await new Promise((d) => s.listen(0, '127.0.0.1', d));
+  const was = { GITHUB_API_URL: process.env.GITHUB_API_URL, GH_TOKEN: process.env.GH_TOKEN, GITHUB_TOKEN: process.env.GITHUB_TOKEN };
+  process.env.GITHUB_API_URL = `http://127.0.0.1:${s.address().port}`;
+  return { seen, done: () => { s.close(); for (const [k, v] of Object.entries(was)) if (v === undefined) delete process.env[k]; else process.env[k] = v; } };
+};
+const failure = async (f) => { try { await f(); return null; } catch (e) { return e; } };
+{
+  const p = await pinServer();
+  process.env.GH_TOKEN = 'PIN';
+  const none = await requests('o/r');
+  const e = await failure(() => requests('o/no'));
+  delete process.env.GH_TOKEN; await requests('o/r');
+  const [g, , anon] = p.seen; p.done();
+  ok(Array.isArray(none) && !none.length && g.h.authorization === 'Bearer PIN' && !anon.h.authorization && g.h['user-agent'] === 'harness-inbox' && g.h.accept === 'application/vnd.github+json' && !g.h['content-type'],
+    'its GitHub client sends GH_TOKEN (nothing when unset) and its own user-agent');
+  ok(e?.message === 'GET /repos/o/no/issues answered 422: {"message":"no"}' && e.status === 422, 'a refused call throws with its status, naming the method, the path without its query and the status, with the start of the answer');
+  ok(['ghCall', 'ghClient', 'ghPages'].every((k) => typeof inboxLib[k] === 'function' && String(inboxLib[k]) === String(kitLib[k])),
+    'its GitHub client is an exact copy of lib.mjs\'s: the files a host fetches alone (this one, ask.mjs, explain.mjs) need no lib.mjs');
+  // what hosts fetch by pin, without the rest of the folder: each set imports only from itself
+  const kitImports = (f) => [...readFileSync(join(new URL('..', import.meta.url).pathname, '.harness/tools', f), 'utf8').matchAll(/^import [^;]* from '\.\/([\w-]+\.mjs)';$/gm)].map((m) => m[1]);
+  const sets = [['panel.mjs', 'notify.mjs', 'ask.mjs', 'inbox.mjs', 'explain.mjs'], ['notify.mjs'], ['metrics.mjs']];
+  ok(kitImports('ask.mjs').includes('inbox.mjs') && sets.every((set) => set.every((f) => kitImports(f).every((g) => set.includes(g)))),
+    'the files hosts fetch alone import nothing outside their set: panel, notify, ask, inbox and explain; notify alone; metrics alone');
+}
 
 console.log(`test-inbox: OK · ${n} checks`);

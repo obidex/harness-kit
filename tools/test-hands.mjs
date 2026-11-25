@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { createServer } from 'node:http';
 import { execFile } from 'node:child_process';
 import { tmpdir } from 'node:os';
-import { plan, covers, validate, controlProblems, controlUpdate, controlCopyProblems, unsafe, paused, keepAction, keepHours, watched } from '../.harness/tools/hands.mjs';
+import { plan, covers, validate, controlProblems, controlUpdate, controlCopyProblems, unsafe, paused, keepAction, keepHours, watched, api } from '../.harness/tools/hands.mjs';
 import { parseYaml, validateSchema } from '../.harness/tools/lib.mjs';
 import { spawnSync } from 'node:child_process';
 
@@ -597,6 +597,37 @@ const run = (srv, args, env = {}) => new Promise((done) => {
     && !/echo HANDS_KIT_VERSION > /.test(hu) && /git add -A --pathspec-from-file="\$RUNNER_TEMP\/paths"/.test(hu) && /permission-workflows: write/.test(hu),
     'hands-update: this repository\'s own PR takes the target release\'s templates through the pinned kit\'s control-update and stages exactly its list');
   rmSync(d, { recursive: true, force: true });
+}
+
+// --- its GitHub client, pinned before the clean-up that shares it (0.56.1): what it sends, how it answers
+const pinServer = async () => {
+  const seen = [];
+  const s = createServer((q, res) => { let b = ''; q.on('data', (c) => { b += c; }); q.on('end', () => {
+    seen.push({ method: q.method, url: q.url, h: q.headers, body: b });
+    const p = q.url.split('?')[0];
+    const [code, text] = p.includes('/no') ? [422, '{"message":"no"}'] : p === '/empty' ? [200, ''] : p === '/text' ? [200, 'plain'] : p.startsWith('/repos/') ? [200, '[]'] : [200, '{"a":1}'];
+    res.writeHead(code); res.end(text);
+  }); });
+  await new Promise((d) => s.listen(0, '127.0.0.1', d));
+  const was = { GITHUB_API_URL: process.env.GITHUB_API_URL, GH_TOKEN: process.env.GH_TOKEN, GITHUB_TOKEN: process.env.GITHUB_TOKEN };
+  process.env.GITHUB_API_URL = `http://127.0.0.1:${s.address().port}`;
+  return { seen, done: () => { s.close(); for (const [k, v] of Object.entries(was)) if (v === undefined) delete process.env[k]; else process.env[k] = v; } };
+};
+const failure = async (f) => { try { await f(); return null; } catch (e) { return e; } };
+{
+  const p = await pinServer();
+  process.env.GH_TOKEN = 'PIN';
+  const got = [await api('GET', '/x'), await api('GET', '/empty'), await api('GET', '/text'), await api('GET', '/no?page=2'), await api('PATCH', '/x', { a: 1 })];
+  process.env.HANDS_READ_ONLY = '1';
+  const e = await failure(() => api('PUT', '/x', { a: 1 }));
+  const reads = await api('GET', '/x');
+  delete process.env.HANDS_READ_ONLY;
+  const [g, , , , patch] = p.seen, calls = p.seen.length; p.done();
+  ok(got[0].status === 200 && got[0].data.a === 1 && got[1].data === null && got[2].data === 'plain' && got[3].status === 422 && got[3].data.message === 'no' && got[4].status === 200,
+    'its GitHub client never throws on an HTTP answer: the status and the parsed JSON (null when empty, the text when not JSON)');
+  ok(g.h.authorization === 'Bearer PIN' && g.h['user-agent'] === 'harness-hands' && !g.h['content-type'] && patch.h['content-type'] === 'application/json' && JSON.parse(patch.body).a === 1,
+    'it sends GH_TOKEN, its own user-agent, and a JSON body only with data');
+  ok(e?.message === 'refused PUT /x: HANDS_READ_ONLY is set' && reads.status === 200 && calls === 6, 'with HANDS_READ_ONLY set it refuses every write before any call, and still reads');
 }
 
 console.log(`test-hands: OK · ${n} checks`);
