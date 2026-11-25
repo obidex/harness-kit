@@ -8,7 +8,7 @@ import { createServer } from 'node:http';
 import { execFile } from 'node:child_process';
 import { join } from 'node:path';
 import { readFileSync } from 'node:fs';
-import { capOf, keepsStart, jobBacksOff, BACKOFF_MARK, HANDOFF_RULE, HANDOFF_SETTLE_MS, HANDOFF_READ_MS, handoffPlan, runTaskOf, HANDOFF_MARK, HANDOFF_FAIL_MARK, RUN_TASK_FILE, decide, ledger, capFrom, fireUrlOk, isState, payload, signature, failStreak, chainLength, MOVABLE, WAKE, CLAIM, STOPPED, PAUSED, BACKSTOP_OFF, CHAIN_STOP, STATE, STATE_MARK, FIRE_MARK, FAIL_MARK, STUCK_MARK, EMPTY_MARK, START_MARK, USED_MARK, startByLabel, startOk, usedSince, START_WINDOW_MIN, DAILY_CAP, ISSUE_CAP, ISSUE_TOTAL, EMPTY_STOP, STUCK_STOP } from '../.harness/tools/wake.mjs';
+import { askFor, mayWrite, writer as writes, writersOf, capOf, keepsStart, jobBacksOff, BACKOFF_MARK, HANDOFF_RULE, HANDOFF_SETTLE_MS, HANDOFF_READ_MS, handoffPlan, runTaskOf, HANDOFF_MARK, HANDOFF_FAIL_MARK, RUN_TASK_FILE, decide, ledger, capFrom, fireUrlOk, isState, payload, signature, failStreak, chainLength, MOVABLE, WAKE, CLAIM, STOPPED, PAUSED, BACKSTOP_OFF, CHAIN_STOP, STATE, STATE_MARK, FIRE_MARK, FAIL_MARK, STUCK_MARK, EMPTY_MARK, START_MARK, USED_MARK, startByLabel, startOk, usedSince, START_WINDOW_MIN, DAILY_CAP, ISSUE_CAP, ISSUE_TOTAL, EMPTY_STOP, STUCK_STOP } from '../.harness/tools/wake.mjs';
 import { parseYaml } from '../.harness/tools/lib.mjs';
 
 let n = 0;
@@ -126,6 +126,8 @@ let receiptAtClaim = null;   // receipts already on the issue at the moment its 
 const add = (i) => { issues.set(i.number, { state: 'open', labels: [], comments: [], user: { login: 'owner', type: 'User' }, body: '', ...i }); return issues.get(i.number); };
 const view = (i) => ({ number: i.number, state: i.state, body: i.body, user: i.user, labels: i.labels.map((name) => ({ name })), html_url: `https://gh.test/o/r/issues/${i.number}` });
 const ghHeads = [];
+const perms = {};          // K065: login -> the permission endpoint's answer; a login not here is no collaborator (404); 'down' answers 500
+const permAsks = [];       // each login whose permission was asked
 const srv = createServer((q, res) => {
   let data = '';
   q.on('data', (c) => { data += c; });
@@ -145,6 +147,8 @@ const srv = createServer((q, res) => {
     if (u.pathname === '/repos/o/r/issues' && q.method === 'POST') { const j = JSON.parse(data); const i = add({ number: Math.max(0, ...issues.keys()) + 1, body: j.body, labels: j.labels, user: bot }); return send(201, view(i)); }
     if (listDown === 2 && q.method === 'GET' && (u.pathname === '/repos/o/r/issues/comments' || (listAll && /\/comments$/.test(u.pathname)))) return send(500, { message: 'listing down' });
     if (u.pathname === '/repos/o/r/issues/comments') return send(200, u.searchParams.get('page') === '1' && u.searchParams.get('since') ? [...issues.values()].flatMap((i) => i.comments).sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at)).slice(0, hideNewest ? -1 : undefined).filter((c) => { if (hideUsedOnce !== 2) return true; return !c.body.startsWith(USED_MARK); }).concat((hideUsedOnce === 2 ? (hideUsedOnce = 0, []) : [])) : []);
+    const pm = u.pathname.match(/^\/repos\/o\/r\/collaborators\/([^/]+)\/permission$/);
+    if (pm) { const login = decodeURIComponent(pm[1]); permAsks.push(login); return perms[login] === 'down' ? send(500, { message: 'down' }) : perms[login] ? send(200, { ...perms[login], user: { login } }) : send(404, { message: 'Not Found' }); }
     if (u.pathname === `/repos/o/r/contents/${RUN_TASK_FILE}`) return taskFile == null ? send(404, {}) : send(200, { content: Buffer.from(taskFile).toString('base64') });
     if (u.pathname === '/repos/o/r/pulls' || u.pathname.startsWith('/repos/o/r/commits')) return send(200, []);
     const m = u.pathname.match(/^\/repos\/o\/r\/issues\/(\d+)(\/comments|\/labels(?:\/([\w-]+))?)?$/);
@@ -412,13 +416,46 @@ ok(s.state === st.number && s.emptyStreak === 0 && s.cap === DAILY_CAP && s.clai
     { ...writer, author_association: 'COLLABORATOR', created_at: '2026-11-07T10:02:00Z', updated_at: '2026-11-07T11:00:00Z', body: `${HANDOFF_MARK}{"issue":6} -->\nedited later` },
     { ...writer, created_at: '2026-11-07T10:03:00Z', body: `${FIRE_MARK}{"issue":7} -->\nforged` },
     { ...writer, created_at: '2026-11-07T10:04:00Z', body: `${HANDOFF_MARK}null -->` },
-  ]);
+  ], { writers: new Set(['owner']) });
   ok(l.length === 4 && l[0].kind === 'fire' && l[0].via === 'handoff' && l[0].issue === 5 && l[0].id === 11 && l[1].kind === 'fail' && l[2].issue === 6 && l[3].issue === null && failStreak(l.slice(0, 2)) === 1,
     'a hand-off receipt by an account that may write here counts as a run, its failed start as a failed start, a damaged one still counts, and nobody can forge the job\'s own receipt');
   const flood = ledger([...Array.from({ length: DAILY_CAP }, (_, i) => ({ ...stranger, created_at: new Date(now - (i + 1) * 60e3).toISOString(), body: `${HANDOFF_MARK}{} -->` })),
     ...[1, 2, 3].flatMap((i) => [{ ...stranger, created_at: new Date(now - i * H).toISOString(), body: `${HANDOFF_MARK}{} -->` }, { ...stranger, created_at: new Date(now - i * H + 1000).toISOString(), body: `${HANDOFF_FAIL_MARK}` }]),
     { user: person, created_at: new Date(now - 5000).toISOString(), body: `${HANDOFF_MARK}{} -->` }]);
   ok(flood.length === 0 && decide({ event: 'labeled', label: WAKE, issue: woke(), ledger: flood, now }).act === 'fire', 'a stranger\'s comments on a public repository count for nothing: they can neither use a cap up nor pause the wakes');
+  {
+    // K065 (#88): an association is no write check. A member of the owning organization, or an outside
+    // collaborator with read or triage, counts only once GitHub's permission endpoint says write or more.
+    const member = { user: { login: 'org-reader', type: 'User' }, author_association: 'MEMBER' };
+    const pairs = [3, 2, 1].flatMap((i) => [{ ...member, id: 200 + 2 * i, created_at: new Date(now - i * H).toISOString(), body: `${HANDOFF_MARK}{"issue":5} -->` }, { ...member, id: 201 + 2 * i, created_at: new Date(now - i * H + 1000).toISOString(), body: HANDOFF_FAIL_MARK }]);
+    const read = ledger(pairs), granted = ledger(pairs, { writers: new Set(['org-reader']) });
+    ok(read.length === 0 && decide({ event: 'labeled', label: WAKE, issue: woke(), ledger: read, now }).act === 'fire'
+      && granted.length === 6 && decide({ event: 'labeled', label: WAKE, issue: woke(), ledger: granted, now }).act === 'pause',
+    'K065: three receipt and fail pairs from a member who may only read leave the decision at fire, not pause; the same pairs from a member with write still pause the wakes');
+    const outside = pairs.map((c) => ({ ...c, author_association: 'COLLABORATOR' })), stranger2 = pairs.map((c) => ({ ...c, author_association: 'NONE' }));
+    ok(ledger(outside).length === 0 && ledger(outside, { writers: new Set(['org-reader']) }).length === 6 && ledger(stranger2, { writers: new Set(['org-reader']) }).length === 0
+      && ledger(pairs.map((c) => ({ ...c, author_association: 'OWNER' }))).length === 6,
+    'K065: an outside collaborator counts only with write; the owner needs no permission read; an author GitHub lists as neither is never asked into the count');
+    ok(mayWrite({ role_name: 'write' }) && mayWrite({ role_name: 'maintain', permission: 'write' }) && mayWrite({ role_name: 'admin' }) && mayWrite({ permission: 'write' })
+      && !mayWrite({ role_name: 'triage', permission: 'read' }) && !mayWrite({ role_name: 'read', permission: 'read' }) && !mayWrite({ permission: 'none' }) && !mayWrite(null) && !mayWrite({ role_name: 'triage', permission: 'write' }),
+    'K065: write, maintain and admin may write; triage, read, none and an unread answer may not');
+    ok(askFor([...pairs, ...outside, { ...member, user: { login: 'chatty', type: 'User' }, body: 'no mark' }, { ...member, user: { login: 'app[bot]', type: 'Bot' }, body: HANDOFF_MARK },
+      { user: { login: 'own', type: 'User' }, author_association: 'OWNER', body: HANDOFF_MARK }, { user: { login: 'passer', type: 'User' }, author_association: 'NONE', body: HANDOFF_MARK },
+      { user: { login: 'runner', type: 'User' }, author_association: 'COLLABORATOR', body: `${USED_MARK}\nx` }]).join() === 'org-reader,runner',
+    'K065: only members and collaborators who wrote a mark that counts are asked, each once; the owner, an App, a stranger and an unmarked comment are not');
+    const used = (login, assoc) => ({ id: 1, user: { login, type: 'User' }, author_association: assoc, body: `${USED_MARK}\nx`, created_at: new Date(now).toISOString() });
+    ok(usedSince([used('org-reader', 'MEMBER')], now).length === 0 && usedSince([used('org-reader', 'MEMBER')], now, new Set(['org-reader'])).length === 1
+      && writes(used('o', 'OWNER')) && writes({ user: { type: 'Bot' } }) && !writes(used('org-reader', 'COLLABORATOR')) && writes(used('org-reader', 'COLLABORATOR'), new Set(['org-reader'])),
+    'K065: a run\'s "started" record by a member or collaborator who may only read spends no start; with write it does');
+    const calls = [];
+    const fake = async (m, path) => { calls.push(path); const login = decodeURIComponent(path.split('/')[5]); if (login === 'gone') { const e = new Error('404'); e.status = 404; throw e; } if (login === 'down') { const e = new Error('500'); e.status = 500; throw e; } return { permission: login === 'w' ? 'write' : 'read', role_name: login === 'w' ? 'write' : 'triage' }; };
+    const c = (login) => ({ user: { login, type: 'User' }, author_association: 'MEMBER', body: HANDOFF_MARK });
+    const got = await writersOf('o/k065', [c('w'), c('w'), c('t'), c('gone')], fake), again = await writersOf('o/k065', [c('w'), c('t')], fake), asks = calls.length;
+    let threw = null;
+    try { await writersOf('o/k065', [c('down')], fake); } catch (e) { threw = e.message; }
+    ok([...got].join() === 'w' && [...again].join() === 'w' && asks === 3 && calls[0] === '/repos/o/k065/collaborators/w/permission' && /could not be read/.test(threw || ''),
+      'K065: the permission is read once per author (no collaborator is no writer), and a refused read throws: no decision on an unread count');
+  }
   const hf = (id, s, via = 'handoff') => ({ kind: 'fire', id, at: now + s * 1000, via });
   ok(keepsStart(2, [hf(2, 0)]) && keepsStart(2, [hf(2, 0), hf(3, 1)]) && !keepsStart(3, [hf(2, 0), hf(3, 1)]) && !keepsStart(3, [hf(2, 0), hf(3, 0)]) && keepsStart(2, [hf(2, 0), hf(3, 0)])
     && !keepsStart(2, [hf(2, 0), hf(3, 1, 'label')]) && !keepsStart(2, [hf(1, -1, 'queue'), hf(2, 0)]) && !keepsStart(2, []),
@@ -584,6 +621,33 @@ ok(s.state === st.number && s.emptyStreak === 0 && s.cap === DAILY_CAP && s.clai
   st.labels = [PAUSED];
   ok(/HANDOFF: QUEUED wakes are paused/.test((await handoff(['--issue', '21'])).out) && st.labels.join() === PAUSED, 'while wakes are paused a hand-off starts nothing and lifts nothing');
   st.labels = []; issues.get(21).labels = []; issues.get(22).labels = []; taskFile = null;
+}
+{
+  // K065 (#88), end to end: the tool reads the real permission of a member's marks from GitHub
+  const keep = st.comments;
+  const member = { user: { login: 'org-reader', type: 'User' }, author_association: 'MEMBER' };
+  st.comments = [...keep, ...[3, 2, 1].flatMap((i) => [{ ...member, id: ++commentId, created_at: new Date(Date.now() - i * 60e3).toISOString(), body: `${HANDOFF_MARK}{"issue":5} -->` }, { ...member, id: ++commentId, created_at: new Date(Date.now() - i * 60e3 + 1000).toISOString(), body: HANDOFF_FAIL_MARK }])];
+  permAsks.length = 0; perms['org-reader'] = { permission: 'read', role_name: 'triage' };
+  const readOnly = JSON.parse((await run(['status', '--repo', 'o/r'])).out);
+  ok(readOnly.failStreak === 0 && permAsks.join() === 'org-reader', 'K065: a member\'s hand-off marks are read against GitHub\'s permission once, and with triage they count for nothing');
+  perms['org-reader'] = { permission: 'write', role_name: 'maintain' };
+  const maint = JSON.parse((await run(['status', '--repo', 'o/r'])).out);
+  ok(maint.failStreak === 3, 'K065: the same marks from a member who may maintain count as three failed starts');
+  perms['org-reader'] = 'down';
+  const down = await run(['status', '--repo', 'o/r']);
+  ok(down.code === 1 && /could not be read/.test(down.out), 'K065: a permission GitHub will not show stops the decision: nothing is decided on an unread count');
+  delete perms['org-reader']; st.comments = keep;
+  // a session whose account is a member who may only read: its own receipt does not count, so it starts nothing
+  add({ number: 26 }); st.labels = []; taskFile = JSON.stringify({ runTask: 'trig_01K065' });
+  postAs = { user: { login: 'org-reader', type: 'User' }, author_association: 'MEMBER' };
+  perms['org-reader'] = { permission: 'read', role_name: 'read' };
+  const ro = await run(['handoff', '--repo', 'o/r', '--issue', '26'], { GITHUB_ACTIONS: '', HANDOFF_SETTLE_MS: '0' });
+  perms['org-reader'] = { permission: 'write', role_name: 'write' };
+  st.labels = []; issues.get(26).labels = []; st.comments = keep;
+  const rw = await run(['handoff', '--repo', 'o/r', '--issue', '26'], { GITHUB_ACTIONS: '', HANDOFF_SETTLE_MS: '0' });
+  postAs = null; delete perms['org-reader'];
+  ok(/HANDOFF: QUEUED this account's receipt does not count/.test(ro.out) && /HANDOFF: START trig_01K065/.test(rw.out), 'K065: a hand-off by a member who may only read starts nothing; with write it starts the run');
+  st.labels = []; issues.get(26).labels = []; st.comments = keep; taskFile = null;
 }
 srv.close();
 

@@ -109,22 +109,26 @@ export const isState = (i) => !i.pull_request && byJob(i) && String(i.body || ''
 
 const json = (b, mark) => { try { const j = JSON.parse(b.slice(mark.length, b.indexOf(' -->'))); return j && typeof j === 'object' ? j : {}; } catch { return {}; } };
 /** May this comment's author write to the repository? A hand-off receipt counts only then (K056): on a
- *  public repository anyone may comment, and a stranger's comment must neither use a cap up nor count as a failed start. */
-const WRITERS = ['OWNER', 'MEMBER', 'COLLABORATOR'];
-const byWriter = (c) => WRITERS.includes(c?.author_association);
+ *  public repository anyone may comment, and a stranger's comment must neither use a cap up nor count as a failed start.
+ *  K065: `author_association` is no write check. OWNER is the repository's owner; MEMBER (any member of the
+ *  owning organization) and COLLABORATOR (an outside collaborator, read or triage included) count only when
+ *  GitHub's permission endpoint gave them write, maintain or admin (`writers`, a set of logins: writersOf). */
+const ASKED = ['MEMBER', 'COLLABORATOR'];   // the associations whose real permission is read (writersOf)
+const byWriter = (c, writers) => c?.author_association === 'OWNER' || (ASKED.includes(c?.author_association) && !!writers?.has?.(c?.user?.login));
 
 /** The job's own marker comments, from anywhere in the repository, oldest first:
  *  { kind: fire|fail|empty|stuck, at, issue, via, sig }. A comment a person posted never counts, except a
- *  hand-off's receipt and failed start (K056), and those only from an account that may write here. */
-export function ledger(comments) {
+ *  hand-off's receipt and failed start (K056), and those only from an account that may write here: the
+ *  owner, or a login in `writers` (K065; read with writersOf before, so this stays pure). */
+export function ledger(comments, { writers = new Set() } = {}) {
   const out = [];
   for (const c of comments) {
     const b = String(c.body || ''), at = Date.parse(c.created_at);
     // a hand-off receipt (K056) is written by a session, under the account the project's sessions act as:
     // it counts when its author may write to the repository, and only then. Edited later, it still counts.
-    if (b.startsWith(HANDOFF_MARK)) { if (byWriter(c)) { const j = json(b, HANDOFF_MARK); out.push({ kind: 'fire', at, issue: Number.isInteger(j.issue) ? j.issue : null, via: 'handoff', sig: '', id: c.id ?? null, seen: Number.isInteger(j.seen) ? j.seen : null, rule: j.rule === HANDOFF_RULE ? HANDOFF_RULE : null }); } continue; }
+    if (b.startsWith(HANDOFF_MARK)) { if (byWriter(c, writers)) { const j = json(b, HANDOFF_MARK); out.push({ kind: 'fire', at, issue: Number.isInteger(j.issue) ? j.issue : null, via: 'handoff', sig: '', id: c.id ?? null, seen: Number.isInteger(j.seen) ? j.seen : null, rule: j.rule === HANDOFF_RULE ? HANDOFF_RULE : null }); } continue; }
     // a failed start names the receipt it released (K064): a released start keeps nothing against the job
-    if (b.startsWith(HANDOFF_FAIL_MARK)) { if (byWriter(c)) { const m = b.match(/<!-- released (\{.*?\}) -->/); let rel = null; try { rel = m ? JSON.parse(m[1]).id : null; } catch { /* none */ } out.push({ kind: 'fail', at, via: 'handoff', id: c.id ?? null, released: Number.isInteger(rel) ? rel : null }); } continue; }
+    if (b.startsWith(HANDOFF_FAIL_MARK)) { if (byWriter(c, writers)) { const m = b.match(/<!-- released (\{.*?\}) -->/); let rel = null; try { rel = m ? JSON.parse(m[1]).id : null; } catch { /* none */ } out.push({ kind: 'fail', at, via: 'handoff', id: c.id ?? null, released: Number.isInteger(rel) ? rel : null }); } continue; }
     if (!byJob(c)) continue;
     // the job never edits its comments: an edited one is counted as a run, whatever it says now
     if (c.updated_at && Math.abs(Date.parse(c.updated_at) - at) > 5000) { out.push({ kind: 'fire', at, issue: null, via: 'edited', sig: '' }); continue; }
@@ -262,13 +266,14 @@ export function startOk({ ledger: led = [], stateClaimed = false, used = 0, now 
   return { ok: true, why: `the job signalled this start ${min} minute(s) ago`, issue: last.issue, at: last.at };
 }
 
-/** May this comment's author write to the repository? An installed App (a Bot) or a person GitHub
- *  lists as owner, member or collaborator. A stranger's comment on a public repository is not a record. */
-export const writer = (c) => c?.user?.type === 'Bot' || ['OWNER', 'MEMBER', 'COLLABORATOR'].includes(c?.author_association);
+/** May this comment's author write to the repository? An installed App (a Bot), the owner, or a member or
+ *  collaborator whose real permission is write, maintain or admin (`writers`, K065). A stranger's comment on
+ *  a public repository is not a record, nor is one by a member or collaborator who may only read or triage. */
+export const writer = (c, writers) => c?.user?.type === 'Bot' || byWriter(c, writers);
 
 /** The USED_MARK comments made at or after a receipt's time by an account that may write, oldest first.
  *  Such a comment can only refuse a run, and those accounts can pause wakes with a label anyway. */
-export const usedSince = (comments, at) => comments.filter((c) => writer(c) && String(c.body || '').startsWith(USED_MARK) && Date.parse(c.created_at) >= at)
+export const usedSince = (comments, at, writers) => comments.filter((c) => writer(c, writers) && String(c.body || '').startsWith(USED_MARK) && Date.parse(c.created_at) >= at)
   .sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at) || a.id - b.id);
 
 /** The fire URL must be a scheduled task's /fire endpoint, nothing else. */
@@ -292,9 +297,41 @@ const pages = async (path) => (await ghPages(gh, path, { max: 20 })).items;
 
 const names = (i) => (i.labels || []).map((l) => l.name ?? l);
 
+/** The roles that may write (K065): `role_name` from the permission endpoint, else its older `permission`
+ *  (which reads maintain as write and triage as read). Pure. */
+export const WRITE_ROLES = ['admin', 'maintain', 'write'];
+export const mayWrite = (p) => WRITE_ROLES.includes(p?.role_name ?? p?.permission);
+
+/** The authors among these comments whose marks would count only with write access (a hand-off's
+ *  receipt or failed start, a run's "started" record, by a member or collaborator), asked once each. */
+export const askFor = (comments) => [...new Set(comments.filter((c) => ASKED.includes(c?.author_association) && c?.user?.type !== 'Bot' && c?.user?.login
+  && [HANDOFF_MARK, HANDOFF_FAIL_MARK, USED_MARK].some((m) => String(c.body || '').startsWith(m))).map((c) => c.user.login))];
+
+/** K065: the logins among these comments' authors that may really write to the repository, read from
+ *  GitHub's collaborator permission endpoint once per author (and once per process). 404 (no such
+ *  collaborator) is no writer; any other refusal throws, so no decision is made on an unread count. */
+const asked = new Map();
+export async function writersOf(repo, comments, call = gh) {
+  const out = new Set();
+  for (const login of askFor(comments)) {
+    const key = `${repo}\n${login}`;
+    if (!asked.has(key)) {
+      let p = null;
+      try { p = await call('GET', `/repos/${repo}/collaborators/${encodeURIComponent(login)}/permission`); }
+      catch (e) { if (e.status !== 404) throw new Error(`the write permission of ${login} could not be read (${String(e.message).slice(0, 120)}), so its marks cannot be counted and no decision is made`); }
+      asked.set(key, mayWrite(p));
+    }
+    if (asked.get(key)) out.add(login);
+  }
+  return out;
+}
+
+/** The ledger of these comments, with each member's and collaborator's real permission read first. */
+async function ledgerOf(repo, comments) { return ledger(comments, { writers: await writersOf(repo, comments) }); }
+
 /** The job's receipts in the whole repository, LEDGER_DAYS back, so no edit to the STATE issue changes
  *  a count. If the listing is cut off, the decision fails closed: no run starts on an unread count. */
-async function receipts(repo, now = Date.now()) { return ledger(await recentComments(repo, now)); }
+async function receipts(repo, now = Date.now()) { return ledgerOf(repo, await recentComments(repo, now)); }
 async function recentComments(repo, now = Date.now()) {
   const since = new Date(now - LEDGER_DAYS * DAY).toISOString();
   const max = 200, { items, cut } = await ghPages(gh, `/repos/${repo}/issues/comments?since=${since}&sort=created&direction=asc`, { max });
@@ -411,7 +448,7 @@ async function runFire(repo, { event, issue, label }) {
     // the repository-wide listing failed: a hand-off writes its receipt on the STATE issue, so read that issue's
     // own comments (from an hour before this receipt) before giving up
     if (!all) {
-      try { all = ledger(await pages(`/repos/${repo}/issues/${s.st.number}/comments?since=${new Date((me.at || Date.now()) - HOUR).toISOString()}`)); }
+      try { all = await ledgerOf(repo, await pages(`/repos/${repo}/issues/${s.st.number}/comments?since=${new Date((me.at || Date.now()) - HOUR).toISOString()}`)); }
       catch (e) { err = e; }
     }
     if (!all) {
@@ -634,20 +671,24 @@ async function main() {
     const st = await stateIssue(repo, { open: false });
     const refuse = (why) => { console.log(`WAKE-START: REFUSED — ${why}`); process.exitCode = 4; };
     if (!st) return refuse('there is no STATE issue');
-    const all = await recentComments(repo), led = ledger(all), stateClaimed = st.state === 'open' && names(st).includes(CLAIM);
+    const all = await recentComments(repo), writers = await writersOf(repo, all);
+    const led = ledger(all, { writers }), stateClaimed = st.state === 'open' && names(st).includes(CLAIM);
     // first which receipt is the start, then whether a run already spent that one
     const r0 = startOk({ ledger: led, stateClaimed });
-    const r = r0.ok ? startOk({ ledger: led, stateClaimed, used: usedSince(all, r0.at).length }) : r0;
+    const r = r0.ok ? startOk({ ledger: led, stateClaimed, used: usedSince(all, r0.at, writers).length }) : r0;
     if (!r.ok) return refuse(r.why);
     let mine;
     try { mine = await gh('POST', `/repos/${repo}/issues/${st.number}/comments`, { body: `${USED_MARK}\nRun started (label start${r.issue != null ? `, woken by #${r.issue}` : ''}).` }); }
     catch (e) { return refuse(`the start could not be recorded on #${st.number} (${String(e.message).slice(0, 120)})`); }
-    if (!mine?.id || !writer(mine)) return refuse(`the start could not be recorded on #${st.number} by an account that may write`);
+    let mineWrites = false;
+    try { mineWrites = !!mine?.id && writer(mine, await writersOf(repo, [mine])); } catch { /* unread: not a record that counts */ }
+    if (!mineWrites) return refuse(`the start could not be recorded on #${st.number} by an account that may write`);
     // two runs racing: the older record wins. A listing that does not show this run's own comment yet
     // is read again; one that never shows it, and shows no other, is no reason to waste the start.
     let seen = [];
     for (let i = 0; i < 4; i++) {
-      seen = usedSince(await recentComments(repo), r.at);
+      const now2 = await recentComments(repo);
+      seen = usedSince(now2, r.at, await writersOf(repo, now2));
       if (seen.some((c) => c.id === mine.id)) break;
       await new Promise((ok) => setTimeout(ok, Number(process.env.WAKE_REREAD_MS ?? 1500)));
     }

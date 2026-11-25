@@ -3,6 +3,20 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.57.1 · 2026-11-25 · a hand-off's marks count only from an account that may really write (K065)
+
+A member of the owning organization, or an outside collaborator who may only read or triage, can no
+longer use a cap up, pause the wakes or spend a start with hand-off marks. Nothing always-loaded changed.
+
+- **`wake.mjs`**: a hand-off's receipt and failed start, and a run's "started" record, by a MEMBER or
+  COLLABORATOR count only when GitHub's collaborator permission endpoint gives write, maintain or admin
+  (new `writersOf`, read once per author; `mayWrite`, `askFor`). The owner counts as before; a read that
+  fails stops the decision, as a cut-off listing does. `ledger(comments, { writers })`, `writer(c, writers)`
+  and `usedSince(comments, at, writers)` take the confirmed writers; without them only the owner (and, for
+  `writer`, an App) counts.
+- **`wake.md`**: "Counts and stops" and the label start's "started" record say how "may write" is read.
+- To adopt: the next kit update. Repositories owned by a user account see no change.
+
 ## 0.57.0 · 2026-11-25 · a slow job receipt can no longer start a second run beside a hand-off (K064)
 
 The job and a hand-off decide who keeps a start by one rule, read from the receipts alone.
