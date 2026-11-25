@@ -162,10 +162,10 @@ eq(sweepSince([r(5, '2026-11-01T00:00:00Z', 'success')], { repo: 'o/r', currentI
   const reruns = seen.filter((c) => c.method === 'POST').map((c) => c.url);
   eq(JSON.stringify(saved), '["/repos/o/r/issues/2"]', 'its own GitHub client: the sweep reads, cleans and saves through it');
   eq(String(seen.every((c) => c.h.authorization === 'Bearer GT' && c.h['user-agent'] === 'harness-kit-scrub')), 'true', 'it sends GITHUB_TOKEN (never GH_TOKEN) and its own user-agent');
-  eq(JSON.stringify(reruns), '["/repos/o/r/actions/runs/1/rerun-failed-jobs"]', 'today a re-run answered with no body is read as broken JSON: the first failed check starts again, the second does not');
+  eq(JSON.stringify(reruns), '["/repos/o/r/actions/runs/1/rerun-failed-jobs","/repos/o/r/actions/runs/2/rerun-failed-jobs"]', 'a success with no body is a success: every failed check starts again, not only the first');
   listFails = true;
   let e = null; try { await sweep('o/r', '2026-11-21T17:00:00Z'); } catch (x) { e = x; }
-  eq(String(e?.status === 500 && /^GET \/repos\/o\/r\/issues\?state=all&since=.* answered 500: boom$/.test(e.message)), 'true', 'a refused call throws with its status, naming the method, the path and the status, with the start of the answer');
+  eq(String(e?.status === 500 && e.message === 'GET /repos/o/r/issues answered 500: boom'), 'true', 'a refused call throws with its status, naming the method, the path without its query and the status, with the start of the answer');
   s.close();
   for (const [k, v] of Object.entries(was)) if (v === undefined) delete process.env[k]; else process.env[k] = v;
 }
