@@ -437,8 +437,9 @@ ok(s.state === st.number && s.emptyStreak === 0 && s.cap === DAILY_CAP && s.clai
       && ledger(pairs.map((c) => ({ ...c, author_association: 'OWNER' }))).length === 6,
     'K065: an outside collaborator counts only with write; the owner needs no permission read; an author GitHub lists as neither is never asked into the count');
     ok(mayWrite({ role_name: 'write' }) && mayWrite({ role_name: 'maintain', permission: 'write' }) && mayWrite({ role_name: 'admin' }) && mayWrite({ permission: 'write' })
-      && !mayWrite({ role_name: 'triage', permission: 'read' }) && !mayWrite({ role_name: 'read', permission: 'read' }) && !mayWrite({ permission: 'none' }) && !mayWrite(null) && !mayWrite({ role_name: 'triage', permission: 'write' }),
-    'K065: write, maintain and admin may write; triage, read, none and an unread answer may not');
+      && !mayWrite({ role_name: 'triage', permission: 'read' }) && !mayWrite({ role_name: 'read', permission: 'read' }) && !mayWrite({ permission: 'none' }) && !mayWrite(null)
+      && mayWrite({ role_name: 'release-manager', permission: 'write' }) && mayWrite({ role_name: 'custom', permission: 'read', user: { permissions: { push: true } } }) && !mayWrite({ role_name: 'auditor', permission: 'read', user: { permissions: { pull: true, triage: true, push: false } } }),
+    'K065: write, maintain and admin may write; triage, read, none and an unread answer may not; a custom role is judged by its base role');
     ok(askFor([...pairs, ...outside, { ...member, user: { login: 'chatty', type: 'User' }, body: 'no mark' }, { ...member, user: { login: 'app[bot]', type: 'Bot' }, body: HANDOFF_MARK },
       { user: { login: 'own', type: 'User' }, author_association: 'OWNER', body: HANDOFF_MARK }, { user: { login: 'passer', type: 'User' }, author_association: 'NONE', body: HANDOFF_MARK },
       { user: { login: 'runner', type: 'User' }, author_association: 'COLLABORATOR', body: `${USED_MARK}\nx` }]).join() === 'org-reader,runner',
@@ -632,7 +633,9 @@ ok(s.state === st.number && s.emptyStreak === 0 && s.cap === DAILY_CAP && s.clai
   ok(readOnly.failStreak === 0 && permAsks.join() === 'org-reader', 'K065: a member\'s hand-off marks are read against GitHub\'s permission once, and with triage they count for nothing');
   perms['org-reader'] = { permission: 'write', role_name: 'maintain' };
   const maint = JSON.parse((await run(['status', '--repo', 'o/r'])).out);
-  ok(maint.failStreak === 3, 'K065: the same marks from a member who may maintain count as three failed starts');
+  perms['org-reader'] = { permission: 'write', role_name: 'release-manager' };
+  const custom = JSON.parse((await run(['status', '--repo', 'o/r'])).out);
+  ok(maint.failStreak === 3 && custom.failStreak === 3, 'K065: the same marks from a member who may maintain, or holds a custom role built on write, count as three failed starts');
   perms['org-reader'] = 'down';
   const down = await run(['status', '--repo', 'o/r']);
   ok(down.code === 1 && /could not be read/.test(down.out), 'K065: a permission GitHub will not show stops the decision: nothing is decided on an unread count');

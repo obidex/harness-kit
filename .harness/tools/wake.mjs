@@ -297,10 +297,16 @@ const pages = async (path) => (await ghPages(gh, path, { max: 20 })).items;
 
 const names = (i) => (i.labels || []).map((l) => l.name ?? l);
 
-/** The roles that may write (K065): `role_name` from the permission endpoint, else its older `permission`
- *  (which reads maintain as write and triage as read). Pure. */
+/** May the permission endpoint's answer write (K065)? A built-in `role_name` decides (admin, maintain, write
+ *  may; triage, read may not). A custom repository role carries its own name there, so for any other name
+ *  (or none) its base role decides: `permission` admin or write, or `user.permissions` push, maintain or admin. Pure. */
 export const WRITE_ROLES = ['admin', 'maintain', 'write'];
-export const mayWrite = (p) => WRITE_ROLES.includes(p?.role_name ?? p?.permission);
+const BUILT_IN = [...WRITE_ROLES, 'triage', 'read'];
+export const mayWrite = (p) => {
+  if (BUILT_IN.includes(p?.role_name)) return WRITE_ROLES.includes(p.role_name);
+  const u = p?.user?.permissions;
+  return ['admin', 'write'].includes(p?.permission) || u?.push === true || u?.maintain === true || u?.admin === true;
+};
 
 /** The authors among these comments whose marks would count only with write access (a hand-off's
  *  receipt or failed start, a run's "started" record, by a member or collaborator), asked once each. */

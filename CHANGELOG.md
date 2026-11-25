@@ -10,7 +10,7 @@ longer use a cap up, pause the wakes or spend a start with hand-off marks. Nothi
 
 - **`wake.mjs`**: a hand-off's receipt and failed start, and a run's "started" record, by a MEMBER or
   COLLABORATOR count only when GitHub's collaborator permission endpoint gives write, maintain or admin
-  (new `writersOf`, read once per author; `mayWrite`, `askFor`). The owner counts as before; a read that
+  (a custom repository role by its base role; new `writersOf`, read once per author; `mayWrite`, `askFor`). The owner counts as before; a read that
   fails stops the decision, as a cut-off listing does. `ledger(comments, { writers })`, `writer(c, writers)`
   and `usedSince(comments, at, writers)` take the confirmed writers; without them only the owner (and, for
   `writer`, an App) counts.
