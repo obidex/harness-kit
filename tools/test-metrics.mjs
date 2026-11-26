@@ -6,7 +6,7 @@
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
 import { join } from 'node:path';
-import { reviewRounds, isAgent, hasMarker, measure, render, satGreen } from '../.harness/tools/metrics.mjs';
+import { reviewRounds, isAgent, hasMarker, measure, render, satGreen, doneLine, answered } from '../.harness/tools/metrics.mjs';
 
 let n = 0;
 const ok = (cond, what) => { n++; if (!cond) { console.log(`test-metrics: FAIL ${n}. ${what}`); process.exit(1); } console.log(`test-metrics: ok ${n}. ${what}`); };
@@ -32,6 +32,15 @@ ok(satGreen([named('ci', T(0), T(3), 'cancelled'), named('ci', T(2), T(12)), nam
 ok(satGreen([named('ci', T(0), T(12)), named('audit', T(0), T(5), 'failure')], T(52)) === null, 'sat green: a PR merged beside a red check of another name is not measured');
 ok(satGreen([], T(52)) === null && satGreen([run(T(0), T(5))], null) === null, 'sat green: no checks, or no merge time, is not measured');
 
+// answered, not closed (roadmap#204): a DONE line, or State done, on an open inbox request
+ok(doneLine('RESULT x\nDONE — shipped') && doneLine('notes\n\nDONE') && doneLine('**DONE** — y') && doneLine('> DONE: z'), 'a DONE line: `DONE —`, a last line `DONE`, bold or quoted');
+ok(!doneLine('Not DONE yet') && !doneLine('WAITING ON the ERP — DONE soon') && !doneLine('DONEs counted') && !doneLine('done — lower case is prose'), 'not a DONE line: DONE inside a line, a longer word, lower case');
+const bot = { login: 'github-actions[bot]', type: 'Bot' };
+ok(answered({ body: 'x' }, [{ user: { login: 'own' }, body: 'DONE — x' }, { user: bot, body: 'Queued for the coordinator' }]), 'answered: the newest comment no bot wrote says DONE; a bot line after it does not hide it');
+ok(answered({ body: '- **State:** done\n- **Evidence:** x' }, []), 'answered: the body\'s State line says done');
+ok(!answered({ body: '- **State:** working' }, [{ user: { login: 'own' }, body: 'DONE — part 1' }, { user: { login: 'own' }, body: 'Part 2 started' }]), 'not answered: a DONE followed by newer work from a person');
+ok(!answered({ body: 'x' }, []), 'not answered: no comment and no done State');
+
 // --- a stand-in GitHub
 const issues = [
   { number: 1, title: 'Feature', user: { login: 'own' }, performed_via_github_app: { slug: 'claude' }, created_at: ago(60), updated_at: ago(40), pull_request: { merged_at: ago(48) }, body: 'x' },
@@ -49,7 +58,16 @@ const open = [
   { number: 13, updated_at: ago(72), labels: [{ name: 'bug' }] },
   { number: 14, updated_at: ago(1), labels: [{ name: 'risk:3' }] },
   { number: 15, updated_at: ago(30), labels: [{ name: 'inbox' }] },
+  { number: 16, updated_at: ago(1), labels: [{ name: 'inbox' }], comments: 2, body: '- **State:** working' },
+  { number: 17, updated_at: ago(1), labels: ['inbox'], comments: 0, body: '- **State:** done' },
+  { number: 18, updated_at: ago(1), labels: [{ name: 'inbox' }], comments: 1, body: 'x' },
+  { number: 19, updated_at: ago(1), labels: [{ name: 'card' }], comments: 1, body: 'x' },
 ];
+const issueComments = {
+  16: [{ user: { login: 'own' }, body: 'RESULT · …\nDONE' }, { user: { login: 'github-actions[bot]', type: 'Bot' }, body: 'Queued' }],
+  18: [{ user: { login: 'own' }, body: '**blocked**: waits on the ERP' }],
+  19: [{ user: { login: 'own' }, body: 'DONE — a card, not a request' }],
+};
 const comments = [
   { user: { login: 'own' }, created_at: ago(24), body: 'ok, go' },
   { user: { login: 'own' }, performed_via_github_app: { slug: 'claude' }, created_at: ago(24), body: 'agent' },
@@ -82,7 +100,7 @@ const server = createServer((req, res) => {
   let m;
   if ((m = p.match(/^\/repos\/o\/r\/pulls\/(\d+)$/))) return send(200, pulls[m[1]]);
   if ((m = p.match(/^\/repos\/o\/r\/pulls\/(\d+)\/commits$/))) return send(200, pulls[m[1]].commits.map((sha) => ({ sha })));
-  if ((m = p.match(/^\/repos\/o\/r\/issues\/(\d+)\/comments$/))) return send(200, pulls[m[1]].comments);
+  if ((m = p.match(/^\/repos\/o\/r\/issues\/(\d+)\/comments$/))) return send(200, pulls[m[1]] ? pulls[m[1]].comments : issueComments[m[1]] || []);
   if ((m = p.match(/^\/repos\/o\/r\/pulls\/(\d+)\/reviews$/))) return send(200, pulls[m[1]].reviews);
   if ((m = p.match(/^\/repos\/o\/r\/commits\/(\w+)\/check-runs$/))) return send(200, { check_runs: checks[m[1]] });
   if (p === '/repos/o/r/actions/runs') return send(200, { workflow_runs: runs[u.searchParams.get('head_sha')] || [] });
@@ -100,16 +118,17 @@ ok(m.reviewBlocks.reviewedPrs === 2 && m.reviewBlocks.blocks === 4 && m.reviewBl
 ok(m.satGreen.measured === 1 && m.satGreen.medianMinutes === 60 && m.satGreen.over === 1 && m.satGreen.overPrs.join() === '1', 'sat green: #1 sat an hour green before it merged; #2 had a check still running and is not measured');
 ok(m.falseDone.total === 3 && m.falseDone.mainRed.join() === '1' && m.falseDone.reverted.join() === '4' && m.falseDone.reopened.join() === '6', 'false DONEs: main red at the merge commit, a merged revert, an issue reopened in the window (not one reopened before it)');
 ok(m.stalls.count === 3 && m.stalls.items.join() === '10,12,15', 'stalls: idle non-draft PRs and card/inbox/risk issues over 24 h; not drafts, other labels or fresh items');
+ok(m.answeredOpen.count === 2 && m.answeredOpen.items.join() === '16,17', 'answered, not closed: an open inbox request whose newest person-written comment says DONE, or whose State is done; not a blocked one, one with no comments, or a card');
 ok(m.ownerTouches.count === 3 && m.ownerTouches.perWeek === 3, 'owner touches: the revert PR, the issue and the plain comment; not app-made, marked, other people\'s or older writes');
 ok(seen.every((s) => s.auth === 'Bearer T'), 'every read carries the token');
 
 const noOwner = await measure('o/r', { now: NOW, days: 7 });
 ok(noOwner.ownerTouches === null && noOwner.errors.some((e) => /no --owner/.test(e)), 'without --owner, owner touches are "?" with the reason, never a zero');
 const bad = await measure('o/bad', { now: NOW, days: 7 });
-ok(bad.satGreen === null && bad.agentPrsMerged === null && bad.firstPass === null && bad.falseDone === null && bad.stalls === null && bad.ownerTouches === null && bad.errors.length >= 3, 'an unreadable repository gives null metrics with errors, never zeros');
+ok(bad.satGreen === null && bad.agentPrsMerged === null && bad.firstPass === null && bad.falseDone === null && bad.stalls === null && bad.answeredOpen === null && bad.ownerTouches === null && bad.errors.length >= 3, 'an unreadable repository gives null metrics with errors, never zeros');
 const md = render([m, bad]);
-ok(/\| o\/r \| 2 \| 50% \(1\/2\) \| 2 \(4 in 2\) \| 60 min, 1 of 1 over 30 \| 3 \| 3 \| 3 \|/.test(md), 'Markdown: one row of counts per repository');
-ok(/\| o\/bad \| \? \| \? \| \? \| \? \| \? \| \? \| \? \|/.test(md) && /o\/bad: issues: GET \/repos\/o\/bad\/issues: HTTP 500/.test(md), 'Markdown: "?" for what could not be read, and why');
+ok(/\| o\/r \| 2 \| 50% \(1\/2\) \| 2 \(4 in 2\) \| 60 min, 1 of 1 over 30 \| 3 \| 3 \| 2 \| 3 \|/.test(md) && /\| Answered, not closed \|/.test(md), 'Markdown: one row of counts per repository');
+ok(/\| o\/bad \| \? \| \? \| \? \| \? \| \? \| \? \| \? \| \? \|/.test(md) && /o\/bad: issues: GET \/repos\/o\/bad\/issues: HTTP 500/.test(md), 'Markdown: "?" for what could not be read, and why');
 ok(!/Feature|Please fix|someone|ok, go/.test(md), 'Markdown for a public page carries no titles, bodies or other people\'s names');
 
 // the CLI: exit 0 with something read, 1 with nothing
