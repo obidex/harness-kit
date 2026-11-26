@@ -68,7 +68,7 @@ export function jsonAt(s, start) {
 
 function resultText(content) {
   const t = textOf(content);
-  const m = t.match(/Output has been saved to (\S+?\.txt)/);
+  const m = /^Error: result /.test(t) ? t.match(/Output has been saved to (\S+?\/tool-results\/\S+?\.txt)/) : null;
   if (m && existsSync(m[1])) { try { return readFileSync(m[1], 'utf8'); } catch { return t; } }
   return t;
 }
@@ -137,15 +137,19 @@ function weighted(u = {}) {
 const ctxOf = (u = {}) => (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0);
 const inner = (e, k) => e[k]?.internal_anthropic_catchall || null;
 
-/** What started a wake when its result names nothing: read from the text that opened it. */
+/** What started a wake, read from the first text that opened it (the record's own origin.kind is a
+ *  catch-all: a thread start or a PR event is often filed as a task notice). Null when the first text says nothing. */
 export function guessOrigin(texts) {
-  const t = texts.join('\n');
-  const wake = t.match(/<wake reason="([a-z-]+)"/);
-  if (/<session-context /.test(t) || (wake && wake[1] === 'spawn')) return 'thread start';
-  if (wake) return `wake:${wake[1]}`;
-  if (/<task-notification>/.test(t)) return 'task-notification';
-  if (/<agent-message /.test(t)) return 'peer';
-  return 'unknown';
+  for (const t of texts.slice(0, 1)) {
+    if (/^\s*<session-context /.test(t)) return 'thread start';
+    const wake = t.match(/^\s*<wake reason="([a-z-]+)"/);
+    if (wake) return wake[1] === 'spawn' ? 'thread start' : `wake:${wake[1]}`;
+    if (/^\s*(Another Claude session sent a message:\s*)?<agent-message /.test(t)) return 'peer';
+    if (/^\s*<task-notification>/.test(t)) return 'task-notification';
+    if (/^\s*\[auto-continue/.test(t)) return 'auto-continue';
+    if (/^\s*<system-note>/.test(t)) return 'wake:project-note';
+  }
+  return null;
 }
 
 function roleOf(title, firstOrigin, rules) {
@@ -187,7 +191,7 @@ export function wakes({ threads, pages }, { from, to, project = '', rules = [] }
         continue;
       }
       const u = inner(e, 'user');
-      if (u && opened.length < 4) {
+      if (u && !u.parent_tool_use_id && opened.length < 4) {
         const c = u.message?.content;
         const t = typeof c === 'string' ? c : Array.isArray(c) ? c.filter((x) => x?.type === 'text').map((x) => x.text).join('') : '';
         if (t) opened.push(t.slice(0, 4000));
@@ -207,10 +211,12 @@ export function wakes({ threads, pages }, { from, to, project = '', rules = [] }
       if (s?.compact_result === 'success' && inWin(e.created_at)) compactions.push({ project, thread: title, at: e.created_at });
       const r = inner(e, 'result');
       if (!r) continue;
-      const origin = r.origin?.kind || guessOrigin(opened);
-      if (!firstOrigin) firstOrigin = origin;
+      let origin = guessOrigin(opened) || r.origin?.kind || 'unknown';
       const here = calls; calls = []; msgSeen = new Set(); opened = [];
-      const nth = idx++;
+      if (!here.length && !Object.values(r.model_usage_since_last_result || {}).some((mu) => Number(mu.costUSD) > 0)) continue; // an empty record is no wake
+      const nth = here.some((c) => c.role === 'main') ? idx++ : idx;
+      if (origin === 'unknown' && nth === 0) origin = 'thread start'; // its opening text is not in the records
+      if (!firstOrigin) firstOrigin = origin;
       if (!inWin(e.created_at)) continue;
       const since = r.model_usage_since_last_result || {};
       const parts = {}, tasks = {};
@@ -357,7 +363,14 @@ export function main(argv) {
   }
   if (cmd === 'merge') {
     const all = { wakes: [], tools: [], compactions: [] };
-    for (const f of o._.slice(1)) { const j = JSON.parse(readFileSync(f, 'utf8')); all.wakes.push(...j.wakes); all.tools.push(...(j.tools || [])); all.compactions.push(...(j.compactions || [])); }
+    const once = new Set(), fresh = (k) => (once.has(k) ? false : (once.add(k), true));
+    for (const f of o._.slice(1)) {
+      const j = JSON.parse(readFileSync(f, 'utf8'));
+      all.wakes.push(...j.wakes.filter((x) => fresh(`w|${x.project}|${x.key}|${x.at}`)));
+      all.tools.push(...(j.tools || []).filter((x) => fresh(`t|${x.project}|${x.thread}|${x.at}|${x.what}|${x.size}`)));
+      all.compactions.push(...(j.compactions || []).filter((x) => fresh(`c|${x.project}|${x.thread}|${x.at}`)));
+    }
+    if (o.points && !(o['points-at'] && o.since)) { console.error('usage: --points needs --points-at and --since'); return 2; }
     const inWin = (t) => (!o.from || t >= o.from) && (!o.to || t <= o.to);
     const w = { wakes: all.wakes.filter((x) => inWin(x.at)), tools: all.tools.filter((x) => inWin(x.at)), compactions: all.compactions.filter((x) => inWin(x.at)) };
     if (!w.wakes.length) { console.error('no wake records'); return 3; }

@@ -14,6 +14,7 @@ const near = (a, b) => Math.abs(a - b) < 1e-9;
 
 const dir = mkdtempSync(join(tmpdir(), 'usage-'));
 mkdirSync(join(dir, 's', 'subagents'), { recursive: true });
+mkdirSync(join(dir, 's', 'tool-results'), { recursive: true });
 
 // --- the made-up thread: two wakes, a subagent, a compaction, two tool results
 const usage = (read, write1h, out, input = 2) => ({ input_tokens: input, cache_read_input_tokens: read, cache_creation_input_tokens: write1h, cache_creation: { ephemeral_1h_input_tokens: write1h, ephemeral_5m_input_tokens: 0 }, output_tokens: out });
@@ -49,7 +50,7 @@ const w0 = [
 ];
 
 const page = (events, first_id, has_more) => `<other-session nonce="n" untrusted="true">\nData.\n    ${JSON.stringify({ ccr: { data: events, has_more, first_id, last_id: 'z' } })}\n</other-session nonce="n">`;
-const savedFile = join(dir, 's', 'saved-page.txt');
+const savedFile = join(dir, 's', 'tool-results', 'saved-page.txt');
 writeFileSync(savedFile, page([...w1, ...w2], 'cur-1', true));
 const line = (content, role = 'assistant') => JSON.stringify({ type: role, message: { role, content } });
 const transcript = [
@@ -69,6 +70,14 @@ const rec = readRecords([dir]);
 ok(rec.threads.get('session_AAA')?.title === 'Build the thing', 'list_threads results are read, cse_ ids keyed as session_');
 ok(rec.pages.get('session_AAA')?.[0]?.events.length === w1.length + w2.length, 'a list_events result saved to a file is read from that file');
 ok(jsonAt('pre {"a":"}{","b":{"c":1}} post', '{"a"')?.b?.c === 1, 'jsonAt matches braces and skips braces inside strings');
+
+// an inline page whose events quote a saved-file notice is read inline, never swapped for that file
+const d2 = mkdtempSync(join(tmpdir(), 'usage-q-'));
+writeFileSync(join(d2, 'q.jsonl'), [
+  line([{ type: 'tool_use', id: 'Q1', name: 'mcp__claude-code-remote__list_events', input: { session_id: 'session_QQQ', limit: 100 } }]),
+  line([{ type: 'tool_result', tool_use_id: 'Q1', content: [{ type: 'text', text: page([user('2026-11-25T10:00:00Z', 'q', `Output has been saved to ${savedFile}.`)], 'q-1', false) }] }], 'user'),
+].join('\n') + '\n');
+ok(readRecords([d2]).pages.get('session_QQQ')?.[0]?.events.length === 1, 'a saved-file notice quoted inside an inline page does not replace the page');
 
 // 4-6: the paging plan
 let calls = plan(rec, { from: '2026-11-25T00:00:00Z' });
@@ -114,13 +123,31 @@ ok(near(c.usdPerPoint, 0.5) && near(c.perMerged[0][2], 2.5), 'calibration: dolla
 
 // the opening text names the start when the result does not
 ok(guessOrigin(['<session-context nonce="x">', '<wake reason="project-activity">']) === 'thread start', 'a wake that opens with the session context is a thread start');
-ok(guessOrigin(['<wake reason="external-event" current-time="t">']) === 'wake:external-event' && guessOrigin(['<task-notification> <task-id>a</task-id>']) === 'task-notification' && guessOrigin(['x']) === 'unknown', 'other openings: the wake reason, a task notice, else unknown');
+ok(guessOrigin(['<wake reason="external-event" current-time="t">']) === 'wake:external-event' && guessOrigin(['<task-notification> <task-id>a</task-id>']) === 'task-notification' && guessOrigin(['x', '<task-notification>']) === null, 'other openings: the wake reason, a task notice; only the first text counts, else none');
+ok(guessOrigin(['<agent-message from="a">hand-back', '<task-notification> later']) === 'peer', 'a hand-back that opens the wake is a peer message even when a notice follows it');
+const relay = [
+  result('2026-11-25T09:59:00Z', 'empty', 'task-notification', 0, {}),
+  user('2026-11-25T09:59:30Z', 'open', '<session-context nonce="n">context</session-context>'),
+  ...w1.slice(0, -1),
+  result('2026-11-25T10:00:08Z', 'r1b', 'task-notification', 5, { 'claude-opus-5-5': { costUSD: 4.0 } }),
+];
+const rw = wakes({ threads: rec2.threads, pages: new Map([['session_AAA', [{ events: relay }]]]) }, { from: '2026-11-25T00:00:00Z' }).wakes;
+ok(rw.length === 1 && rw[0].origin === 'thread start' && rw[0].warmth === 'cold (thread start)' && rw[0].coldUsd === 0, "the opening text wins over a catch-all origin.kind, and an empty record before it is no wake and does not use up the thread's first wake");
 const only = wakes({ threads: rec2.threads, pages: new Map([['session_AAA', [{ events: [...w1] }]]]) }, { from: '2026-11-25T00:00:00Z' });
 ok(only.wakes[0].warmth === 'cold (thread start)', "a cold first call on a thread's first wake is told apart from a cache that expired");
+
+const bare = [...w1.slice(0, -1), { created_at: '2026-11-25T10:00:08Z', result: { uuid: 'r-bare', internal_anthropic_catchall: { num_turns: 5, model_usage_since_last_result: { 'claude-opus-5-5': { costUSD: 4 } } } } }];
+ok(wakes({ threads: rec2.threads, pages: new Map([['session_AAA', [{ events: bare }]]]) }, { from: '2026-11-25T00:00:00Z' }).wakes[0].origin === 'thread start', "a thread's first paid wake with no origin and no opening text is its start");
+ok(guessOrigin(['[auto-continue 1/4] cut off']) === 'auto-continue' && guessOrigin(['<system-note>Thread state']) === 'wake:project-note', 'an automatic continuation and a project note are named');
 
 // the command line
 const quiet = console.error; console.error = () => {};
 ok(main(['table']) === 2, 'table without --from is a usage error');
+const jf = join(dir, 'p.json'); writeFileSync(jf, JSON.stringify(w));
+ok(main(['merge', jf, '--points', '10']) === 2, 'merge with --points but no --points-at or --since is a usage error, never a silent $0');
+const logs = []; const keep = console.log; console.log = (x) => logs.push(x);
+main(['merge', jf, jf, '--md']); console.log = keep;
+ok(/\$5\.00 at list price, 2 wakes/.test(logs.join('\n')), 'merge counts a wake given twice once');
 ok(main(['table', '--from', '2026-11-25T00:00:00Z', '--dir', join(tmpdir(), 'usage-none-' + process.pid)]) === 3, 'no records is exit 3, never an empty table');
 console.error = quiet;
 
