@@ -58,7 +58,9 @@
     is off or the tool fails, it merges by hand on green (A10), as before.
   - *Comments.* A bot's or a reviewer model's comment is a claim: check it in the code first (O07). A
     small change asked for is made; one that widens the scope or changes the design is answered on the
-    PR and escalated to the coordinator, not built (C06). Three pushes for the same failing check or
+    PR and escalated to the coordinator, not built (C06). An advisory second reviewer comments only once
+    the checks are green, so with auto-merge on its comment can land after the merge: its points still
+    end FIXED, TRACKED or DISMISSED, as a follow-up PR or card where needed (O07). Three pushes for the same failing check or
     comment, and the thread stops, says on the PR what it tried and hands it to the coordinator (C24).
   - *One net.* A subscription alone is not a wait: an event that lands mid-turn may never wake you.
     So a turn that ends with the PR open also leaves one net: a background watcher that polls CI and

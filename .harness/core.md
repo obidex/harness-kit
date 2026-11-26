@@ -1,11 +1,11 @@
 # Harness Kit · core
 
-> Loaded every session; binds every agent. Records: `catalogue/core.md` (lookup only).
+> Loaded every session; binds every agent. Records: `catalogue/core.md`.
 > The profile and rulebook win where stricter.
 
 ## The card
 
-- **C01 Stages.** PLAN → BUILD → VERIFY → RELEASE → MAINTAIN (may not apply). A small fix is
+- **C01 Stages.** PLAN → BUILD → VERIFY → RELEASE → MAINTAIN (if any). A small fix is
   one card: it plans and builds, its checks verify, its merge releases.
 - **C02 One outcome per card.** A card states its stage, goal, context, numbered pass/fail
   acceptance, the files it may touch, done-when and blocked-by.
@@ -19,8 +19,8 @@
 - **C05 Investigate first.** List each card assumption the code or canon contradicts; one that
   changes the work is STOPPED. "No work needed" is a valid DONE, with why.
 - **C06 Scope.** Touch only the files the card names; a high-risk path only when named. Unasked
-  extras go to NEXT, not the diff; scope or design asks are answered and escalated. No new
-  dependency unless named.
+  extras go to NEXT, not the diff; scope or design asks in review are answered and escalated, not
+  built. No new dependency unless named.
 
 ## Evidence
 
@@ -47,7 +47,7 @@
   plus any required review with no block. Gates and approvals are never worked
   around, relaxed or impersonated.
 - **C13 After the merge.** Confirm the default-branch CI run for the merge commit, its deployment
-  (by commit, not time) and live probes; record one ship line. A red default branch is the
+  (by commit, not time) and live probes; record a ship line. A red default branch is the
   next card and admits only fix PRs.
 - **C14 Failure handling.** A refused command or safety refusal is a finding: report the exact
   command; never retry, reword or route around it. A missing repo, secret, connector or tool: name
@@ -60,16 +60,16 @@
 ## Canon
 
 - **C16 Handover.** The closing note carries `RESULT · PR · CI · CHANGED · VERIFIED` (behaviour →
-  the check that proved it, with run link or output) `· FINDINGS · NEXT`.
+  the check that proved it, with its run or output) `· FINDINGS · NEXT`.
 - **C17 One home per fact.** Decisions are append-only: supersede, never edit. Volatile state lives
-  only in the state file. Generated references are regenerated, never hand-edited. Always-loaded
+  only in the state file. Generated references are never hand-edited. Always-loaded
   text is capped; a cap rises only by the owner's decision.
 - **C18 Ratchet.** A correction lands in its narrowest home (the card, a module rule, a
   test) and goes global only when it recurs. The owner's correction to how work runs is
   recorded as a decision the same day; chat is never the record.
 - **C19 Prevention.** Every owner correction or repeated failure ends with its prevention, at the
-  highest level worth its cost (the `correct` skill). A one-off small mistake is fixed, not ruled.
-  Owner review is no prevention; independent AI review counts only for risky areas.
+  highest level worth its cost, recorded once (the `correct` skill). A one-off small mistake is
+  fixed, not ruled. Owner review is no prevention; independent AI review counts only for risky areas.
 - **C26 Stale instructions.** When descriptive repository instructions conflict with consistent
   patterns in the relevant existing code, preserve those patterns unless the current task explicitly
   requests a change. Never override security requirements, explicit prohibitions, the owner's numbered

@@ -6,8 +6,8 @@ Each version is the tag `v<version>` on this repository, never moved (K003). Pro
 ## 0.59.0 · 2026-11-26 · after a pull request opens: auto-fix, auto-merge, three rules (K069); a weakened-tests lens
 
 From an owner-approved board card (rules borrowed from Anthropic's Claude Ship) and item 3b of the ideas card
-of the same night. Always-loaded text changed without growing (core.md 8704 of 8704 bytes; owner-defaults.md
-4502 to 4539 of 4544); adapter A06 changed; replay set (R29-R31 added) and result `replay/results/0.59.0.json`.
+of the same night. Always-loaded text changed without growing (core.md 8701 to 8703 of 8704 bytes; owner-defaults.md
+4502 to 4541 of 4544); adapter A06 changed; replay set (R29-R31 added) and result `replay/results/0.59.0.json`.
 
 - **A06 (K069)**: what a thread does after it opens a PR, the same in every project: subscribe to the PR's
   activity (auto-fix); once only the checks remain, turn on GitHub auto-merge (squash) where the settings file
@@ -16,8 +16,8 @@ of the same night. Always-loaded text changed without growing (core.md 8704 of 8
 - **C24**: three pushes for one failing check or comment count like three unanswered wakes: stop, say what
   was tried, the coordinator takes over. **O07**: a bot's or reviewer model's comment is a claim to check.
   **C06**: scope or design asks are answered and escalated, not built.
-- **Room in core (C17)**: C12's "never merge red" (its first clause says it), C19's "recorded once" (C17 and the
-  `correct` skill's register), and shorter words in C09, C10 and C13 with the same meaning.
+- **Room in core (C17)**: C12's "never merge red" (its first clause says it), the header's "(lookup only)" (A02),
+  and shorter words with the same meaning in C01, C09, C10, C13, C16, C17 and C19.
 - **`hands.mjs validate`**: refuses a settings file that allows auto-merge with a squash default body other
   than `"BLANK"` (O09). On the pull request only; `apply` is unchanged. Checks in `tools/test-hands.mjs`.
 - **`metrics.mjs`**: a "Sat green before merge" column (median minutes, and how many over 30) for merged agent
