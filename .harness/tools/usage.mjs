@@ -175,6 +175,9 @@ export function wakes({ threads, pages }, { from, to, project = '', rules = [] }
       if (seen.has(id)) continue; seen.add(id); evs.push(e);
     }
     evs.sort((a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0));
+    // the thread's start is in the records only when its oldest page has nothing older
+    const full = ps.filter((p) => p.events?.length);
+    const sawStart = full.length > 0 && full.reduce((a, p) => (p.events[0].created_at < a.events[0].created_at ? p : a)).has_more === false;
     const title = threads.get(key)?.title || key;
     const toolSeen = new Set();
     let firstOrigin = null, calls = [], msgSeen = new Set(), uses = new Map(), opened = [], idx = 0;
@@ -215,7 +218,8 @@ export function wakes({ threads, pages }, { from, to, project = '', rules = [] }
       const here = calls; calls = []; msgSeen = new Set(); opened = [];
       if (!here.length && !Object.values(r.model_usage_since_last_result || {}).some((mu) => Number(mu.costUSD) > 0)) continue; // an empty record is no wake
       const nth = here.some((c) => c.role === 'main') ? idx++ : idx;
-      if (origin === 'unknown' && nth === 0) origin = 'thread start'; // its opening text is not in the records
+      const start = nth === 0 && sawStart;
+      if (origin === 'unknown' && start) origin = 'thread start'; // its opening text is not in the records
       if (!firstOrigin) firstOrigin = origin;
       if (!inWin(e.created_at)) continue;
       const since = r.model_usage_since_last_result || {};
@@ -231,13 +235,13 @@ export function wakes({ threads, pages }, { from, to, project = '', rules = [] }
           parts[`${model}|${c.role}`] = (parts[`${model}|${c.role}`] || 0) + (usd * c.w) / tw;
           if (c.task) tasks[c.task] = (tasks[c.task] || 0) + (usd * c.w) / tw;
         }
-        if (firstMain?.cold && firstMain.model === model && nth > 0) coldUsd += (usd * Math.max(0, firstMain.extra)) / tw;
+        if (firstMain?.cold && firstMain.model === model && !start) coldUsd += (usd * Math.max(0, firstMain.extra)) / tw;
       }
       const mainCalls = here.filter((c) => c.role === 'main');
       const ctxCalls = mainCalls.map((c) => ({ ctx: c.ctx, usd: 0, w: c.w }));
       out.push({
         project, thread: title, key, at: e.created_at, origin, calls: Number(r.num_turns || mainCalls.length || 0),
-        warmth: mainCalls.length ? (mainCalls[0].cold ? (nth === 0 ? 'cold (thread start)' : 'cold') : 'warm') : 'n/a',
+        warmth: mainCalls.length ? (mainCalls[0].cold ? (start ? 'cold (thread start)' : 'cold') : 'warm') : 'n/a',
         usd: Object.values(parts).reduce((s, x) => s + x, 0), parts, tasks, coldUsd,
         ctx: ctxCalls.map((c) => [c.ctx, c.w]),
       });

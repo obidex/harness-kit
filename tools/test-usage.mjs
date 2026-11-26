@@ -131,13 +131,15 @@ const relay = [
   ...w1.slice(0, -1),
   result('2026-11-25T10:00:08Z', 'r1b', 'task-notification', 5, { 'claude-opus-5-5': { costUSD: 4.0 } }),
 ];
-const rw = wakes({ threads: rec2.threads, pages: new Map([['session_AAA', [{ events: relay }]]]) }, { from: '2026-11-25T00:00:00Z' }).wakes;
+const rw = wakes({ threads: rec2.threads, pages: new Map([['session_AAA', [{ events: relay, has_more: false }]]]) }, { from: '2026-11-25T00:00:00Z' }).wakes;
 ok(rw.length === 1 && rw[0].origin === 'thread start' && rw[0].warmth === 'cold (thread start)' && rw[0].coldUsd === 0, "the opening text wins over a catch-all origin.kind, and an empty record before it is no wake and does not use up the thread's first wake");
-const only = wakes({ threads: rec2.threads, pages: new Map([['session_AAA', [{ events: [...w1] }]]]) }, { from: '2026-11-25T00:00:00Z' });
+const only = wakes({ threads: rec2.threads, pages: new Map([['session_AAA', [{ events: [...w1], has_more: false }]]]) }, { from: '2026-11-25T00:00:00Z' });
 ok(only.wakes[0].warmth === 'cold (thread start)', "a cold first call on a thread's first wake is told apart from a cache that expired");
 
 const bare = [...w1.slice(0, -1), { created_at: '2026-11-25T10:00:08Z', result: { uuid: 'r-bare', internal_anthropic_catchall: { num_turns: 5, model_usage_since_last_result: { 'claude-opus-5-5': { costUSD: 4 } } } } }];
-ok(wakes({ threads: rec2.threads, pages: new Map([['session_AAA', [{ events: bare }]]]) }, { from: '2026-11-25T00:00:00Z' }).wakes[0].origin === 'thread start', "a thread's first paid wake with no origin and no opening text is its start");
+ok(wakes({ threads: rec2.threads, pages: new Map([['session_AAA', [{ events: bare, has_more: false }]]]) }, { from: '2026-11-25T00:00:00Z' }).wakes[0].origin === 'thread start', "a thread's first paid wake with no origin and no opening text is its start");
+const resumed = wakes({ threads: rec2.threads, pages: new Map([['session_AAA', [{ events: [...w1], has_more: true }]]]) }, { from: '2026-11-25T00:00:00Z' }).wakes[0];
+ok(resumed.warmth === 'cold' && resumed.coldUsd > 0, "a thread not read back to its start: its first wake read is a cache that expired, not a start");
 ok(guessOrigin(['[auto-continue 1/4] cut off']) === 'auto-continue' && guessOrigin(['<system-note>Thread state']) === 'wake:project-note', 'an automatic continuation and a project note are named');
 
 // the command line
