@@ -6,7 +6,7 @@ Each version is the tag `v<version>` on this repository, never moved (K003). Pro
 ## 0.60.0 · 2026-11-26 · papercuts, read-only lookups, the waiting share, a shorter core, the runbook linter (K070)
 
 From a strategist request under the owner's approval of 26 Nov 2026, five asks drawn from Uber's "Skills at
-Enterprise Scale". Always-loaded text shrank: `core.md` 8,703 to 6,396 of 8,704 bytes; `owner-defaults.md`
+Enterprise Scale". Always-loaded text shrank: `core.md` 8,703 to 6,561 of 8,704 bytes; `owner-defaults.md`
 unchanged (4,541). Adapter A25 added; replay result `replay/results/0.60.0.json`.
 
 - **C28 Papercuts (K070)**: a thread that a tool, skill, rule or instruction fights files one short report
