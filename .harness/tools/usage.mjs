@@ -137,10 +137,21 @@ function weighted(u = {}) {
 const ctxOf = (u = {}) => (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0);
 const inner = (e, k) => e[k]?.internal_anthropic_catchall || null;
 
+/** What started a wake when its result names nothing: read from the text that opened it. */
+export function guessOrigin(texts) {
+  const t = texts.join('\n');
+  const wake = t.match(/<wake reason="([a-z-]+)"/);
+  if (/<session-context /.test(t) || (wake && wake[1] === 'spawn')) return 'thread start';
+  if (wake) return `wake:${wake[1]}`;
+  if (/<task-notification>/.test(t)) return 'task-notification';
+  if (/<agent-message /.test(t)) return 'peer';
+  return 'unknown';
+}
+
 function roleOf(title, firstOrigin, rules) {
   for (const [re, role] of rules) if (re.test(title)) return role;
   if (/coordinator/i.test(title)) return 'coordinator';
-  if (/schedul|trigger|cron/i.test(firstOrigin || '')) return 'task';
+  if (/schedul|trigger|cron/i.test(firstOrigin || '') || /daily start|scheduled|routine|check-in/i.test(title)) return 'task';
   return 'builder';
 }
 
@@ -161,7 +172,8 @@ export function wakes({ threads, pages }, { from, to, project = '', rules = [] }
     }
     evs.sort((a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0));
     const title = threads.get(key)?.title || key;
-    let firstOrigin = null, calls = [], msgSeen = new Set(), uses = new Map();
+    const toolSeen = new Set();
+    let firstOrigin = null, calls = [], msgSeen = new Set(), uses = new Map(), opened = [], idx = 0;
     const inWin = (t) => t >= from && (!to || t <= to);
     for (const e of evs) {
       const a = inner(e, 'assistant');
@@ -170,38 +182,57 @@ export function wakes({ threads, pages }, { from, to, project = '', rules = [] }
         for (const c of m.content || []) if (c.type === 'tool_use') uses.set(c.id, c);
         if (m.id && msgSeen.has(m.id)) continue;
         if (m.id) msgSeen.add(m.id);
-        calls.push({ model: m.model || '?', role: a.agent_id ? `subagent:${a.subagent_type || 'unnamed'}` : 'main', w: weighted(m.usage), ctx: ctxOf(m.usage), cold: (m.usage?.cache_creation_input_tokens || 0) > (m.usage?.cache_read_input_tokens || 0) });
+        const cw = weighted({ cache_creation_input_tokens: m.usage?.cache_creation_input_tokens, cache_creation: m.usage?.cache_creation });
+        calls.push({ model: m.model || '?', role: a.agent_id ? `subagent:${a.subagent_type || 'unnamed'}` : 'main', task: a.agent_id ? String(a.task_description || '').replace(/\d+/g, '#') : '', w: weighted(m.usage), ctx: ctxOf(m.usage), cold: (m.usage?.cache_creation_input_tokens || 0) > (m.usage?.cache_read_input_tokens || 0), extra: cw - (m.usage?.cache_creation_input_tokens || 0) * W.read });
         continue;
       }
       const u = inner(e, 'user');
+      if (u && opened.length < 4) {
+        const c = u.message?.content;
+        const t = typeof c === 'string' ? c : Array.isArray(c) ? c.filter((x) => x?.type === 'text').map((x) => x.text).join('') : '';
+        if (t) opened.push(t.slice(0, 4000));
+      }
+      const note = e.internal_anthropic_catchall;
+      if (note?.notification?.content && opened.length < 4) opened.push(String(note.notification.content).slice(0, 4000));
       if (u && inWin(e.created_at)) for (const c of u.message?.content || []) {
         if (c?.type !== 'tool_result') continue;
-        const size = textOf(c.content).length || JSON.stringify(c.content || '').length;
-        tools.push({ project, thread: title, at: e.created_at, size, what: briefInput(uses.get(c.tool_use_id)) });
+        if (toolSeen.has(c.tool_use_id)) continue;
+        toolSeen.add(c.tool_use_id);
+        const items = Array.isArray(c.content) ? c.content : [c.content];
+        const images = items.filter((x) => x?.type === 'image').length;
+        const size = items.filter((x) => x?.type !== 'image').map((x) => (typeof x === 'string' ? x : x?.text || '')).join('').length;
+        tools.push({ project, thread: title, at: e.created_at, size, images, what: briefInput(uses.get(c.tool_use_id)) });
       }
       const s = inner(e, 'system');
       if (s?.compact_result === 'success' && inWin(e.created_at)) compactions.push({ project, thread: title, at: e.created_at });
       const r = inner(e, 'result');
       if (!r) continue;
-      const origin = r.origin?.kind || 'unknown';
+      const origin = r.origin?.kind || guessOrigin(opened);
       if (!firstOrigin) firstOrigin = origin;
-      const here = calls; calls = []; msgSeen = new Set();
+      const here = calls; calls = []; msgSeen = new Set(); opened = [];
+      const nth = idx++;
       if (!inWin(e.created_at)) continue;
       const since = r.model_usage_since_last_result || {};
-      const parts = {};
+      const parts = {}, tasks = {};
+      let coldUsd = 0;
+      const firstMain = here.find((c) => c.role === 'main');
       for (const [model, mu] of Object.entries(since)) {
         const usd = Number(mu.costUSD || 0);
         const mine = here.filter((c) => c.model === model);
         const tw = mine.reduce((s, c) => s + c.w, 0);
         if (!mine.length || !tw) { parts[`${model}|unseen`] = (parts[`${model}|unseen`] || 0) + usd; continue; }
-        for (const c of mine) parts[`${model}|${c.role}`] = (parts[`${model}|${c.role}`] || 0) + (usd * c.w) / tw;
+        for (const c of mine) {
+          parts[`${model}|${c.role}`] = (parts[`${model}|${c.role}`] || 0) + (usd * c.w) / tw;
+          if (c.task) tasks[c.task] = (tasks[c.task] || 0) + (usd * c.w) / tw;
+        }
+        if (firstMain?.cold && firstMain.model === model && nth > 0) coldUsd += (usd * Math.max(0, firstMain.extra)) / tw;
       }
       const mainCalls = here.filter((c) => c.role === 'main');
       const ctxCalls = mainCalls.map((c) => ({ ctx: c.ctx, usd: 0, w: c.w }));
       out.push({
         project, thread: title, key, at: e.created_at, origin, calls: Number(r.num_turns || mainCalls.length || 0),
-        warmth: mainCalls.length ? (mainCalls[0].cold ? 'cold' : 'warm') : 'n/a',
-        usd: Object.values(parts).reduce((s, x) => s + x, 0), parts,
+        warmth: mainCalls.length ? (mainCalls[0].cold ? (nth === 0 ? 'cold (thread start)' : 'cold') : 'warm') : 'n/a',
+        usd: Object.values(parts).reduce((s, x) => s + x, 0), parts, tasks, coldUsd,
         ctx: ctxCalls.map((c) => [c.ctx, c.w]),
       });
     }
@@ -240,7 +271,8 @@ export function summarize({ wakes: ws, tools = [], compactions = [] }) {
     byProject: by((w) => [[w.project || '-', w.usd]]),
     short: { wakes: short.length, usd: short.reduce((s, w) => s + w.usd, 0) },
     notices: { wakes: ws.filter((w) => w.origin === 'task-notification').length, usd: ws.filter((w) => w.origin === 'task-notification').reduce((s, w) => s + w.usd, 0) },
-    cold: { wakes: ws.filter((w) => w.warmth === 'cold').length, usd: ws.filter((w) => w.warmth === 'cold').reduce((s, w) => s + w.usd, 0) },
+    cold: { wakes: ws.filter((w) => w.warmth === 'cold').length, usd: ws.filter((w) => w.warmth === 'cold').reduce((s, w) => s + w.usd, 0), penalty: ws.reduce((s, w) => s + (w.coldUsd || 0), 0) },
+    topTasks: by((w) => Object.entries(w.tasks || {})).slice(0, 10),
     fable: ws.reduce((s, w) => s + Object.entries(w.parts).filter(([k]) => /fable/i.test(k)).reduce((a, [, v]) => a + v, 0), 0),
     ctxMedian: median(ctxAll), ctxCalls: ctxAll.length,
     ctxAbove: CTX_STEPS.map((n) => [n, ctxUse.filter(([c]) => c > n).reduce((s, [, v]) => s + v, 0), mainTotal]),
@@ -260,15 +292,19 @@ export function markdown(s, { calib } = {}) {
   L.push(`- Fable's share: ${pct(s.fable, t)}`);
   L.push(`- Waiting share (wakes ending within ${SHORT_CALLS} model calls): ${s.short.wakes} wakes, ${pct(s.short.usd, t)} of use`);
   L.push(`- Wakes started by a background-task notice: ${s.notices.wakes}, ${pct(s.notices.usd, t)} of use`);
-  L.push(`- Cold first call: ${s.cold.wakes} wakes, ${pct(s.cold.usd, t)} of use`);
+  L.push(`- Cold first call after a thread's first wake (the cache had expired): ${s.cold.wakes} wakes holding ${pct(s.cold.usd, t)} of use; writing the cache again cost ${usdf(s.cold.penalty)} (${pct(s.cold.penalty, t)})`);
   L.push(`- Context at a main call: median ${Math.round(s.ctxMedian / 1000)}k tokens over ${s.ctxCalls} calls; share of main-loop use from calls above ${s.ctxAbove.map(([n, v, all]) => `${n / 1000}k: ${pct(v, all)}`).join(', ')}`);
   L.push(`- Compactions: ${s.compactions}`, '');
   L.push('**The largest rows** (project · model · role · started by · first call)', '', '| Row | use | share |', '|---|---:|---:|');
   for (const [k, v] of s.rows.slice(0, 15)) L.push(`| ${k.replace(/\|/g, ' · ')} | ${usdf(v)} | ${pct(v, t)} |`);
   L.push('', '**The 10 heaviest threads**', '', '| Thread | use | share | wakes |', '|---|---:|---:|---:|');
   for (const [k, v, n] of s.topThreads) L.push(`| ${k.replace(/\|/g, ' · ').replace(/^ · /, '')} | ${usdf(v)} | ${pct(v, t)} | ${n} |`);
-  L.push('', '**The 10 largest tool results** (characters into context)', '', '| Size | Thread | Call |', '|---:|---|---|');
-  for (const x of s.topTools) L.push(`| ${x.size.toLocaleString('en-US')} | ${x.thread} | \`${x.what.replace(/\|/g, '/').replace(/`/g, "'")}\` |`);
+  if (s.topTasks.length) {
+    L.push('', '**The 10 costliest subagent tasks** (by description, digits as #)', '', '| Task | use | share |', '|---|---:|---:|');
+    for (const [k, v] of s.topTasks) L.push(`| ${k.replace(/\|/g, '/') || '(none)'} | ${usdf(v)} | ${pct(v, t)} |`);
+  }
+  L.push('', '**The 10 largest tool results** (characters of text into context; an image counts as one image)', '', '| Size | Thread | Call |', '|---:|---|---|');
+  for (const x of s.topTools) L.push(`| ${x.size.toLocaleString('en-US')}${x.images ? ` + ${x.images} image(s)` : ''} | ${x.thread} | \`${x.what.replace(/\|/g, '/').replace(/`/g, "'")}\` |`);
   if (calib) {
     L.push('', `**Calibration (M2):** ${usdf(calib.usd)} between ${calib.since} and ${calib.at} against ${calib.points} points of the week: ${usdf(calib.usdPerPoint)} per point.`);
     for (const [p, n, pts] of calib.perMerged) L.push(`- ${p}: ${n} merged, ${pts.toFixed(2)} points per merged change`);

@@ -6,7 +6,7 @@
 import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readRecords, plan, wakes, summarize, markdown, calibrate, jsonAt, main } from '../.harness/tools/usage.mjs';
+import { readRecords, plan, wakes, summarize, markdown, calibrate, jsonAt, guessOrigin, main } from '../.harness/tools/usage.mjs';
 
 let n = 0;
 const ok = (cond, what) => { n++; if (!cond) { console.log(`test-usage: FAIL ${n}. ${what}`); process.exit(1); } console.log(`test-usage: ok ${n}. ${what}`); };
@@ -26,9 +26,10 @@ const sys = (t, id, extra) => ({ created_at: t, system: { uuid: `s-${id}`, inter
 const w1 = [
   asst('2026-11-25T10:00:01Z', 'm1', 'claude-opus-5-5', usage(1000, 300000, 10), [{ type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'cat docs/DECISIONS.md' } }]),
   user('2026-11-25T10:00:02Z', 'u1', [{ type: 'tool_result', tool_use_id: 't1', content: 'x'.repeat(50000) }]),
+  user('2026-11-25T10:00:02Z', 'u1-again', [{ type: 'tool_result', tool_use_id: 't1', content: 'x'.repeat(50000) }]),
   asst('2026-11-25T10:00:03Z', 'm1', 'claude-opus-5-5', usage(1000, 300000, 10)), // same message id: counted once
   asst('2026-11-25T10:00:04Z', 'm2', 'claude-opus-5-5', usage(301000, 100, 10)),
-  asst('2026-11-25T10:00:05Z', 'm3', 'claude-opus-5-5', usage(100000, 0, 0), [], { agent_id: 'ag1', subagent_type: 'Explore' }),
+  asst('2026-11-25T10:00:05Z', 'm3', 'claude-opus-5-5', usage(100000, 0, 0), [], { agent_id: 'ag1', subagent_type: 'Explore', task_description: 'Replay R24' }),
   asst('2026-11-25T10:00:06Z', 'm4', 'claude-opus-5-5', usage(301100, 100, 10)),
   asst('2026-11-25T10:00:07Z', 'm5', 'claude-opus-5-5', usage(301200, 100, 10)),
   result('2026-11-25T10:00:08Z', 'r1', 'human', 5, { 'claude-opus-5-5': { costUSD: 4.0 } }),
@@ -37,7 +38,7 @@ const w1 = [
 const w2 = [
   sys('2026-11-25T11:00:00Z', 'c1', { status: null, compact_result: 'success' }),
   asst('2026-11-25T11:00:01Z', 'm6', 'claude-opus-5-5', usage(150000, 100, 5), [{ type: 'tool_use', id: 't2', name: 'Read', input: { file_path: '/x/README.md' } }]),
-  user('2026-11-25T11:00:02Z', 'u2', [{ type: 'tool_result', tool_use_id: 't2', content: [{ type: 'text', text: 'y'.repeat(900) }] }]),
+  user('2026-11-25T11:00:02Z', 'u2', [{ type: 'tool_result', tool_use_id: 't2', content: [{ type: 'text', text: 'y'.repeat(900) }, { type: 'image', source: { data: 'z'.repeat(99999) } }] }]),
   asst('2026-11-25T11:00:03Z', 'm7', 'claude-opus-5-5', usage(150100, 100, 5)),
   result('2026-11-25T11:00:04Z', 'r2', 'task-notification', 2, { 'claude-opus-5-5': { costUSD: 1.0 } }),
 ];
@@ -101,6 +102,9 @@ ok(near(s.short.usd, 1) && s.short.wakes === 1, 'the waiting share is the wakes 
 ok(s.notices.wakes === 1 && s.cold.wakes === 1 && s.compactions === 1, 'notices, cold wakes and compactions are counted');
 ok(s.topTools[0].size === 50000 && /cat docs\/DECISIONS\.md/.test(s.topTools[0].what), 'the largest tool result names the call behind it');
 ok(s.ctxAbove[0][1] > 0 && s.ctxAbove[2][1] === 0 && s.ctxAbove[0][1] < s.ctxAbove[0][2], 'context buckets: use from calls above 200k is counted, none above 384k');
+ok(s.topTools.length === 2 && s.topTools[1].size === 900 && s.topTools[1].images === 1, 'one tool result is counted once, and an image counts as an image, not as its encoded characters');
+ok(near(s.topTasks[0][1], sub) && s.topTasks[0][0] === 'Replay R#', "a subagent's part also goes to its task, digits folded");
+ok(a.coldUsd > 0 && a.coldUsd < a.usd && b.coldUsd === 0, 'a cold wake after the first carries the price of writing the cache again; a warm one none');
 const md = markdown(s);
 ok(/\$5\.00 at list price, 2 wakes, 1 threads/.test(md) && /Waiting share/.test(md) && /10 largest tool results/.test(md), 'the Markdown table opens with the total and carries each section');
 
@@ -108,7 +112,13 @@ ok(/\$5\.00 at list price, 2 wakes, 1 threads/.test(md) && /Waiting share/.test(
 const c = calibrate(w.wakes, { points: 10, at: '2026-11-25T23:00:00Z', since: '2026-11-25T00:00:00Z', merged: [['p', 4]] });
 ok(near(c.usdPerPoint, 0.5) && near(c.perMerged[0][2], 2.5), 'calibration: dollars per point and points per merged change');
 
-// 20-21: the command line
+// the opening text names the start when the result does not
+ok(guessOrigin(['<session-context nonce="x">', '<wake reason="project-activity">']) === 'thread start', 'a wake that opens with the session context is a thread start');
+ok(guessOrigin(['<wake reason="external-event" current-time="t">']) === 'wake:external-event' && guessOrigin(['<task-notification> <task-id>a</task-id>']) === 'task-notification' && guessOrigin(['x']) === 'unknown', 'other openings: the wake reason, a task notice, else unknown');
+const only = wakes({ threads: rec2.threads, pages: new Map([['session_AAA', [{ events: [...w1] }]]]) }, { from: '2026-11-25T00:00:00Z' });
+ok(only.wakes[0].warmth === 'cold (thread start)', "a cold first call on a thread's first wake is told apart from a cache that expired");
+
+// the command line
 const quiet = console.error; console.error = () => {};
 ok(main(['table']) === 2, 'table without --from is a usage error');
 ok(main(['table', '--from', '2026-11-25T00:00:00Z', '--dir', join(tmpdir(), 'usage-none-' + process.pid)]) === 3, 'no records is exit 3, never an empty table');
