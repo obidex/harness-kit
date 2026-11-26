@@ -3,6 +3,19 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.62.0 · 2026-11-26 · where the weekly allowance goes (K072)
+
+A measure, not a rule: nothing always-loaded changed.
+
+- **`usage.mjs`** reads other threads' session records back from the reader's own transcript (the results
+  of `list_threads` and `list_events`, inline or saved to a file): `next` plans the paging for a Haiku
+  worker, `table` gives use at list price by project, model, role (each subagent by type), what started
+  the turn and a warm or cold first call, the waiting share (wakes within four model calls), the
+  background-notice share, Fable's share, context size at a call (median, and use above 200k, 300k and
+  384k tokens), compactions, the 10 heaviest threads and the 10 largest tool results; `merge` combines
+  projects and calibrates against a reading of the allowance page.
+- **`usage.md`**: the runbook, each coordinator for its own threads, Platform for the whole picture.
+- CI runs `test-usage`.
 ## 0.61.0 · 2026-11-26 · closing a request is part of finishing it; "answered, not closed" is counted (K071)
 
 From the strategist's request on the owner's board (26 Nov 2026), asks 4 and 5. No always-loaded text
