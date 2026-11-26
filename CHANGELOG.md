@@ -3,6 +3,21 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.59.1 · 2026-11-26 · the second reviewer's late points on 0.59.0
+
+The advisory second reviewer's comment on 0.59.0's last-but-one commit landed after the merge (A06: its
+points end as follow-ups). No rule text changes; no replay needed.
+
+- **`tools/test-hands.mjs` (FIXED)**: the case "auto-merge with no squash merges allowed needs no squash body"
+  started from a repository that already had a blank body, so it passed without the exemption it names. It is
+  now built without a body, and fails when the `allow_squash_merge !== false` exemption is removed.
+- **Wording (FIXED here)**: 0.59.0 says loaded text changed "without growing". It grew under its caps: core.md
+  by 2 bytes (8701 to 8703 of 8704), owner-defaults.md by 39 (4502 to 4541 of 4544). The rule is the cap (C17,
+  which replaced "must not grow"); growth under it has precedent (0.47.0: 7 bytes). K069 stays as written.
+- **C17 and C19 trims (DISMISSED)**: no duty was dropped. C17's record still requires generated references to
+  match a fresh generation, enforced by the reference drift check; C19's record still requires each prevention
+  recorded once in the register with what enforces it.
+
 ## 0.59.0 · 2026-11-26 · after a pull request opens: auto-fix, auto-merge, three rules (K069); a weakened-tests lens
 
 From an owner-approved board card (rules borrowed from Anthropic's Claude Ship) and item 3b of the ideas card
