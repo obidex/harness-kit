@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// usage — where the weekly allowance goes, from the threads' own session records (K071).
+// usage — where the weekly allowance goes, from the threads' own session records (K072).
 //
 //   node .harness/tools/usage.mjs next  --from <ISO> [--to <ISO>] [--dir <path>] [--max 8]
 //                                   the next list_events calls to make (one JSON line each), then DONE

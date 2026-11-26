@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// test-usage — the allowance measure (K071), offline, from a made-up transcript.
+// test-usage — the allowance measure (K072), offline, from a made-up transcript.
 //
 //   node tools/test-usage.mjs        exit 0 = every case held
 

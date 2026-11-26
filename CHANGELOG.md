@@ -3,7 +3,7 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
-## 0.61.0 · 2026-11-26 · where the weekly allowance goes (K071)
+## 0.62.0 · 2026-11-26 · where the weekly allowance goes (K072)
 
 A measure, not a rule: nothing always-loaded changed.
 
@@ -16,6 +16,18 @@ A measure, not a rule: nothing always-loaded changed.
   projects and calibrates against a reading of the allowance page.
 - **`usage.md`**: the runbook, each coordinator for its own threads, Platform for the whole picture.
 - CI runs `test-usage`.
+## 0.61.0 · 2026-11-26 · closing a request is part of finishing it; "answered, not closed" is counted (K071)
+
+From the strategist's request on the owner's board (26 Nov 2026), asks 4 and 5. No always-loaded text
+changed (`core.md` and `owner-defaults.md` unchanged), so no replay result.
+
+- **Close with DONE (K071)**: the thread that answers an inbox request closes it in the same step as its
+  DONE line (`state --to done`, or by hand for an issue with no inbox-id); one left open is a papercut.
+  `inbox.md` "The issue" and the `inbox` skill's step 4.
+- **Answered, not closed**: `metrics.mjs` gains a column and a JSON field `answeredOpen` counting open
+  `inbox` issues whose State says `done` or whose newest person-written comment has a DONE line
+  (`metrics.md`). A project's health page that parses the Markdown table by position gets one more column
+  before "Owner touches".
 
 ## 0.60.0 · 2026-11-26 · papercuts, read-only lookups, the waiting share, a shorter core, the runbook linter (K070)
 

@@ -2,7 +2,7 @@
 
 <!-- runbook -->
 
-> Lookup only, never loaded. K071. The weekly allowance is spent by model calls, and every call re-reads
+> Lookup only, never loaded. K072. The weekly allowance is spent by model calls, and every call re-reads
 > its whole context (A25). This runbook measures, from the threads' own session records, what the
 > allowance bought: by model, by role (the thread and each subagent by type), by what started the turn,
 > and by whether its first call found the cache warm. It reads; it changes nothing.
