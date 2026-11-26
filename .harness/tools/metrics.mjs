@@ -68,8 +68,9 @@ async function pages(path, { stop = () => false, max = MAX_PAGES, key } = {}) {
 
 export const isAgent = (item, apps) => apps.includes(item?.performed_via_github_app?.slug) || ATTRIBUTION.test(item?.body || '');
 export const hasMarker = (body) => /<!--/.test(String(body || ''));
-/** A line that opens with the status word DONE (C03: `DONE — …`, or the last line `DONE`), bold or not. */
-export const doneLine = (text) => /^[ \t>*_]*DONE[*_]*[ \t]*(?:$|[—–:-])/m.test(String(text || ''));
+/** A line that opens with the status word DONE (C03: `DONE — …`, or the last line `DONE`), bold, bulleted
+ *  or a heading; `DONE.`, `DONE,` and `DONE (…)` too, but not a longer word or `DONE-when`. */
+export const doneLine = (text) => /^[ \t>*_#-]*DONE[*_]*[ \t]*(?:$|[—–:.,(]|-(?![\w-]))/m.test(String(text || ''));
 const isBot = (u) => u?.type === 'Bot' || /\[bot\]$/.test(u?.login || '');
 /** An open inbox request already answered: its State line says done, or its newest comment that no bot
  *  wrote carries a DONE line. `comments` is the request's comments, oldest first. */

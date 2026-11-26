@@ -34,6 +34,8 @@ ok(satGreen([], T(52)) === null && satGreen([run(T(0), T(5))], null) === null, '
 
 // answered, not closed (roadmap#204): a DONE line, or State done, on an open inbox request
 ok(doneLine('RESULT x\nDONE — shipped') && doneLine('notes\n\nDONE') && doneLine('**DONE** — y') && doneLine('> DONE: z'), 'a DONE line: `DONE —`, a last line `DONE`, bold or quoted');
+ok(doneLine('- DONE — x') && doneLine('## DONE — x') && doneLine('DONE. shipped') && doneLine('DONE, merged') && doneLine('DONE (merged)') && doneLine('DONE - x'), 'a DONE line: a bullet, a heading, a full stop, a comma, a bracket, a spaced hyphen');
+ok(!doneLine('DONE-when: the check is green'), 'not a DONE line: a card\'s DONE-when field');
 ok(!doneLine('Not DONE yet') && !doneLine('WAITING ON the ERP — DONE soon') && !doneLine('DONEs counted') && !doneLine('done — lower case is prose'), 'not a DONE line: DONE inside a line, a longer word, lower case');
 const bot = { login: 'github-actions[bot]', type: 'Bot' };
 ok(answered({ body: 'x' }, [{ user: { login: 'own' }, body: 'DONE — x' }, { user: bot, body: 'Queued for the coordinator' }]), 'answered: the newest comment no bot wrote says DONE; a bot line after it does not hide it');
