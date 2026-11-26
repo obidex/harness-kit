@@ -8,7 +8,7 @@ import { execFile } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { problems, comment, fixedComment, parse, groups, counts, issueBody, digest, due, parseTarget, keyOf, clean, MAX, DIGEST_MARK } from '../.harness/tools/papercut.mjs';
+import { problems, comment, fixedComment, parse, groups, counts, issueBody, digest, due, parseTarget, keyOf, clean, MAX, DIGEST_MARK, BODY_MARK } from '../.harness/tools/papercut.mjs';
 
 let n = 0;
 const ok = (cond, what) => { n++; if (!cond) { console.log(`test-papercut: FAIL ${n}. ${what}`); process.exit(1); } console.log(`test-papercut: ok ${n}. ${what}`); };
@@ -79,6 +79,10 @@ const server = createServer((req, res) => {
       if (req.method === 'POST') { const c = { body: body.body, created_at: new Date().toISOString(), html_url: `https://example.test/${m[1]}/issues/${m[2]}#c${i.comments.length + 1}` }; i.comments.push(c); return send(201, c); }
       return send(200, Number(u.searchParams.get('page') || 1) === 1 ? i.comments : []);
     }
+    if ((m = u.pathname.match(/^\/repos\/([\w.-]+\/[\w.-]+)\/issues\/(\d+)$/)) && req.method === 'GET') {
+      const i = issues.get(`${m[1]}#${m[2]}`);
+      return i ? send(200, i) : send(404, { message: 'Not Found' });
+    }
     if ((m = u.pathname.match(/^\/repos\/([\w.-]+\/[\w.-]+)\/issues\/(\d+)$/)) && req.method === 'PATCH') {
       const i = issues.get(`${m[1]}#${m[2]}`);
       if (!i) return send(404, { message: 'Not Found' });
@@ -117,7 +121,7 @@ down = false;
 ok(x.code === 3 && /NOT FILED/.test(x.out) && /papercut inbox\.mjs send: tried a/.test(x.out), 'GitHub down: exit 3 and the report printed, so the session carries on with it in its note');
 x = await run(['fixed', '--what', 'INBOX.mjs send', '--note', 'kit 0.60.1 (#9)', '--to', 'o/private#1']);
 ok(x.code === 0 && first.body.includes('open=0') && first.body.includes('kit 0.60.1 (#9)'), 'fixed zeroes the group in the rebuilt table');
-issues.set('o/private#7', { number: 7, body: 'x', labels: [], comments: [{ body: comment({ ...r, what: 'b.mjs' }), created_at: new Date().toISOString() }] });
+issues.set('o/private#7', { number: 7, body: `${BODY_MARK}\nx`, labels: [], comments: [{ body: comment({ ...r, what: 'b.mjs' }), created_at: new Date().toISOString() }] });
 x = await run(['digest', '--from', 'o/private#1', '--from', 'o/private#7']);
 ok(x.code === 0 && /1 open across 2 issue\(s\)/.test(x.out) && /`b\.mjs`/.test(x.out), 'digest reads every issue and ranks what is still open');
 x = await run(['digest', '--from', 'o/private#1', '--from', 'o/missing#3']);
@@ -132,6 +136,16 @@ ok(x.code === 0 && /PAPERCUTS: NOT DUE/.test(x.out), 'once posted, the week is n
 const before = issues.get('o/private#7').comments.length;
 x = await run(['digest', '--from', 'o/private#7', '--post', 'o/public#1']);
 ok(x.code === 1 && issues.get('o/private#7').comments.length === before, 'a digest is never posted to a public repository');
+
+// a named issue the tool does not own is never rewritten (a wrong number must not replace a state note)
+issues.set('o/private#54', { number: 54, body: 'STATE: the coordinator note', labels: [], comments: [] });
+for (const args of [['table'], ['file', ...fields], ['fixed', '--what', 'a.mjs', '--note', 'kit 1'], ['digest', '--from', 'o/private#7', '--post']]) {
+  x = await run([...args, args[0] === 'digest' ? 'o/private#54' : '--to', ...(args[0] === 'digest' ? [] : ['o/private#54'])]);
+  const i = issues.get('o/private#54');
+  ok(x.code !== 0 && i.body === 'STATE: the coordinator note' && i.comments.length === 0, `${args[0]} refuses a named issue that is not a papercut issue and writes nothing`);
+}
+x = await run(['fixed', '--what', 'a.mjs', '--note', `ghp_${'c'.repeat(36)}`, '--to', 'o/private#1']);
+ok(x.code === 1 && !first.comments.some((c) => c.body.includes('ghp_')), 'fixed refuses a secret-shaped note');
 
 server.close();
 console.log(`test-papercut: OK · ${n} cases`);

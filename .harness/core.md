@@ -25,10 +25,12 @@
   a test's name, a skip or a report without results does not.
 - **C08 Tests are never weakened.** Each new behaviour has a check that fails without it; never skip,
   weaken or delete a test to get green.
-- **C09 Tiers.** 1 (copy) builds; 2 (screens, queries) also tests; 3 (schema, auth, permissions,
-  secrets, money, config, CI, the harness, shared logic) first maps the blast radius. Unsure → 3.
-- **C10 Independent review.** Tier 3 gets a fresh-context reviewer with only the diff and rulebook,
-  listing only merge blockers; fix every block; blocked after 3 rounds → STOPPED.
+- **C09 Tiers.** 1 (copy) builds; 2 (screens, non-privileged queries) also tests; 3 (schema,
+  migrations, auth, permissions, secrets, money, config, CI, the harness, shared logic) first maps the
+  blast radius. Unsure → 3.
+- **C10 Independent review.** Tier 3 gets a fresh-context reviewer with only the diff and rulebook:
+  "List only problems you'd block the merge for: file, line, why, how to show it fails." Fix every
+  block; blocked after 3 rounds → STOPPED.
 - **C11 Build floor.** Only a broken essential workflow, a security failure, data corruption or broken
   money math blocks a merge; other findings are logged.
 
@@ -40,7 +42,8 @@
   branch admits only fixes.
 - **C14 Failure handling.** A refused command or safety refusal is a finding: report the exact command;
   never retry, reword or route around it. Name a missing repo, secret or tool, never mock or swap it,
-  and finish the rest. Three failures in a row on one step → STOPPED.
+  and finish the rest. Three failures in a row on one step, or the turn budget → STOPPED with what is
+  complete.
 - **C15 No silent stall.** Green unmerged PRs, conflicts and quiet cards are listed regularly; each
   resumes or STOPS.
 
@@ -68,7 +71,7 @@
 - **C22 Wait record.** A waiting card records the condition, who acts next, what wakes it, its owner,
   PR, commit, next action, deadline.
 - **C23 Cleanup is part of done.** Every reminder, watch and routine retires with the work it serves;
-  a card closes only after its follow-ups are off.
+  a card closes only after its follow-ups are off; one-time items never re-create.
 - **C24 Failure caps.** Three unanswered wakes, three pushes for one failing check, or a repeated failed
   fix → the coordinator takes over or changes approach.
 - **C25 Waits wake themselves.** No turn ends waiting on CI, a review or another thread without one

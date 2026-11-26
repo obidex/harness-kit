@@ -173,7 +173,12 @@ export async function target(to, { open = true, call = api } = {}) {
   if (!t) throw Object.assign(new Error('no target: name one with --to owner/name#N (or set "papercuts" in .harness/profile.json)'), { code: 2 });
   const repo = await call('GET', `/repos/${t.repo}`);
   if (repo?.private !== true) throw Object.assign(new Error(`${t.repo} is public: papercuts describe the project's own work, so they go only to a private repository's issue (--to owner/name#N)`), { code: 1 });
-  if (t.issue) return t;
+  if (t.issue) {
+    // never rewrite an issue the tool does not own: a wrong number must not replace a state note
+    const i = await call('GET', `/repos/${t.repo}/issues/${t.issue}`);
+    if (i?.pull_request || !String(i?.body || '').includes(BODY_MARK)) throw Object.assign(new Error(`${t.repo}#${t.issue} is not a papercut issue (its body has no ${BODY_MARK} line): nothing written; name the papercut issue, or leave --to out so the tool finds or opens it`), { code: 1 });
+    return t;
+  }
   const { items } = await ghPages(call, `/repos/${t.repo}/issues?labels=${LABEL}&state=open&sort=created&direction=asc`, { max: 2 });
   const found = items.find((i) => !i.pull_request && String(i.body || '').includes(BODY_MARK));
   if (found) return { repo: t.repo, issue: found.number };
@@ -221,6 +226,7 @@ async function main() {
   if (cmd === 'fixed') {
     const what = opt('--what'), note = opt('--note');
     if (!clean(what) || !clean(note)) { console.log('papercut: fixed needs --what and --note (the PR or release that fixed it)'); process.exitCode = 2; return; }
+    if (SECRETISH.test(`${what} ${note}`)) { console.log('papercut: REFUSED --what or --note holds something shaped like a secret'); process.exitCode = 1; return; }
     const t = await target(opt('--to'), { open: false });
     await api('POST', `/repos/${t.repo}/issues/${t.issue}/comments`, { body: fixedComment(what, note) });
     await rebuild(t);
@@ -249,8 +255,7 @@ async function main() {
     const text = digest(sets);
     console.log(text);
     if (post) {
-      const p = parseTarget(post);
-      if ((await api('GET', `/repos/${p.repo}`))?.private !== true) throw Object.assign(new Error(`${p.repo} is public: a digest goes only to a private issue`), { code: 1 });
+      const p = await target(post, { open: false });   // private, and a papercut issue
       const missed = from.filter((f) => !sets.some((s) => s.where === f));
       const c = await api('POST', `/repos/${p.repo}/issues/${p.issue}/comments`, { body: [DIGEST_MARK, text, ...(missed.length ? ['', `Not read: ${missed.join(', ')}.`] : [])].join('\n') });
       console.log(`papercut: digest posted ${c.html_url}`);

@@ -30,11 +30,11 @@ anything is posted. Reports are comments with the marker `<!-- papercut -->`; no
 ## The weekly digest (the coordinator's run)
 
 3. Each coordinator run asks whether the digest is due:
-   `node .harness/tools/papercut.mjs due --to <platform's issue>`.
+   `node .harness/tools/papercut.mjs due --to <home issue>`.
    Check: the last line is `PAPERCUTS: DUE` or `PAPERCUTS: NOT DUE`.
 4. When it is due, group every project's open reports in one ranked table and post it on the
-   Platform issue: `node .harness/tools/papercut.mjs digest --from <issue> --from <issue> … --post <platform's issue>`.
-   Check: the Platform issue has a new comment with `<!-- papercut-digest -->`, and `due` now prints
+   home issue (the papercut issue of the project whose coordinator runs the digest): `node .harness/tools/papercut.mjs digest --from <issue> --from <issue> … --post <home issue>`.
+   Check: the home issue has a new comment with `<!-- papercut-digest -->`, and `due` now prints
    `NOT DUE`.
 5. File one card for each of the top three groups, in the repository that owns the thing (an inbox
    card for another project, O14), naming the reports it answers:
@@ -51,4 +51,5 @@ anything is posted. Reports are comments with the marker `<!-- papercut -->`; no
 | `file` exits 3 (401, 403, 404) | attach the repository with push access (`add_repo`) and file again; else write the report in `Found:` |
 | `due` prints DUE every run | check that `digest --post` named the same issue that `due --to` reads |
 | two reports name the same thing differently | the grouping ignores case and backticks only; name the file or tool exactly, as `--what` |
-| a project's issue is missing from the digest | add its `--from`; each project's issue is listed in the Platform state note |
+| `due` says NOT DUE while another project's issue has open reports | `due` counts only the home issue's reports: run step 4 anyway once a week when another project's count line shows `open=` above 0 |
+| a project's issue is missing from the digest | add its `--from`; each project's issue is listed in the home project's state note |
