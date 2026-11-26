@@ -3,6 +3,15 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.62.1 · 2026-11-26 · a redaction in a written decision can be a known exception (K073)
+
+No always-loaded text changed, so there is no replay result.
+
+- **C17 "never edited"** now skips the commits the audit baseline lists for C17, as the lost-lines test
+  already does (K067). It is for a change that only takes out what a rule keeps out of files. Any other
+  edit of a written decision file still FAILs. `.harness/audit/README.md` and `.harness/decisions.md` say so.
+- `test-decisions` gains the cases.
+
 ## 0.62.0 · 2026-11-26 · where the weekly allowance goes (K072)
 
 A measure, not a rule: nothing always-loaded changed.
