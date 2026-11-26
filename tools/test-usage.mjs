@@ -78,6 +78,11 @@ writeFileSync(join(d2, 'q.jsonl'), [
   line([{ type: 'tool_result', tool_use_id: 'Q1', content: [{ type: 'text', text: page([user('2026-11-25T10:00:00Z', 'q', `Output has been saved to ${savedFile}.`)], 'q-1', false) }] }], 'user'),
 ].join('\n') + '\n');
 ok(readRecords([d2]).pages.get('session_QQQ')?.[0]?.events.length === 1, 'a saved-file notice quoted inside an inline page does not replace the page');
+writeFileSync(join(d2, 'r.jsonl'), [
+  line([{ type: 'tool_use', id: 'R1', name: 'mcp__claude-code-remote__list_events', input: { session_id: 'session_RRR', limit: 100 } }]),
+  line([{ type: 'tool_result', tool_use_id: 'R1', content: `<remote-control-device-report/>\nError: result (9 characters) exceeds maximum allowed tokens. Output has been saved to ${savedFile}.` }], 'user'),
+].join('\n') + '\n');
+ok(readRecords([d2]).pages.get('session_RRR')?.[0]?.events.length === w1.length + w2.length, 'a saved-file notice behind a tag the session added is still read from its file');
 
 // 4-6: the paging plan
 let calls = plan(rec, { from: '2026-11-25T00:00:00Z' });

@@ -68,7 +68,7 @@ export function jsonAt(s, start) {
 
 function resultText(content) {
   const t = textOf(content);
-  const m = /^Error: result /.test(t) ? t.match(/Output has been saved to (\S+?\/tool-results\/\S+?\.txt)/) : null;
+  const m = /^\s*(<[^>]+>\s*)*Error: result /.test(t) ? t.match(/Output has been saved to (\S+?\/tool-results\/\S+?\.txt)/) : null;
   if (m && existsSync(m[1])) { try { return readFileSync(m[1], 'utf8'); } catch { return t; } }
   return t;
 }
