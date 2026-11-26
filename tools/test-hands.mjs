@@ -22,20 +22,20 @@ const ruleset = (strict) => ({
     { type: 'required_status_checks', parameters: { strict_required_status_checks_policy: strict, required_status_checks: [{ context: 'ci' }] } }],
 });
 const desired = {
-  repository: { allow_auto_merge: true, delete_branch_on_merge: true },
+  repository: { allow_auto_merge: true, delete_branch_on_merge: true, squash_merge_commit_message: 'BLANK' },
   rulesets: [ruleset(true)],
   labels: [{ name: 'blocker', color: 'B60205', description: 'Blocks the merge' }],
 };
 // what GitHub returns: more fields than the file names, rules in another order
 const liveRuleset = (strict) => ({ id: 7, source_type: 'Repository', ...ruleset(strict), rules: [...ruleset(strict).rules].reverse().map((r) => ({ ...r, parameters: { ...r.parameters, extra_default: false } })) });
-const matching = { repository: { allow_auto_merge: true, delete_branch_on_merge: true, has_wiki: true }, rulesets: [liveRuleset(true)], labels: [{ name: 'blocker', color: 'b60205', description: 'Blocks the merge' }, { name: 'other', color: '000000' }] };
+const matching = { repository: { allow_auto_merge: true, delete_branch_on_merge: true, squash_merge_commit_message: 'BLANK', has_wiki: true }, rulesets: [liveRuleset(true)], labels: [{ name: 'blocker', color: 'b60205', description: 'Blocks the merge' }, { name: 'other', color: '000000' }] };
 
 // plan: no writes when live already matches, extra live fields and order aside
 ok(plan('o/r', desired, matching).length === 0, 'a live repository that matches its file needs no write');
 ok(covers({ a: 1, b: { c: 2, d: 3 } }, { b: { c: 2 } }) && !covers({ b: { c: 2 } }, { b: { c: 3 } }), 'covers: live may carry more, never differ');
 
 // plan: each difference is one write of the right shape
-const drifted = { ...matching, repository: { allow_auto_merge: false, delete_branch_on_merge: true }, rulesets: [liveRuleset(false)], labels: [] };
+const drifted = { ...matching, repository: { allow_auto_merge: false, delete_branch_on_merge: true, squash_merge_commit_message: 'BLANK' }, rulesets: [liveRuleset(false)], labels: [] };
 const steps = plan('o/r', desired, drifted);
 ok(steps.length === 3, `three writes for three differences (${steps.map((s) => s.what).join(' | ')})`);
 ok(steps[0].call.method === 'PATCH' && steps[0].call.path === '/repos/o/r' && JSON.stringify(steps[0].call.body) === '{"allow_auto_merge":true}', 'repository: only the differing key is sent');
@@ -53,7 +53,14 @@ ok(pruned.length === 1 && pruned[0].call.method === 'DELETE' && pruned[0].call.p
 const root = mkdtempSync(join(tmpdir(), 'hands-test-'));
 mkdirSync(join(root, '.github/workflows'), { recursive: true });
 writeFileSync(join(root, '.github/workflows/ci.yml'), 'name: ci\non:\n  pull_request:\njobs:\n  ci:\n    name: ci\n    runs-on: ubuntu-latest\n    steps:\n      - run: true\n');
+const { squash_merge_commit_message: _b, ...noBody } = desired.repository;
+const defaultBody = { ...desired, repository: noBody };
 ok(validate(desired, root).length === 0, 'a file whose required checks run on pull requests is valid');
+ok(validate(defaultBody, root).some((e) => e.includes('squash default body other than "BLANK"')), 'auto-merge with the default squash body is refused: it could carry a trailer (K069)');
+ok(validate({ ...desired, repository: { ...desired.repository, squash_merge_commit_message: 'COMMIT_MESSAGES' } }, root).some((e) => e.includes('"BLANK"')), 'auto-merge with commit messages as the squash body is refused');
+ok(validate({ ...desired, repository: { ...desired.repository, allow_squash_merge: false } }, root).length === 0, 'auto-merge with no squash merges allowed needs no squash body');
+ok(validate({ ...desired, repository: { allow_auto_merge: false } }, root).length === 0, 'no auto-merge, no squash body needed');
+ok(unsafe(defaultBody).length === 0, 'apply still accepts a live file it accepted before (the body rule is checked on the pull request only)');
 const ghost = { ...desired, rulesets: [{ ...ruleset(true), rules: [{ type: 'required_status_checks', parameters: { required_status_checks: [{ context: 'ci-ok' }] } }] }] };
 ok(validate(ghost, root).some((e) => e.includes('"ci-ok" is not a job')), 'a required check no job produces is refused (it would block every merge)');
 ok(validate({ repository: { allow_auto_merge: true } }, root).some((e) => e.includes('auto-merge would merge at once')), 'auto-merge without a required check is refused');

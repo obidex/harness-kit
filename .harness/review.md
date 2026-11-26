@@ -178,7 +178,9 @@ the owner asks for it: every tracked code file of the default branch, folder by 
   meanwhile; on GitHub-hosted minutes only after the owner has heard the estimate (O13).
 
 **A specialist pass (K068)** is the same job with its `lens` input set to one of `permissions`,
-`money-stock`, `irreversible` or `arabic-rtl`: the question is narrowed to that lens, every batch goes to
+`money-stock`, `irreversible`, `arabic-rtl` or `weakened-tests` (K069: assertions loosened, expected
+values copied from the output, skipped or empty tests, mocks of the code under test, tolerances widened
+to hide a failure; C08 read back over the tests that exist): the question is narrowed to that lens, every batch goes to
 the high-risk model, and the pass keeps its own record issue ("Second reviewer: specialist pass (<lens>)
 of the existing code") and its own $30 cap, so it never continues or uses up the full check. The lens is
 a fixed choice: no text a person types reaches the question. `estimate` with a lens prints that pass's

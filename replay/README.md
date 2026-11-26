@@ -2,7 +2,7 @@
 
 > Lookup only. Part of K034 (roadmap #48, P7). Projects do not install it: it checks the kit.
 
-**What.** `tasks.json` holds 28 situations the agents already got wrong once, rewritten without any
+**What.** `tasks.json` holds 31 situations the agents already got wrong once, rewritten without any
 project's names: a refused command retried, a turn that ended with no wake, a rulebook never loaded,
 a merge reported DONE on a red default branch, a secret pasted in chat, and so on. Each names its
 source and the rules it tests, and offers four actions; one is right by the rules.
@@ -35,4 +35,4 @@ stored result; nothing is taken on trust except that a model wrote the answers.
 below, and the release's changelog entry says "replay set". `check-version` refuses a release that
 removes a task or changes an expected answer.
 
-Frozen set: sha256 07138d24961e3e3f346c71d1b17e96b715df2606b77c8542b3a239640a16cbf0
+Frozen set: sha256 c1137e4d59352b67bea08a235bad37d5e5a4a2e92f14b5955d97580f52c948e7

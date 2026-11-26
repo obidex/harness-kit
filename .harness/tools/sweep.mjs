@@ -9,7 +9,7 @@
 // What it does. The pull-request reviewer (review.mjs) reads only what changes. This reads what is
 // already there: every tracked code file of the default branch, folder by folder, each batch sent once
 // to a Claude model with the rulebook and the question "which real defects are in these files, and
-// how serious is each". With a lens (K068: permissions, money-stock, irreversible, arabic-rtl; the job's
+// how serious is each". With a lens (K068: permissions, money-stock, irreversible, arabic-rtl; K069: weakened-tests; the job's
 // `lens` input, env SWEEP_LENS) it is a specialist pass: the same question narrowed to that lens, every batch
 // on the high-risk model, with its own record issue and its own cap. A batch with findings becomes ONE issue (each finding carries blocker, major
 // or minor); one more issue keeps the record: areas read, findings by severity, dollars spent.
@@ -64,6 +64,7 @@ export const LENSES = Object.freeze({
   'money-stock': 'Money and stock arithmetic: amounts, prices, taxes, discounts, currencies, rounding and floating-point money, totals that do not add up, quantities that can go negative or drift, double counting, and sums or balances that two concurrent changes can corrupt.',
   irreversible: 'Anything that deletes or cannot be undone: deletes, overwrites and cascades, migrations that drop or rewrite data, actions with no confirmation, no record or no way back, and a missing backup, soft delete or audit trail where the rulebook asks for one.',
   'arabic-rtl': 'Arabic text and right-to-left layout: text direction, mixed Arabic with Latin text or digits, number, date and currency formats, sorting, searching and comparing Arabic, cut or reversed text, and encodings or fonts that break Arabic.',
+  'weakened-tests': 'Tests that no longer prove what they claim (K069): an assertion loosened (an exact value checked only for truthiness, being defined, a type, a length or a substring), an expected value copied from what the code returns rather than from the requirement, a skipped, focused, todo or commented-out test, a test with no assertion or whose assertion cannot be reached, a caught error that is never checked, a mock or stub that replaces the very code under test, a snapshot that records wrong behaviour, a retry, timeout or tolerance widened to hide a failure, and a test whose name promises more than its body checks. Name the behaviour that is left unproven.',
 });
 /** The lens a run names: '' (or 'none') is the full check; any other name must be one of LENSES. */
 export function lensOf(s) {

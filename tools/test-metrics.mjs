@@ -6,7 +6,7 @@
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
 import { join } from 'node:path';
-import { reviewRounds, isAgent, hasMarker, measure, render } from '../.harness/tools/metrics.mjs';
+import { reviewRounds, isAgent, hasMarker, measure, render, satGreen } from '../.harness/tools/metrics.mjs';
 
 let n = 0;
 const ok = (cond, what) => { n++; if (!cond) { console.log(`test-metrics: FAIL ${n}. ${what}`); process.exit(1); } console.log(`test-metrics: ok ${n}. ${what}`); };
@@ -21,6 +21,16 @@ ok(r.get(1) === 3 && r.get(2) === 2 && r.get(3) === 0 && r.size === 3, 'review r
 ok(reviewRounds(['no review here', 'we blocked round trips']).size === 0, 'text without a round line records no review');
 ok(isAgent({ performed_via_github_app: { slug: 'claude' } }, ['claude']) && isAgent({ body: '<!-- claude-projects-attribution: {} -->' }, ['claude']) && !isAgent({ body: 'hi' }, ['claude']), 'an agent item: made through the agent app, or carrying the attribution marker');
 ok(hasMarker('x <!-- inbox -->') && !hasMarker('plain'), 'a hidden marker marks a tool write');
+const run = (start, done, conclusion = 'success') => ({ status: done ? 'completed' : 'in_progress', conclusion: done ? conclusion : null, started_at: start, completed_at: done });
+const T = (min) => new Date(NOW + min * 60000).toISOString();
+ok(satGreen([run(T(0), T(5)), run(T(0), T(12))], T(52)) === 40, 'sat green: from the last check to finish green to the merge, in minutes (K069)');
+ok(satGreen([run(T(0), T(5)), run(T(0), T(12), 'failure')], T(52)) === null, 'sat green: a failed check at the merge is no green time');
+ok(satGreen([run(T(0), T(5)), run(T(1), null)], T(52)) === null && satGreen([run(T(0), T(60))], T(52)) === null, 'sat green: a check still running, or finishing after the merge, is no green time');
+ok(satGreen([run(T(0), T(5)), run(T(70), T(75), 'failure')], T(52)) === 47, 'sat green: a run that started after the merge is left out');
+const named = (name, ...a) => ({ ...run(...a), name });
+ok(satGreen([named('ci', T(0), T(3), 'cancelled'), named('ci', T(2), T(12)), named('guard', T(0), T(5))], T(52)) === 40, 'sat green: a run replaced by a newer run of the same check (cancelled) does not count');
+ok(satGreen([named('ci', T(0), T(12)), named('audit', T(0), T(5), 'failure')], T(52)) === null, 'sat green: a PR merged beside a red check of another name is not measured');
+ok(satGreen([], T(52)) === null && satGreen([run(T(0), T(5))], null) === null, 'sat green: no checks, or no merge time, is not measured');
 
 // --- a stand-in GitHub
 const issues = [
@@ -53,10 +63,10 @@ const events = [
   { event: 'reopened', created_at: ago(9 * D), issue: { number: 9 } },
 ];
 const pulls = {
-  1: { body: 'Round 1: 2 blocks\nRound 2: no blocks', merge_commit_sha: 'm1', commits: ['a1', 'a2'], comments: [{ body: 'Round 2 had 1 block' }], reviews: [{ state: 'CHANGES_REQUESTED', body: 'see round 1' }] },
-  2: { body: 'no review', merge_commit_sha: 'm2', commits: ['b1', 'b2'], comments: [], reviews: [{ state: 'CHANGES_REQUESTED', body: '' }, { state: 'APPROVED', body: '' }] },
+  1: { body: 'Round 1: 2 blocks\nRound 2: no blocks', merge_commit_sha: 'm1', head: { sha: 'a2' }, commits: ['a1', 'a2'], comments: [{ body: 'Round 2 had 1 block' }], reviews: [{ state: 'CHANGES_REQUESTED', body: 'see round 1' }] },
+  2: { body: 'no review', merge_commit_sha: 'm2', head: { sha: 'b2' }, commits: ['b1', 'b2'], comments: [], reviews: [{ state: 'CHANGES_REQUESTED', body: '' }, { state: 'APPROVED', body: '' }] },
 };
-const checks = { a1: [{ status: 'completed', conclusion: 'failure' }], a2: [{ status: 'completed', conclusion: 'success' }], b1: [], b2: [{ status: 'completed', conclusion: 'success' }, { status: 'completed', conclusion: 'skipped' }, { status: 'in_progress', conclusion: null }] };
+const checks = { a1: [{ status: 'completed', conclusion: 'failure' }], a2: [{ status: 'completed', conclusion: 'success', started_at: ago(49), completed_at: ago(49) }], b1: [], b2: [{ status: 'completed', conclusion: 'success' }, { status: 'completed', conclusion: 'skipped' }, { status: 'in_progress', conclusion: null }] };
 const runs = { m1: [{ status: 'completed', conclusion: 'failure' }], m2: [{ status: 'completed', conclusion: 'success' }] };
 const seen = [];
 const server = createServer((req, res) => {
@@ -87,6 +97,7 @@ ok(m.errors.length === 0 && m.partial.length === 0, 'a readable repository has n
 ok(m.agentPrsMerged === 2, 'agent PRs merged: the app-made and the marked PR; not the bot, the person\'s revert, or a merge before the window');
 ok(m.firstPass.measured === 2 && m.firstPass.green === 1 && m.firstPass.rate === 0.5, 'first pass: #1 red on its first commit (green later does not count); #2 judged on its first commit with finished checks');
 ok(m.reviewBlocks.reviewedPrs === 2 && m.reviewBlocks.blocks === 4 && m.reviewBlocks.perReviewedPr === 2, 'review blocks: round lines from body and comments (2 + 1), a changes-requested review not counted again; a PR with no round line counts its changes-requested review (1)');
+ok(m.satGreen.measured === 1 && m.satGreen.medianMinutes === 60 && m.satGreen.over === 1 && m.satGreen.overPrs.join() === '1', 'sat green: #1 sat an hour green before it merged; #2 had a check still running and is not measured');
 ok(m.falseDone.total === 3 && m.falseDone.mainRed.join() === '1' && m.falseDone.reverted.join() === '4' && m.falseDone.reopened.join() === '6', 'false DONEs: main red at the merge commit, a merged revert, an issue reopened in the window (not one reopened before it)');
 ok(m.stalls.count === 3 && m.stalls.items.join() === '10,12,15', 'stalls: idle non-draft PRs and card/inbox/risk issues over 24 h; not drafts, other labels or fresh items');
 ok(m.ownerTouches.count === 3 && m.ownerTouches.perWeek === 3, 'owner touches: the revert PR, the issue and the plain comment; not app-made, marked, other people\'s or older writes');
@@ -95,10 +106,10 @@ ok(seen.every((s) => s.auth === 'Bearer T'), 'every read carries the token');
 const noOwner = await measure('o/r', { now: NOW, days: 7 });
 ok(noOwner.ownerTouches === null && noOwner.errors.some((e) => /no --owner/.test(e)), 'without --owner, owner touches are "?" with the reason, never a zero');
 const bad = await measure('o/bad', { now: NOW, days: 7 });
-ok(bad.agentPrsMerged === null && bad.firstPass === null && bad.falseDone === null && bad.stalls === null && bad.ownerTouches === null && bad.errors.length >= 3, 'an unreadable repository gives null metrics with errors, never zeros');
+ok(bad.satGreen === null && bad.agentPrsMerged === null && bad.firstPass === null && bad.falseDone === null && bad.stalls === null && bad.ownerTouches === null && bad.errors.length >= 3, 'an unreadable repository gives null metrics with errors, never zeros');
 const md = render([m, bad]);
-ok(/\| o\/r \| 2 \| 50% \(1\/2\) \| 2 \(4 in 2\) \| 3 \| 3 \| 3 \|/.test(md), 'Markdown: one row of counts per repository');
-ok(/\| o\/bad \| \? \| \? \| \? \| \? \| \? \| \? \|/.test(md) && /o\/bad: issues: GET \/repos\/o\/bad\/issues: HTTP 500/.test(md), 'Markdown: "?" for what could not be read, and why');
+ok(/\| o\/r \| 2 \| 50% \(1\/2\) \| 2 \(4 in 2\) \| 60 min, 1 of 1 over 30 \| 3 \| 3 \| 3 \|/.test(md), 'Markdown: one row of counts per repository');
+ok(/\| o\/bad \| \? \| \? \| \? \| \? \| \? \| \? \| \? \|/.test(md) && /o\/bad: issues: GET \/repos\/o\/bad\/issues: HTTP 500/.test(md), 'Markdown: "?" for what could not be read, and why');
 ok(!/Feature|Please fix|someone|ok, go/.test(md), 'Markdown for a public page carries no titles, bodies or other people\'s names');
 
 // the CLI: exit 0 with something read, 1 with nothing
