@@ -176,7 +176,7 @@ export function wakes({ threads, pages }, { from, to, project = '', rules = [] }
     }
     evs.sort((a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0));
     // the thread's start is in the records only when its oldest page has nothing older
-    const full = ps.filter((p) => p.events?.length);
+    const full = ps.filter((p) => !p.filtered && p.events?.length);
     const sawStart = full.length > 0 && full.reduce((a, p) => (p.events[0].created_at < a.events[0].created_at ? p : a)).has_more === false;
     const title = threads.get(key)?.title || key;
     const toolSeen = new Set();
