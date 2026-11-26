@@ -1,13 +1,13 @@
 {
   "repository": {
-    "allow_auto_merge": false,
+    "allow_auto_merge": true,
     "allow_squash_merge": true,
     "allow_merge_commit": true,
     "allow_rebase_merge": true,
     "allow_update_branch": false,
     "delete_branch_on_merge": false,
-    "squash_merge_commit_title": "COMMIT_OR_PR_TITLE",
-    "squash_merge_commit_message": "COMMIT_MESSAGES",
+    "squash_merge_commit_title": "PR_TITLE",
+    "squash_merge_commit_message": "BLANK",
     "merge_commit_title": "MERGE_MESSAGE",
     "merge_commit_message": "PR_TITLE",
     "has_issues": true,

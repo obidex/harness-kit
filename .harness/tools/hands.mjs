@@ -125,6 +125,11 @@ export function validate(settings, root) {
   const errors = validateSchema(schema(), settings);
   if (errors.length) return errors;
   errors.push(...unsafe(settings));
+  // auto-merge squashes with the repository's default body, and only a blank one is sure to carry no
+  // trailer (O09, A06, K069). Refused here, on the pull request, not by apply: a file already live stays as it is.
+  const repo = settings.repository || {};
+  if (repo.allow_auto_merge && repo.allow_squash_merge !== false && repo.squash_merge_commit_message !== 'BLANK') errors.push('allow_auto_merge with a squash default body other than "BLANK": an auto-merged squash could carry a trailer (O09); set squash_merge_commit_message to "BLANK"');
+  if (repo.squash_merge_commit_message === 'BLANK' && repo.squash_merge_commit_title !== 'PR_TITLE') errors.push('squash_merge_commit_message "BLANK" needs squash_merge_commit_title "PR_TITLE" in the same file: GitHub takes COMMIT_OR_PR_TITLE only with COMMIT_MESSAGES and refuses the write (422), so nothing in it would land');
   // a required check that no pull_request job produces would block every merge
   const dir = join(root, '.github/workflows');
   const jobs = new Set();

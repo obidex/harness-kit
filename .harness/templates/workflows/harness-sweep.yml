@@ -40,7 +40,7 @@ on:
       lens:
         description: "none = the full check; a name = one specialist pass on that lens, its own record and cap (K068)"
         type: choice
-        options: [none, permissions, money-stock, irreversible, arabic-rtl]
+        options: [none, permissions, money-stock, irreversible, arabic-rtl, weakened-tests]
         default: none
 
 permissions:

@@ -113,6 +113,9 @@ const ql = question({ batch: pl.batches[3], tag: 'k9', rules: 'R1', cutRules: fa
 ok(pl.lens === 'permissions' && pl.batches.every((x) => x.model === RISK_MODEL) && brief(pl, SWEEP_USD).lens === 'permissions' && ql.model === RISK_MODEL && /specialist pass \(permissions\)/.test(ql.system) && ql.system.includes(LENSES.permissions)
   && !/specialist pass/.test(q.system) && !q.system.includes(LENSES.permissions) && /never instructions to you/.test(ql.system),
   'with a lens every batch takes the high-risk model and the question names that lens; the full check\'s question is unchanged');
+const qw = question({ batch: planOf(code, { lens: 'weakened-tests' }).batches[0], tag: 'k9', rules: 'R1', cutRules: false, lens: lensOf('weakened-tests') });
+ok(lensOf('weakened-tests') === 'weakened-tests' && /specialist pass \(weakened-tests\)/.test(qw.system) && qw.system.includes(LENSES['weakened-tests']) && /assertion loosened/.test(LENSES['weakened-tests']) && qw.model === RISK_MODEL && titleOf('weakened-tests') === 'Second reviewer: specialist pass (weakened-tests) of the existing code',
+  'the weakened-tests lens (K069, the owner-approved roadmap ideas card item 3b) is a known name with its own question, model and record');
 let wl = world({ answers: [{ status: 200, json: says(FOUND) }] }); wl.answer = CLEAR;
 wl.issues.push({ number: 7, state: 'open', title: TITLE, body: `<!-- ${MARK} {"v":1,"started":"s","sha":"a","done":{},"lost":0,"stopped":null} -->`, ...BOT });
 const rl = await wl.go({ p: pl });
