@@ -81,3 +81,5 @@ jobs:
         run: node tools/test-papercut.mjs
       - name: Runbook and skill linter (and the kit's own skills and runbooks)
         run: node tools/test-steps.mjs
+      - name: Where the allowance goes (session records to the price-weighted table)
+        run: node tools/test-usage.mjs
