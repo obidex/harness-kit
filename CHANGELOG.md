@@ -15,7 +15,7 @@ of the same night. Always-loaded text changed without growing (core.md 8701 to 8
   it is off. One net (a watcher or one reminder) still ends each turn. C21 names "merge or auto-merge (A06)".
 - **C24**: three pushes for one failing check or comment count like three unanswered wakes: stop, say what
   was tried, the coordinator takes over. **O07**: a bot's or reviewer model's comment is a claim to check.
-  **C06**: scope or design asks are answered and escalated, not built.
+  **C06**: scope or design asks in review are answered and escalated, not built.
 - **Room in core (C17)**: C12's "never merge red" (its first clause says it), the header's "(lookup only)" (A02),
   and shorter words with the same meaning in C01, C09, C10, C13, C16, C17 and C19.
 - **`hands.mjs validate`**: refuses a settings file that allows auto-merge with a squash default body other
