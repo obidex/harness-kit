@@ -77,3 +77,7 @@ jobs:
         run: node tools/test-owner-step.mjs
       - name: Checks scaled to the change (scope and the gate)
         run: node tools/test-scope.mjs
+      - name: Papercuts (filing, the table, the weekly digest)
+        run: node tools/test-papercut.mjs
+      - name: Runbook and skill linter (and the kit's own skills and runbooks)
+        run: node tools/test-steps.mjs

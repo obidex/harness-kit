@@ -1,4 +1,5 @@
 # Replay · the frozen set of past incidents
+<!-- runbook -->
 
 > Lookup only. Part of K034 (roadmap #48, P7). Projects do not install it: it checks the kit.
 
@@ -13,14 +14,24 @@ and is replayed too. `tools/check-version.mjs` fails a kit PR that changes those
 `replay/results/<new version>.json`, and that file must pass `node tools/replay.mjs check`.
 
 **How (one thread, about 10 minutes, no money).**
+
 1. For each task, start ONE fresh agent with no other context, on the model A23 names for the role you
    record (`builder` for the everyday builder), and give it exactly `node tools/replay.mjs prompt <id>`.
-   Fresh means fresh: one task per agent, never the thread's own context.
+   Fresh means fresh: one task per agent, never the thread's own context. Check: each reply has a
+   `CHOICE:` line.
 2. Save the replies as `{"R01": "CHOICE: B\nWHY: …", …}` and run
    `node tools/replay.mjs record answers.json --role builder`. It grades, refuses a result under the
    floor, and writes `results/<VERSION>.json` with the hashes of the rule text, the adapters and this set.
+   Check: it prints `replay: recorded replay/results/<VERSION>.json`.
 3. Commit the result with the change. A task that fails is named in the PR with why; a rule change that
-   loses a task it used to pass is a finding for the reviewer.
+   loses a task it used to pass is a finding for the reviewer. Check:
+   `node tools/check-version.mjs origin/main` passes.
+
+| If | Do |
+|---|---|
+| `record` prints `replay: not recorded: …` (under the floor) | Read the `FAIL` lines; check each agent was fresh with only its prompt (step 1), then change the rule text that loses the task. |
+| `check-version` wants `replay/results/<new version>.json` | Run steps 1-2 for this change's version, then commit that file. |
+| `check-version` refuses a removed task or a changed expected answer | Restore `tasks.json`: the set only grows (below). |
 
 **Floor.** At least 80% of the tasks. On the tasks an earlier result shares with the set (same id,
 same answer), at most one fewer than any earlier result, and at most one task the newest earlier
