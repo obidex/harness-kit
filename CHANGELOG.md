@@ -3,6 +3,19 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.61.0 · 2026-11-26 · closing a request is part of finishing it; "answered, not closed" is counted (K071)
+
+From the strategist's request on the owner's board (26 Nov 2026), asks 4 and 5. No always-loaded text
+changed (`core.md` and `owner-defaults.md` unchanged), so no replay result.
+
+- **Close with DONE (K071)**: the thread that answers an inbox request closes it in the same step as its
+  DONE line (`state --to done`, or by hand for an issue with no inbox-id); one left open is a papercut.
+  `inbox.md` "The issue" and the `inbox` skill's step 4.
+- **Answered, not closed**: `metrics.mjs` gains a column and a JSON field `answeredOpen` counting open
+  `inbox` issues whose State says `done` or whose newest person-written comment has a DONE line
+  (`metrics.md`). A project's health page that parses the Markdown table by position gets one more column
+  before "Owner touches".
+
 ## 0.60.0 · 2026-11-26 · papercuts, read-only lookups, the waiting share, a shorter core, the runbook linter (K070)
 
 From a strategist request under the owner's approval of 26 Nov 2026, five asks drawn from Uber's "Skills at
