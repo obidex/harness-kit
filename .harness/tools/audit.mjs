@@ -156,7 +156,7 @@ const commitLog = (n) => git('log', `-${n}`, '--format=%H%x1f%an%x1f%s%x1f%b%x1e
 // --- the baseline: the project's accepted FAILs (whole rules) and known commit exceptions -------------
 // An entry with `commits` (each a SHA of 7+ characters) is a known exception, not an accepted rule: the
 // rule skips exactly those commits (history that is never rewritten) and still FAILs on any other.
-// Honoured by A10, O09 and C17's lost-lines test (K067).
+// Honoured by A10, O09, C17's lost-lines test (K067) and C17's never-edited test (K073).
 const basePath = opt('--baseline') ? resolve(opt('--baseline')) : join(root, '.harness/audit-baseline.json');
 let baseline = [];
 try { baseline = existsSync(basePath) ? JSON.parse(readFileSync(basePath, 'utf8')).results || [] : []; } catch (e) { if (flags.has('--strict')) throw e; }
