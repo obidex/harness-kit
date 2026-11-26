@@ -11,7 +11,8 @@ is no `AGENTS.md` and no profile here. What is this repository's own:
   secrets in any file, issue, PR or comment.
 - **A rule change is a release.** A change to `.harness/` or `tools/` is a new `VERSION`, a
   `CHANGELOG.md` entry and, when always-loaded text or an adapter changed, a replay result
-  (`replay/README.md`). Always-loaded text has byte caps (`tools/check-kit.mjs`) and must not grow.
+  (`replay/README.md`). Always-loaded text has byte caps (`tools/check-kit.mjs`) and stays under them;
+  a cap rises only by the owner's decision (C17).
 - **Checks.** `node tools/check-kit.mjs`, `node tools/check-version.mjs origin/main` and every
   `node tools/test-*.mjs`, as `.github/workflows/check.yml` runs them.
 - **Decisions.** One file each, `decisions/K###.md` (`node .harness/tools/decisions.mjs next`; K052);
