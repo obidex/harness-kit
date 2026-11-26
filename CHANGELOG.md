@@ -19,14 +19,16 @@ of the same night. Always-loaded text changed without growing (core.md 8701 to 8
 - **Room in core (C17)**: C12's "never merge red" (its first clause says it), the header's "(lookup only)" (A02),
   and shorter words with the same meaning in C01, C09, C10, C13, C16, C17 and C19.
 - **`hands.mjs validate`**: refuses a settings file that allows auto-merge with a squash default body other
-  than `"BLANK"` (O09). On the pull request only; `apply` is unchanged. Checks in `tools/test-hands.mjs`.
+  than `"BLANK"` (O09), and a `"BLANK"` body without `"squash_merge_commit_title": "PR_TITLE"` in the same file
+  (GitHub refuses any other title with it, 422). On the pull request only; `apply` is unchanged. Checks in
+  `tools/test-hands.mjs`.
 - **`metrics.mjs`**: a "Sat green before merge" column (median minutes, and how many over 30) for merged agent
   PRs; `metrics.md` defines it. Checks in `tools/test-metrics.mjs`.
 - **`sweep.mjs`, `harness-sweep.yml`**: a `weakened-tests` lens for the specialist passes, its own $30 cap like
   the others. `review.md` says what it reads for. Checks in `tools/test-sweep.mjs`.
 - **This repository**: `.github/harness-settings.json` turns auto-merge on with a blank squash body.
 - To adopt: the next kit update. A project turns auto-merge on in its own settings file, with
-  `"squash_merge_commit_message": "BLANK"`, where its rules allow.
+  `"squash_merge_commit_title": "PR_TITLE"` and `"squash_merge_commit_message": "BLANK"`, where its rules allow.
 
 ## 0.58.0 · 2026-11-25 · builders on Opus, Fable for three uses (K066); C17 honours known commits (K067); specialist passes (K068)
 
