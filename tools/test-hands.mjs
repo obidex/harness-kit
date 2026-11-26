@@ -58,7 +58,7 @@ const defaultBody = { ...desired, repository: noBody };
 ok(validate(desired, root).length === 0, 'a file whose required checks run on pull requests is valid');
 ok(validate(defaultBody, root).some((e) => e.includes('squash default body other than "BLANK"')), 'auto-merge with the default squash body is refused: it could carry a trailer (K069)');
 ok(validate({ ...desired, repository: { ...desired.repository, squash_merge_commit_message: 'COMMIT_MESSAGES' } }, root).some((e) => e.includes('"BLANK"')), 'auto-merge with commit messages as the squash body is refused');
-ok(validate({ ...desired, repository: { ...desired.repository, allow_squash_merge: false } }, root).length === 0, 'auto-merge with no squash merges allowed needs no squash body');
+ok(validate({ ...desired, repository: { ...noBody, allow_squash_merge: false } }, root).length === 0, 'auto-merge with no squash merges allowed needs no squash body (built without one, so it fails if the exemption goes)');
 ok(validate({ ...desired, repository: { allow_auto_merge: false } }, root).length === 0, 'no auto-merge, no squash body needed');
 ok(validate({ ...desired, repository: { ...desired.repository, squash_merge_commit_title: 'COMMIT_OR_PR_TITLE' } }, root).some((e) => e.includes('"PR_TITLE"')), 'a blank squash body with the commit-or-title title is refused: GitHub answers 422 to that pair (K069)');
 ok(validate({ ...desired, repository: { allow_auto_merge: true, squash_merge_commit_message: 'BLANK' } }, root).some((e) => e.includes('"PR_TITLE"')), 'a blank squash body with no title in the file is refused: the live title may be the one GitHub refuses with it');
