@@ -3,6 +3,31 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.60.0 · 2026-11-26 · papercuts, read-only lookups, the waiting share, a shorter core, the runbook linter (K070)
+
+From a strategist request under the owner's approval of 26 Nov 2026, five asks drawn from Uber's "Skills at
+Enterprise Scale". Always-loaded text shrank: `core.md` 8,703 to 6,561 of 8,704 bytes; `owner-defaults.md`
+unchanged (4,541). Adapter A25 added; replay result `replay/results/0.60.0.json`.
+
+- **C28 Papercuts (K070)**: a thread that a tool, skill, rule or instruction fights files one short report
+  with `.harness/tools/papercut.mjs file` on its project's private papercut issue and carries on; the tool
+  keeps the issue's table and a count line; a coordinator run posts a weekly digest across projects when
+  `papercut.mjs due` says so and files cards for the top three (`papercuts.md`, `wake.md`). Profile field
+  `papercuts` names the issue. Public repositories and secret-shaped text are refused.
+- **Read-only lookups**: `lookups.md` gives the Haiku-worker briefs for the state note and a failed log, and
+  the scripts for the queue and the papercut table; `wake.md`'s run contract and `models.md` point to it.
+- **A25 A wake costs the whole context**: measured on 25 Nov 2026 (140 wakes, 20 threads), 9% of the day's use
+  went to wakes that ended within four model calls; work the next step needs runs in the foreground, a
+  notice for a result already received ends its turn with no tool call, waits are PR events or one
+  reminder, an unavoidable poll goes to a Haiku worker.
+- **A shorter core**: every rule's wording cut to what its catalogue row does not already say; every phrase
+  `test-harness` pins kept. Owner defaults kept: a third could not come out without dropping owner-decided
+  wording that the tests pin (C08).
+- **Runbook and skill linter**: `.harness/tools/steps.mjs` checks every `SKILL.md` and every file marked
+  `<!-- runbook -->` for numbered steps, a command and a check per step, and a failure table. The skills
+  `correct` and `inbox`, `replay/README.md`, `lookups.md` and `papercuts.md` pass; `test-steps` keeps them
+  passing. CI runs `test-papercut` and `test-steps`.
+
 ## 0.59.1 · 2026-11-26 · the second reviewer's late points on 0.59.0
 
 The advisory second reviewer's comment on 0.59.0's last-but-one commit landed after the merge (A06: its
