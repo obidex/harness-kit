@@ -100,6 +100,21 @@ rmSync(d, { recursive: true, force: true });
   g('checkout', '-q', main); g('merge', '-q', '--squash', 'card'); g('commit', '-qm', 'squash');
   r = c17();
   ok(r.result === 'FAIL' && r.evidence.includes(`${folder}/K002.md changed after it was written`), 'and once such an edit is on the default branch, its history fails the check');
+  // K073: an edit the baseline lists for C17 by its SHA (a redaction on the owner's rule) is skipped; no other is
+  const squash = g('rev-parse', 'HEAD').stdout.trim();
+  const base = (id, commits) => writeFileSync(join(a, '.harness/audit-baseline.json'), JSON.stringify({ results: [{ id, commits, why: 'a name the owner keeps out of files, redacted' }] }));
+  base('A10', [squash.slice(0, 7)]);
+  ok(c17().result === 'FAIL', 'a commit listed for another rule does not excuse the edit');
+  base('C17', [squash.slice(0, 7)]);
+  r = c17();
+  ok(r.result === 'PASS' && /1 known edit\(s\) of a decision file in the baseline skipped/.test(r.evidence), `listed for C17 by its short SHA, that edit is skipped and C17 passes, saying so (fails without K073: ${r.evidence})`);
+  put(`${folder}/K004.md`, f('K004', 'edited later')); g('add', '-A'); g('commit', '-qm', 'another edit, on the default branch');
+  r = c17();
+  ok(r.result === 'FAIL' && r.evidence.includes(`${folder}/K004.md changed after it was written`) && !r.evidence.includes('K002.md'), 'a later edit still fails, naming only its file: the exception never accepts the rule');
+  g('checkout', '-qb', 'card2'); g('reset', '-q', '--hard', squash);
+  put(`${folder}/K002.md`, f('K002', 'edited again on a branch')); g('add', '-A'); g('commit', '-qm', 'branch edit');
+  r = c17();
+  ok(r.result === 'FAIL' && r.evidence.includes(`${folder}/K002.md changed after it was written`), 'and a branch that edits the same file again fails: only the listed commit is skipped');
   rmSync(a, { recursive: true, force: true }); rmSync(join(a, '..', 'decisions-audit-out.json'), { force: true });
 }
 
