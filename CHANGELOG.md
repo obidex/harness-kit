@@ -11,7 +11,7 @@ No always-loaded text changed, so there is no replay result.
   a staff guide instead of a check. One page per screen section (Next.js `app/` pages grouped by their first
   route part), from the section's code and its labels file, by the Batch API; a second batch checks each
   page against the same code. Pages go on one record issue, a comment each. Same switch and federation
-  rule as the full check; $15 for all guides of one window, closed or open, in any language; `estimate` first.
+  rule as the full check; $15 for all guides the repository ever runs, closed or open, in any language and window; `estimate` first.
 - The template's `lens` choice gains `staff-guide-ar` and `staff-guide-en`; `review.md` says how to use it.
 - CI runs `test-guide`.
 

@@ -146,21 +146,30 @@ r = await wd.go({ env: { REVIEW_SWEEP_USD: String(p.sections[0].worst + 0.0001) 
 ok(r.status === 'stopped' && [...wd.batches.values()][0].reqs.length === 1 && wd.comments.length === 1 && /left for the next start/.test(r.why), 'a cap lowered in the settings sends only the sections whose write and check fit it');
 wd = world();
 r = await wd.go({ env: { REVIEW_SWEEP_USD: '0' } });
-ok(r.status === 'stopped' && /cap for the window is reached/.test(r.why) && wd.sent() === 0, 'with no room under the cap nothing is sent');
+ok(r.status === 'stopped' && /cap for all guides is reached/.test(r.why) && wd.sent() === 0, 'with no room under the cap nothing is sent');
 // the cap is for the window: a closed record and another language's guide count against it (second reviewer, PR 117)
 wd = world();
 r = await wd.go();
 const first = r.usd;
 wd.record().state = 'closed';
 r = await wd.go({ env: { REVIEW_SWEEP_USD: String(first + p.sections[0].worst / 2) } });
-ok(r.status === 'stopped' && /cap for the window is reached/.test(r.why) && wd.sent() === 2 && Math.abs(r.window_usd - first) < 0.001 && /by earlier guides in the same window/.test(wd.issues[0].body),
+ok(r.status === 'stopped' && /cap for all guides is reached/.test(r.why) && wd.sent() === 2 && Math.abs(r.window_usd - first) < 0.001 && /by earlier guides/.test(wd.issues[0].body),
   'closing the record does not open a new cap: what a closed guide spent in the same window counts, and nothing more is sent');
 const pEn = { ...p, lang: 'en' };
 r = await wd.go({ p: pEn, env: { REVIEW_SWEEP_USD: String(first + p.sections[0].worst / 2) } });
 ok(r.status === 'stopped' && wd.sent() === 2, 'a guide in another language shares the same window\'s cap');
 wd.issues.forEach((i) => { const x = stateOf(i); if (x) { x.until = '2026-11-30T20:59:00.000Z'; i.body = i.body.replace(/^<!-- harness-guide \{[^\n]*\} -->/, `<!-- ${MARK} ${JSON.stringify(x)} -->`); } });
-r = await wd.go({ p: pEn });
-ok(r.status === 'finished' && wd.sent() === 4, 'a guide of an earlier window (another end time) does not count against this one');
+r = await wd.go({ p: pEn, env: { REVIEW_SWEEP_USD: String(first + p.sections[0].worst / 2) } });
+ok(r.status === 'stopped' && wd.sent() === 2 && Math.abs(r.window_usd - first) < 0.001, 'a guide of an earlier window (another end time) still counts: a new window opens no new money (second reviewer, round 2)');
+// an open record continued into a later window keeps counting for the other language
+wd = world({ endAfter: 1e9 });
+await wd.go();
+wd.endAfter = 0; wd.clock = NOW;
+const LATER = '2026-12-20T23:59+03:00';
+r = await wd.go({ env: { REVIEW_UNTIL: LATER } });
+const arSpent = r.usd;
+r = await wd.go({ p: pEn, env: { REVIEW_UNTIL: LATER, REVIEW_SWEEP_USD: String(arSpent + p.sections[0].worst / 2) } });
+ok(r.status === 'stopped' && Math.abs(r.window_usd - arSpent) < 0.001 && wd.sent() === 2, 'a record continued under a later end time still counts against another language\'s guide');
 wd = world(); wd.fail.list = Array.from({ length: 100 }, (_, i) => ({ number: i, state: 'open', title: 'x', body: '', ...BOT }));
 r = await wd.go();
 ok(r.status === 'too-large' && wd.sent() === 0, 'when the job\'s records cannot all be read, nothing is sent rather than counting in part');

@@ -26,8 +26,8 @@
 // sent once the switch is off; one still running when it ends is cancelled by the run waiting for it
 // (a batch with no run waiting finishes within its worst case, which is already counted).
 //
-// Caps, in code: GUIDE_USD dollars for every guide of one window (one end time), in any language, open
-// or closed, priced at the Batch API's half price (sweep_usd in the settings file, or REVIEW_SWEEP_USD,
+// Caps, in code: GUIDE_USD dollars for every guide the repository ever runs, in any language, open or
+// closed, in any window (raising it is a kit release on the owner's decision), priced at the Batch API's half price (sweep_usd in the settings file, or REVIEW_SWEEP_USD,
 // may only lower it). Before a batch is sent its worst case is
 // written down and counted; a batch whose worst case does not fit is cut to the sections that do. The
 // record issue is the state: a run that stops (the cap, the window, the job's time, a batch still
@@ -215,12 +215,12 @@ export function recordBody(state, p, cap, others = 0) {
   return [
     mark(state), `A staff guide in ${LANGS[p.lang].name}, written from the code at \`${String(state.sha).slice(0, 7)}\`: one page per screen section, each checked against the same code. Started ${state.started}.`, '', status, '',
     '| | |', '|---|---|',
-    `| Spent | $${spentOf(state).toFixed(2)} (Batch API)${others ? `, and $${others.toFixed(2)} by earlier guides in the same window` : ''}, of $${cap.toFixed(2)} for the window |`,
+    `| Spent | $${spentOf(state).toFixed(2)} (Batch API)${others ? `, and $${others.toFixed(2)} by earlier guides` : ''}, of $${cap.toFixed(2)} for all guides in this repository |`,
     `| Read | ${p.sections.reduce((n, s) => n + s.screens.length, 0)} screens in ${p.sections.length} sections |`,
     `| Left out for size | ${p.left.length ? p.left.slice(0, 30).map((x) => `\`${label(x)}\``).join(', ') : 'nothing'} |`,
     ...(posted.length ? ['', 'Pages, one comment each:', ...posted.map((s) => `- ${label(s.name)}: ${String(state.posted[s.key]).startsWith('http') ? state.posted[s.key] : `comment ${Number(state.posted[s.key])}`}`)] : []),
     ...(Object.keys(state.failed || {}).length ? ['', `No page for: ${p.sections.filter((s) => state.failed[s.key]).map((s) => label(s.name)).slice(0, 40).join(', ')}.`] : []),
-    '', 'Closing this issue ends this guide: the next start is a new one, within what is left of the window\'s cap.', '', FOOT,
+    '', 'Closing this issue ends this guide: the next start is a new one, within what is left of the cap for all guides.', '', FOOT,
   ].join('\n');
 }
 /** One page's comment. */
@@ -241,15 +241,16 @@ export async function guide({ gh, api, repo, sha, p, env = {}, now = () => Date.
   if (p.sections.length > MAX_SECTIONS) return { status: 'too-large', why: `${p.sections.length} sections, over ${MAX_SECTIONS} for one guide: name folders instead` };
   const cap = capOf(GUIDE_USD, env.REVIEW_SWEEP_USD);
   const began = now();
-  // every guide record the job ever filed, open or closed, in any language: the cap is for the window
+  // every guide record the job ever filed, open or closed, in any language: the cap is for all of them
   const all = await pages(gh, `/repos/${repo}/issues?state=all&creator=${encodeURIComponent(BOT)}&sort=created&direction=desc`, null, 10);
   if (!all) return { status: 'too-large', why: 'more than 1000 issues by the job; the records are not counted in part' };
   const guides = all.filter((i) => Object.keys(LANGS).some((l) => i.title === titleOf(l)) && stateOf(i));
   const title = titleOf(p.lang);
   let issue = guides.find((i) => i.state === 'open' && i.title === title);
-  // a closed record, or another language's, still counts against this window's cap (one with no window
-  // written counts too); only a record of an earlier end time does not
-  const others = Math.round(guides.filter((i) => i !== issue).map(stateOf).filter((x) => !x.until || x.until === sw.until).reduce((n, x) => n + spentOf(x), 0) * 1e4) / 1e4;
+  // every other guide record counts, closed or open, in any language, of any window: the cap is one
+  // amount for the repository, so no new window, closed record or language opens new money. Raising it
+  // is a kit release on the owner's decision.
+  const others = Math.round(guides.filter((i) => i !== issue).map(stateOf).reduce((n, x) => n + spentOf(x), 0) * 1e4) / 1e4;
   const state = issue ? stateOf(issue) : { v: 1, lang: p.lang, until: sw.until, started: new Date(now()).toISOString(), sha, cost: {}, posted: {}, failed: {}, lost: 0, write: null, check: null, stopped: null };
   state.failed ||= {};
   state.stopped = null;
@@ -321,7 +322,7 @@ export async function guide({ gh, api, repo, sha, p, env = {}, now = () => Date.
     const pick = [];
     let room = roomLeft();
     for (const s of todo) if (s.worst <= room) { room -= s.worst; pick.push(s); }
-    if (!pick.length) return finish(`the cap for the window is reached ($${(others + spentOf(state)).toFixed(2)} of $${cap.toFixed(2)} spent by guides)`);
+    if (!pick.length) return finish(`the cap for all guides is reached ($${(others + spentOf(state)).toFixed(2)} of $${cap.toFixed(2)} spent by guides)`);
     if (!switchOf(env, now()).on) return finish('the reviewer\'s time ended');
     const reqs = pick.map((s) => ({ key: s.key, params: writeRequest(s, tag(), p.lang) }));
     const worst = Math.round(reqs.reduce((n, x) => n + worstOf(JSON.stringify(x.params)), 0) * 1e4) / 1e4;
