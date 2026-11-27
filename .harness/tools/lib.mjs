@@ -175,7 +175,7 @@ export function triggers(wf) {
  *  A read (GET, HEAD) that meets GitHub's own hiccup, a 500, 502, 503 or 504 or no answer at all, is
  *  tried again: three tries in all, 2 s then 4 s apart (HARNESS_GH_RETRY_MS sets the step; the tests use
  *  0), each retry one line on stderr; the last answer stands, and no answer at the last try throws as
- *  before (K074). A write is sent once: a 502 does not say it did not land, and a second comment, label
+ *  before (K075). A write is sent once: a 502 does not say it did not land, and a second comment, label
  *  or merge is worse than a red run that the next run repeats. */
 export async function ghCall(method, path, data, { agent = 'harness-kit', token, accept = 'application/vnd.github+json', raw = false } = {}) {
   const tries = method === 'GET' || method === 'HEAD' ? 3 : 1;

@@ -1,7 +1,7 @@
 # Kit-managed (Harness Kit): installed and updated by .harness/tools/harness.mjs; never edit here.
 # Action group: auto (it checks, reports, alerts or wakes by itself; .harness/tools/actions.mjs)
 # Runs on the chore lane: CHORE_RUNNER when set, else RUNNER (K059, .harness/ci.md).
-# One automatic re-run of a failed check that does not block the merge (K074; .harness/tools/rerun.mjs).
+# One automatic re-run of a failed check that does not block the merge (K075; .harness/tools/rerun.mjs).
 # When a pull-request workflow named below fails on its first attempt, none of its failed jobs is a
 # required check, and no required check on the pull request's head has failed, its failed jobs run once
 # more before anyone is told: a GitHub hiccup (one 502 on one read) clears by itself. A second failure

@@ -19,7 +19,7 @@
 //   node .harness/tools/hands.mjs keep [--only owner/name]  bring every open kit update PR that is behind its base up
 //                                                           to date (K012); one whose required checks pass but that
 //                                                           auto-merge does not merge asks its project's coordinator
-//                                                           to merge it, once (K074); JSON {watched, updated, asked}
+//                                                           to merge it, once (K075); JSON {watched, updated, asked}
 //
 // Only the control repository's reviewed workflows on its main branch run discover, plan and apply,
 // with a token minted from the App for that job alone (GH_TOKEN). A project changes its settings by
@@ -264,7 +264,7 @@ export function keepAction(pr, { now = Date.now(), hours = 72, bot } = {}) {
 }
 export const watched = (action) => !['not a kit update', "not the App's", 'old'].includes(action);
 
-// --- a kit update PR that is ready but that nobody merges (K074) ---------------------------------------
+// --- a kit update PR that is ready but that nobody merges (K075) ---------------------------------------
 // GitHub's "clean" or "unstable" means every required check and review passes ("unstable": a check that is
 // not required failed). With auto-merge on, GitHub merges it; with auto-merge off (the project's settings
 // say allow_auto_merge false, K023, or GitHub refused to turn it on) nobody would, and a kit update must
@@ -283,7 +283,7 @@ export function mergeRequest(repo, pr) {
     source: pr.html_url || `https://github.com/${repo}/pull/${pr.number}`,
     outcome: `Kit update PR #${pr.number} ("${pr.title || pr.head.ref}") passes every required check${failed}, and auto-merge is not on here, so nothing merges it: merge it on its gates (O11), then mark this request done with the merge commit.`,
     coordinator: `${repo}'s coordinator`,
-    coveredBy: 'Harness Kit K074 and K023: a kit update PR merges on its required checks; where auto-merge is off by the project\'s own settings, its coordinator merges it on its gates (O11).',
+    coveredBy: 'Harness Kit K075 and K023: a kit update PR merges on its required checks; where auto-merge is off by the project\'s own settings, its coordinator merges it on its gates (O11).',
   };
 }
 

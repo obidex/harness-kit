@@ -3,7 +3,7 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
-## 0.63.0 · 2026-11-27 · a GitHub hiccup never leaves a change stuck (K074)
+## 0.64.0 · 2026-11-27 · a GitHub hiccup never leaves a change stuck (K075)
 
 From the strategist's card on the owner's board (27 Nov 2026), part B. No always-loaded text changed
 (`core.md`, `owner-defaults.md` and the adapters unchanged), so there is no replay result.
@@ -20,6 +20,18 @@ From the strategist's card on the owner's board (27 Nov 2026), part B. No always
   one inbox request in its repository, and its coordinator is woken to merge it. Its App token asks for
   `issues: write` too (the control repository takes the new template with this release).
 - CI runs `test-rerun`; `test-scrub` and `test-hands` gain the cases.
+
+## 0.63.0 · 2026-11-27 · a staff guide written from the code (K074)
+
+No always-loaded text changed, so there is no replay result.
+
+- **`guide.mjs`**: the full check's job (`harness-sweep.yml`) with `lens: staff-guide-ar` (or `-en`) writes
+  a staff guide instead of a check. One page per screen section (Next.js `app/` pages grouped by their first
+  route part), from the section's code and its labels file, by the Batch API; a second batch checks each
+  page against the same code. Pages go on one record issue, a comment each. Same switch and federation
+  rule as the full check; $15 for all guides the repository ever runs, closed or open, in any language and window; `estimate` first.
+- The template's `lens` choice gains `staff-guide-ar` and `staff-guide-en`; `review.md` says how to use it.
+- CI runs `test-guide`.
 
 ## 0.62.1 · 2026-11-26 · a redaction in a written decision can be a known exception (K073)
 

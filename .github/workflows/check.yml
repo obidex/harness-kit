@@ -41,7 +41,7 @@ jobs:
         run: node tools/test-harness.mjs
       - name: Attribution scrubber
         run: node tools/test-scrub.mjs
-      - name: One re-run of a failed check that does not block the merge (K074)
+      - name: One re-run of a failed check that does not block the merge (K075)
         run: node tools/test-rerun.mjs
       - name: Settings as code and the hands workflows
         run: node tools/test-hands.mjs
@@ -73,6 +73,8 @@ jobs:
         run: node tools/test-review.mjs
       - name: Full check of existing code (the reviewer's sweep)
         run: node tools/test-sweep.mjs
+      - name: Staff guide written from the code (the sweep's guide lens)
+        run: node tools/test-guide.mjs
       - name: Replay set and its grader
         run: node tools/test-replay.mjs
       - name: Owner steps (the plan's no-one designs and the Tried line)

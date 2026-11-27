@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// rerun — one automatic re-run of a failed check that does not block the merge (K074). No dependencies.
+// rerun — one automatic re-run of a failed check that does not block the merge (K075). No dependencies.
 //
 //   node .harness/tools/rerun.mjs     in Actions (harness-rerun.yml), on the workflow_run event of a finished
 //                                     pull-request workflow: starts that run's failed jobs once more when
@@ -93,7 +93,7 @@ async function main() {
     console.log(`::warning::rerun: ${label} was not started again: ${e.message.slice(0, 200)}`);
     return;
   }
-  console.log(`rerun: started ${label}'s failed jobs once more (K074): ${d.why}`);
+  console.log(`rerun: started ${label}'s failed jobs once more (K075): ${d.why}`);
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {

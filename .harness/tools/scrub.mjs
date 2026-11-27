@@ -21,7 +21,7 @@
 // (less a margin), and the reviews of the pull requests among them. A dropped run's body is therefore
 // cleaned by the run that replaced it, and thirty comments in a burst cost one or two runs, not thirty.
 //
-// A GitHub hiccup (K074): every read is tried three times (lib.mjs ghCall). A run started by a pull
+// A GitHub hiccup (K075): every read is tried three times (lib.mjs ghCall). A run started by a pull
 // request's own event is that pull request's check: once its own body is read clean, a sweep that still
 // fails (GitHub down, a listing past the page cap) is a warning, not a red check on a change that is
 // fine. Such a run may pass without its sweep, so it never anchors the next sweep's window: a run from an
@@ -138,7 +138,7 @@ async function main() {
   try { await sweepRun(); }
   catch (e) {
     if (!prOwn(name)) throw e;
-    console.log(`::warning::scrub: ${t.path} is clean; the sweep of other bodies did not finish (${e.message.slice(0, 200)}). This pull request's check does not fail for it: the next run from an issue or a comment sweeps them (K074).`);
+    console.log(`::warning::scrub: ${t.path} is clean; the sweep of other bodies did not finish (${e.message.slice(0, 200)}). This pull request's check does not fail for it: the next run from an issue or a comment sweeps them (K075).`);
   }
 }
 
@@ -170,7 +170,7 @@ export const SWEEP_REVIEW_PRS = 30;                 // pull requests whose revie
 /**
  * Where this run's sweep starts: the creation of the newest earlier run of the same workflow that finished
  * green from an issue or comment event, less the margin; never further back than the fallback. A pull
- * request's own run (green even when its sweep failed, K074; a fork's swept nothing) or a cancelled,
+ * request's own run (green even when its sweep failed, K075; a fork's swept nothing) or a cancelled,
  * skipped or failed run is not known to have covered its window, so it does not count.
  */
 export function sweepSince(runs, { repo, currentId, now, notBefore }) {
@@ -178,7 +178,7 @@ export function sweepSince(runs, { repo, currentId, now, notBefore }) {
   // a run older than the workflow file's last change ran an older file, which may not have swept (0.53.1):
   // it covered only its own event, so it never anchors the window; an unknown change date trusts no run
   const since = notBefore === undefined ? -Infinity : Date.parse(notBefore);
-  // a pull request's own run may pass without its sweep (K074), and a fork's swept nothing: neither anchors
+  // a pull request's own run may pass without its sweep (K075), and a fork's swept nothing: neither anchors
   const good = (runs || []).filter((r) => r && Number(r.id) < Number(currentId) && r.conclusion === 'success'
     && Date.parse(r.created_at) >= since
     && !prOwn(r.event)

@@ -13,6 +13,7 @@ import { notRead, area, onlyOf, gather, batches, question, verdict, plan, brief,
   MARK, TITLE, LENSES, SWEEP_USD, BATCH, SMALL, MAX_FILE, MAX_BATCHES, MAX_RULES, AT_ONCE, TRIES, RUN_MINUTES } from '../.harness/tools/sweep.mjs';
 import { MODEL, RISK_MODEL, MAX_OUT, cost } from '../.harness/tools/review.mjs';
 import { parseYaml } from '../.harness/tools/lib.mjs';
+import { LANGS } from '../.harness/tools/guide.mjs';
 import { verdict as group } from '../.harness/tools/actions.mjs';
 
 let n = 0;
@@ -306,7 +307,7 @@ ok(step.run === 'node .harness/tools/sweep.mjs run' && step.env.SWEEP_MODE === '
 ok(Number(job['timeout-minutes']) === 350 && String(wf.concurrency['cancel-in-progress']) === 'false' && wf.concurrency.group === 'harness-sweep' && group(text).group === 'approval' && group(text).problem === null && /Cost \(O13\)/.test(text) && /it gates nothing/.test(text),
   'one check at a time, never cancelled midway; the workflow names its action group (approval: started by hand), its cost and that it is advisory');
 
-ok(wf.on.workflow_dispatch.inputs.lens.type === 'choice' && wf.on.workflow_dispatch.inputs.lens.default === 'none' && wf.on.workflow_dispatch.inputs.lens.options === `[${['none', ...Object.keys(LENSES)].join(', ')}]` && step.env.SWEEP_LENS === '${{ inputs.lens }}',
+ok(wf.on.workflow_dispatch.inputs.lens.type === 'choice' && wf.on.workflow_dispatch.inputs.lens.default === 'none' && wf.on.workflow_dispatch.inputs.lens.options === `[${['none', ...Object.keys(LENSES), ...Object.keys(LANGS).map((l) => `staff-guide-${l}`)].join(', ')}]` && step.env.SWEEP_LENS === '${{ inputs.lens }}',
   'the job\'s lens is a fixed choice (none or a known lens), passed to the tool as data (K068)');
 
 console.log(`test-sweep: OK · ${n} checks`);

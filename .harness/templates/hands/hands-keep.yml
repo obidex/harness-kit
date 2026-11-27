@@ -6,7 +6,7 @@
 # update-branch), so the project's checks run again on the new head and auto-merge goes on. No
 # session has to do it by hand. A kit update PR whose required checks pass but that auto-merge does not
 # merge (the project's settings turn auto-merge off, K023, or GitHub refused it) gets one inbox request in
-# its repository, and its coordinator is woken to merge it on its gates (K074): it never waits for a person.
+# its repository, and its coordinator is woken to merge it on its gates (K075): it never waits for a person.
 # It runs only while such a PR is open: hands-update turns this workflow on, and runs it once, when it
 # opens or finds one; the first run that finds none (younger than HANDS_KEEP_HOURS, default 72) turns
 # it off again. A workflow turned off this way is not a missed schedule (stale.mjs schedules).
@@ -66,7 +66,7 @@ jobs:
           permission-metadata: read
           permission-pull-requests: write
           permission-workflows: write
-          permission-issues: write   # the merge request and its wake (K074)
+          permission-issues: write   # the merge request and its wake (K075)
       - id: keep
         name: Bring every behind kit update PR up to date; ask for the merge of a ready one
         env:

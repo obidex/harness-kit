@@ -225,7 +225,7 @@ ok(again.code === 0 && wakes.length === 2 && issues[0].comments.some((c) => c.st
     await settle();
     const rf = issues.find((i) => parse(i.body).id === 'kit/label-flaky');
     rf.comments = []; rf.labels = rf.labels.filter((l) => l.name !== 'wake');
-    stateDownOnce = 3;   // the receiver's own job: its first STATE lookup fails (all three tries, K074), the next one answers
+    stateDownOnce = 3;   // the receiver's own job: its first STATE lookup fails (all three tries, K075), the next one answers
     const oj = await run(['wake', '--repo', 'o/r', '--issue', String(rf.number)], own);
     ok(!rf.labels.some((l) => l.name === 'wake') && !rf.comments.some((c) => c.startsWith('<!-- inbox-woke -->')) && oj.code === 3, 'the receiver\'s own job never sets the label or writes "Woke", even when its first STATE lookup fails and the next one answers');
     stateDownOnce = 0;

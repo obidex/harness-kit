@@ -124,7 +124,7 @@ ok(r.status === 0 && res('A01') === 'PASS' && res('A04') === 'PASS', `audit on t
   x = a04();
   ok(x.result === 'FAIL' && /harness\.mjs lanes/.test(x.evidence), `A04 fails on the same mismatch (${x.result})`);
   x = lt(['lanes']);
-  ok(x.status === 0 && /rewrote 8 kit workflow/.test(x.stdout), `lanes writes the label into the eight chore workflows (harness-rerun joined them, K074) (${x.stdout.split('\n')[0]})`);
+  ok(x.status === 0 && /rewrote 8 kit workflow/.test(x.stdout), `lanes writes the label into the eight chore workflows (harness-rerun joined them, K075) (${x.stdout.split('\n')[0]})`);
   ok(/runs-on: \$\{\{ \(vars\.CHORE_RUNNER \|\| 'chores'\) \|\| vars\.RUNNER \|\| 'ubuntu-latest' \}\}/.test(wf('scrub')) && wf('sweep') === tpl('sweep'), 'scrub runs on the variable when set, else the profile\'s label; the long sweep is untouched');
   ok(lockOf().files['.github/workflows/harness-scrub.yml'] === hash(join(lp, '.github/workflows/harness-scrub.yml')) && lt(['status']).status === 0 && a04().result === 'PASS', 'the lock records the written file; status and A04 pass');
   ok(/# Runs on the chore lane \(CHORE_RUNNER, K059\)/.test(wf('scrub')), 'comment lines are left as they are');

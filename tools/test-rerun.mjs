@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// test-rerun — one automatic re-run of a failed check that does not block the merge (K074).
+// test-rerun — one automatic re-run of a failed check that does not block the merge (K075).
 //
 //   node tools/test-rerun.mjs        exit 0 = every case held
 
@@ -79,7 +79,7 @@ ok(!decide({ run: run(), repo: 'o/r', required: R, jobs: [{ name: 'scrub', concl
   });
   const wr = run({ head_sha: 'h', head_branch: 'harness/kit-0.62.1', pull_requests: [{ number: 902, base: { ref: 'main' } }] });
   let x = await go(wr);
-  ok(x.code === 0 && JSON.stringify(posts) === '["/repos/o/r/actions/runs/77/rerun-failed-jobs"]' && /rerun: started harness-scrub run 77's failed jobs once more \(K074\)/.test(x.out),
+  ok(x.code === 0 && JSON.stringify(posts) === '["/repos/o/r/actions/runs/77/rerun-failed-jobs"]' && /rerun: started harness-scrub run 77's failed jobs once more \(K075\)/.test(x.out),
     `the case that started this: scrub failed on a 502, ci-ok passed: scrub's failed job is started once more (${x.out.trim()}${x.err.trim()})`);
   posts.length = 0;
   x = await go({ ...wr, run_attempt: 2 });

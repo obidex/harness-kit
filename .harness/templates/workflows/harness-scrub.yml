@@ -12,7 +12,7 @@
 # missed. A pull request's own events keep a group per pull request, so a comment never leaves a
 # cancelled check on its head commit. Such a run is that pull request's check: every read is tried three
 # times, and once its own body is read clean a sweep that still fails is a warning, not a red check
-# (K074); it then anchors no later sweep, so the next issue or comment run sweeps those bodies.
+# (K075); it then anchors no later sweep, so the next issue or comment run sweeps those bodies.
 # A fork's or Dependabot's pull request event (read-only token) has a group of its own and sweeps nothing.
 # Runs on the chore lane (CHORE_RUNNER, K059), so a few seconds of work never waits behind a test run.
 name: harness-scrub

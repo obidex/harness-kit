@@ -58,7 +58,7 @@ it. Only a green run made from the current workflow file counts (one older than 
 change ran a file that may not have swept), so the first run after a kit update sweeps the last day:
 waiting scrub runs may be cancelled while an update is on its way. A listing longer than 3,000 items, or any error but a body that is read-only or gone, fails the
 run, so the next one sweeps again from the last green run. A GitHub hiccup is tried three times first
-(every read of the kit's tools, `lib.mjs` `ghCall`, K074). A pull request's own run is that pull
+(every read of the kit's tools, `lib.mjs` `ghCall`, K075). A pull request's own run is that pull
 request's check: once its own body is read clean, a sweep that still fails is a warning and the check
 stays green, so such a run never anchors the window; the next run from an issue or comment does, and it
 fails when its sweep fails. A fork's or Dependabot's pull-request event has a read-only token, so it keeps a group of its own

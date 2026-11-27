@@ -82,7 +82,7 @@ eq(sweepSince([r(5, '2026-11-21T17:00:00Z', 'success'), r(6, '2026-11-21T17:20:0
 eq(sweepSince([r(5, '2026-11-21T17:00:00Z', 'success'), r(7, '2026-11-21T17:30:00Z', 'success', { event: 'pull_request', head_repository: { full_name: 'fork/r' } }), r(8, '2026-11-21T17:40:00Z', 'success', { actor: { login: 'dependabot[bot]' } })], { repo: 'o/r', currentId: 9, now: NOW }), at('2026-11-21T17:00:00Z'),
   'a fork\'s or Dependabot\'s run (read-only, its own group) swept nothing and does not count');
 eq(sweepSince([r(5, '2026-11-21T17:00:00Z', 'success'), r(7, '2026-11-21T17:30:00Z', 'success', { event: 'pull_request', head_repository: { full_name: 'o/r' } }), r(8, '2026-11-21T17:40:00Z', 'success', { event: 'pull_request_review', head_repository: { full_name: 'o/r' } })], { repo: 'o/r', currentId: 9, now: NOW }), at('2026-11-21T17:00:00Z'),
-  'a pull request\'s own run passes even when its sweep did not finish (K074), so it never anchors the window: the last green issue or comment run does');
+  'a pull request\'s own run passes even when its sweep did not finish (K075), so it never anchors the window: the last green issue or comment run does');
 eq(sweepSince([r(5, '2026-11-21T17:00:00Z', 'success'), r(7, '2026-11-21T17:30:00Z', 'success')], { repo: 'o/r', currentId: 9, now: NOW, notBefore: '2026-11-21T17:10:00Z' }), at('2026-11-21T17:30:00Z'),
   'a green run after the workflow file last changed anchors the window');
 eq(sweepSince([r(5, '2026-11-21T17:00:00Z', 'success'), r(7, '2026-11-21T17:30:00Z', 'success')], { repo: 'o/r', currentId: 9, now: NOW, notBefore: '2026-11-21T17:45:00Z' }), new Date(NOW - SWEEP_FALLBACK_MS).toISOString(),
@@ -177,7 +177,7 @@ eq(sweepSince([r(5, '2026-11-01T00:00:00Z', 'success')], { repo: 'o/r', currentI
   for (const [k, v] of Object.entries(was)) if (v === undefined) delete process.env[k]; else process.env[k] = v;
 }
 
-// --- a GitHub hiccup (K074): the run itself, as Actions starts it, against a stand-in API ---------------------
+// --- a GitHub hiccup (K075): the run itself, as Actions starts it, against a stand-in API ---------------------
 {
   let fail = {};            // path -> how many more times it answers 502
   const hits = {};

@@ -96,7 +96,7 @@ whether it opened the PR now or found it open. A project whose settings file set
 passes and says so (K023). Once such a PR, or any kit PR auto-merge is not on for, passes every
 required check (GitHub's "clean" or "unstable"), `hands-keep` files one inbox request in its repository
 (ID `kit-update/merge-pr-<n>`) and wakes its coordinator (by label or the wake channel, as `inbox.mjs`
-does), who merges it on its gates (K074): a kit update never waits a night for a person or a morning run.
+does), who merges it on its gates (K075): a kit update never waits a night for a person or a morning run.
 Its token may write issues for that alone. One request per PR, never a second; the stale-work check still
 lists the PR if it waits. A refusal in any
 other case (the setting absent or `true`) fails the run naming that setting. `stale.mjs schedules` counts only runs that
@@ -137,7 +137,7 @@ repositories and K repositories that pin the kit:
 | `harness-audit` | each project | PR opened, pushed, reopened or edited; weekly | 1 | ~1 per PR event + 4 (a fork's PR always hosted) |
 | `harness-inbox` | each project | an issue labelled `inbox` or reopened | 1, only for a queued request | ~1 per request; 0 with a self-hosted `RUNNER` |
 | `harness-scrub` | each project | every issue, PR, comment and review posted or edited | 1 | at most one running and one waiting per repository (K059): a burst of events costs one or two runs, each sweeping every body since the last green run; before 0.53.0 it was ~1 per event (~700+ a month on one measured project); 0 with a self-hosted lane |
-| `harness-rerun` | each project | a listed pull-request workflow failed on its first attempt (K074) | 1, only then; none for a run that passed | ~1 per such failure, a few a month; 0 with a self-hosted lane |
+| `harness-rerun` | each project | a listed pull-request workflow failed on its first attempt (K075) | 1, only then; none for a run that passed | ~1 per such failure, a few a month; 0 with a self-hosted lane |
 | `harness-guard` | each project | PR opened, pushed, reopened or edited (a title or body edit re-runs it) | 1 | ~1 per PR push or edit (about 20 s); 0 with a self-hosted `RUNNER` |
 | `harness-stale` | each project | daily; dispatch | 1 | ~30 (one short job a day); 0 with a self-hosted `RUNNER` |
 | `harness-review` | each project | a listed pull-request workflow finished green; on a private repository without a self-hosted runner, skipped unless the variables `REVIEW_FEDERATION_RULE` and `REVIEW_UNTIL` are set (K060) | 1 | ~1 per finished workflow (up to 3 while it waits for other checks); 0 with a self-hosted `RUNNER`. The API calls are paid from the API credit (`review.md`) |
