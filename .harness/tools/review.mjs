@@ -186,8 +186,11 @@ const mark = (data) => `<!-- ${MARK} ${JSON.stringify(data).replace(/</g, '\\u00
  *  line numbers left out, hashed. A merge of the base that touches none of the change's lines leaves it equal. */
 export const changeKey = (diff) => createHash('sha256').update(String(diff || '').split('\n').filter((l) => !/^index [0-9a-f]+\.\.[0-9a-f]+/.test(l))
   .map((l) => l.replace(/^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@/, '@@')).join('\n')).digest('hex').slice(0, 16);
-/** Results that are a review of the change (a skipped or refused-by-cap run is not). */
+/** Results that are a review of the change (a skipped or refused-by-cap run is not). A refusal counts (C14: it is never
+ *  asked again); an answer that ran out of room or came back empty does not, so the same change is asked again. */
 export const REVIEWED = new Set(['clear', 'blockers', 'refused']);
+const NOT_AN_ANSWER = new Set(['the answer ran out of room', 'an empty answer']);
+export const reviewed = (r) => REVIEWED.has(r?.result) && !(r.result === 'refused' && NOT_AN_ANSWER.has(r.why));
 
 /** The record a comment carries: only on its first line, only from this job's own account. */
 export function record(c) {
@@ -370,7 +373,10 @@ export async function review({ gh, ask, repo, run, env = {}, now = () => Date.no
   catch (e) { if (/ 406|too_large/.test(e.message)) return post({ sha, at, result: 'too-large', why: 'GitHub will not serve a diff this size' }); throw e; }
   if (diff.length > MAX_DIFF) return post({ sha, at, result: 'too-large', why: `${diff.length} characters, over ${MAX_DIFF}` });
   const change = changeKey(diff);
-  if (runs.some((r) => r.change === change && REVIEWED.has(r.result))) return { status: 'skipped', pr: n, why: 'the change itself is the one already reviewed (only its commit or base moved): no model call, no new comment' };
+  // only the newest review counts: a head that goes back to an older reviewed change (X, Y, then X again) is asked
+  // again, so the comment never shows Y's verdict for X's code
+  const latest = [...runs].reverse().find(reviewed);
+  if (latest && latest.change === change) return { status: 'skipped', pr: n, why: 'the change itself is the one already reviewed (only its commit or base moved): no model call, no new comment' };
 
   let rules = '';
   for (const p of [...new Set([profile?.canon?.rulebook || 'AGENTS.md', 'CLAUDE.md', '.harness/core.md'])]) {

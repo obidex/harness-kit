@@ -3,6 +3,17 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.67.1 · 2026-11-27 · the second reviewer compares only its newest review (K078 follow-up)
+
+The second reviewer's advisory comment on harness-kit#121 (two points, checked and real). No always-loaded text changed,
+so there is no replay result.
+
+- **`review.mjs`**: a new head is skipped only when its change is the one the newest review answered. A head that goes
+  back to an older reviewed change (X, Y, then X again) is reviewed again, so the comment never shows Y's verdict for
+  X's code. An answer that ran out of room or came back empty is no review: the same change is asked again; a refusal
+  still is not (C14). Checks: `tools/test-review.mjs` 45 and 46, each failing without its part of the change.
+- **`tools/test-ci-repeats.mjs`**: the bot fixture is `example-hands[bot]` (a public file names no account).
+
 ## 0.67.0 · 2026-11-27 · runner time by cause, and an unchanged revision wakes nobody (K078)
 
 From the strategist's card on the owner's board (27 Nov 2026), widened to every project. No always-loaded text

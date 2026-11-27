@@ -70,10 +70,12 @@ It sees only the diff and the rulebook and cannot run code, so it can be wrong i
 ## What it does not review
 
 A fork's pull request, a bot's (a dependency update), a draft, a commit that is no longer the head, a
-commit it already answered, a new commit whose change it already answered (K078: the diff with its blob
+commit it already answered, a new commit whose change is the one its newest review answered (K078: the diff with its blob
 ids and hunk line numbers left out is the same, as after a merge of the base or an empty commit; no
 model call and no comment, so nothing wakes the pull request's thread; a hunk moved unchanged to another
-place with the same context keeps the key, a known limit of an advisory reviewer), and a change to documents only. A rule file (`AGENTS.md`, `CLAUDE.md`,
+place with the same context keeps the key, a known limit of an advisory reviewer; a head that goes back to an
+older change is reviewed again, and an answer that ran out of room or came back empty is no review, while a refusal
+is never asked again, C14), and a change to documents only. A rule file (`AGENTS.md`, `CLAUDE.md`,
 `.claude/**`, `.harness/**`) is never "documents only". A change over 150,000 characters or 300
 files gets a line saying it is too large; a cut diff is never read as if it were whole.
 

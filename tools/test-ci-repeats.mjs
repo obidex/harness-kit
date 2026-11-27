@@ -26,7 +26,7 @@ const W = { start: T0, end: T0 + 7 * 86400000 };
 ok(isBaseMerge("Merge branch 'main' into feat", 'main') && isBaseMerge("Merge remote-tracking branch 'origin/main' into feat", 'main') && isBaseMerge("Merge branch 'master' of https://x into feat", 'master')
   && !isBaseMerge("Merge branch 'main' into feat", 'master') && !isBaseMerge('Merge pull request #4 from a/b', 'main') && !isBaseMerge('fix: merge two lists', 'main'),
   'a merge of the default branch into a pull request is told from other merges, by git\'s own message');
-ok(mergedPr('Add a thing (#123)') === 123 && mergedPr('Add a thing (#123)\n\nbody') === 123 && mergedPr('Fix #12 crash') === null && isBot('github-actions[bot]') && isBot('obidex-hands[bot]') && !isBot('Person'),
+ok(mergedPr('Add a thing (#123)') === 123 && mergedPr('Add a thing (#123)\n\nbody') === 123 && mergedPr('Fix #12 crash') === null && isBot('github-actions[bot]') && isBot('example-hands[bot]') && !isBot('Person'),
   'a squash merge names its pull request by "(#N)" at the end of its first line; a bot\'s name ends in [bot]');
 ok(minutes({ runner: 'box', started: at(0), completed: at(7) }) === 7 && minutes({ runner: null, started: at(0), completed: at(30) }) === 0 && minutes({ runner: 'box', started: at(5), completed: at(5) }) === 0,
   'a job that GitHub cancelled while it waited (a start time, no runner) held no machine: 0 minutes, however long it waited');
@@ -79,7 +79,7 @@ const notRun = analyse([
 ok(notRun.minutes.change === 10 && notRun.hours.same === 0, 'a restart after a run that only waited is the first real test (change), not a repeat');
 
 id = 300;
-const botPr = analyse([run({ t: 0, sha: 'k', author: 'obidex-hands[bot]', branch: 'harness/kit' }), run({ t: 10, sha: 'k2', author: 'obidex-hands[bot]', branch: 'harness/kit' })], W);
+const botPr = analyse([run({ t: 0, sha: 'k', author: 'example-hands[bot]', branch: 'harness/kit' }), run({ t: 10, sha: 'k2', author: 'example-hands[bot]', branch: 'harness/kit' })], W);
 ok(botPr.minutes.change === 20 && botPr.hours.bot === 0, 'a bot\'s own pull request (a kit update) is its change, not a regeneration');
 ok(defaultBranch([{ event: 'push', head_branch: 'master' }, { event: 'push', head_branch: 'master' }, { event: 'push', head_branch: 'x' }]) === 'master'
   && mainCheck([{ event: 'pull_request', workflow: 'harness-guard', jobs: [{ runner: 'b', started: at(0), completed: at(60) }] }, { event: 'pull_request', workflow: 'CI', jobs: [{ runner: 'b', started: at(0), completed: at(5) }] }]) === 'CI',
