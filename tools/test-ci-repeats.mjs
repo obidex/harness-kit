@@ -5,7 +5,7 @@
 //   node tools/test-ci-repeats.mjs        exit 0 = every case held
 
 import { createServer } from 'node:http';
-import { analyse, fromTsv, render, readRepo, minutes, isBaseMerge, mergedPr, isBot, defaultBranch, mainCheck, linkPulls, CAUSES } from '../.harness/tools/ci-repeats.mjs';
+import { analyse, fromTsv, render, readRepo, minutes, isBaseMerge, mergedPr, isBot, defaultBranch, mainCheck, linkPulls, CAUSES, firstPass, FIRST_CAUSES } from '../.harness/tools/ci-repeats.mjs';
 
 let n = 0;
 const ok = (cond, what) => { n++; if (!cond) { console.log(`test-ci-repeats: FAIL ${n}. ${what}`); process.exit(1); } console.log(`test-ci-repeats: ok ${n}. ${what}`); };
@@ -143,5 +143,31 @@ ok(read.base === 'main' && read.runs.length === 2 && read.runs[0].jobs.length ==
 const cut = await readRepo('o/r', { start: T0, end: T0 + 86400000, history: 0, budget: { left: 3 } });
 ok(cut.partial.some((p) => /call budget/.test(p)), 'a read that meets its call budget stops and says partial (GitHub\'s hourly limit is shared with every agent on the account)');
 server.close();
+
+// --- first pass and its four causes (K079) ----------------------------------------------------------------
+{
+  id = 500;
+  const fail = { job: 'failure', r: { conclusion: 'failure' } };
+  const fr = [
+    run({ t: -600, sha: 'm0', event: 'push', r: { event: 'push', head_branch: 'main', workflow: 'harness-audit', conclusion: 'failure' }, job: 'failure' }),  // the audit already red on main
+    run({ t: 10, sha: 'g1', pr: 1 }),                                                                   // 1: green the first time
+    run({ t: 20, sha: 'p1', pr: 2, ...fail }), run({ t: 40, sha: 'p2', pr: 2 }),                       // 2: product defect, fixed by a new commit
+    run({ t: 30, sha: 'f1', pr: 3, ...fail, r: { conclusion: 'success', attempt: 2 },
+      jobs: [{ name: 'test', attempt: 1, runner: 'box', started: at(30), completed: at(40), conclusion: 'failure' }, { name: 'test', attempt: 2, runner: 'box', started: at(41), completed: at(50), conclusion: 'success' }] }),  // 3: a re-run passed: unreliable
+    run({ t: 50, sha: 'i1', pr: 4, r: { conclusion: 'failure' }, jobs: [{ name: 'test', attempt: 1, runner: null, started: at(50), completed: at(80), conclusion: 'failure' }] }),  // 4: no runner: infrastructure
+    run({ t: 60, sha: 'k1', pr: 5, branch: 'harness/kit-9.9.9', ...fail, r: { conclusion: 'failure', workflow: 'harness-audit' } }),  // 5: a kit update meets an old finding
+    run({ t: 70, sha: 'o1', pr: 6, ...fail, r: { conclusion: 'failure', workflow: 'harness-audit' } }),  // 6: the audit was red on main before: old finding
+    run({ t: 80, sha: 'x1', pr: 7, ...fail, message: 'a test that is expected to fail [expect-fail]' }),  // 7: on purpose, left out
+    run({ t: 90, sha: 'c1', pr: 8, job: 'cancelled', r: { conclusion: 'cancelled' } }), run({ t: 95, sha: 'c2', pr: 8 }),  // 8: first head cancelled by the next push: the next head is judged
+  ];
+  const r = firstPass(fr, { ...W, base: 'main' });
+  ok(r.ready === 7 && r.green === 2 && r.rate === 28.6 && r.leftOut === 1, `first pass: of the ready changes, those green the first time; a head cancelled by the next push is not judged; a deliberate failure is left out (${JSON.stringify(r)})`);
+  ok(r.causes.product === 1 && r.causes.flaky === 1 && r.causes.infrastructure === 1 && r.causes.old_rule === 2 && FIRST_CAUSES.reduce((s, c) => s + r.causes[c], 0) === r.ready - r.green,
+    'each failed first pass has one cause of four: product defect, unreliable test, infrastructure, old finding under a new rule; they add up');
+  const later = firstPass([run({ t: 10, sha: 's1', pr: 9, tree: 'T', ...fail }), run({ t: 30, sha: 's2', pr: 9, tree: 'T' })], { ...W, base: 'main' });
+  ok(later.causes.flaky === 1, 'a later run on the same tree that passed with nothing changed is an unreliable test too');
+  const md2 = render([{ repo: 'o/r', ...analyse(fr, W), partial: [] }]);
+  ok(/First pass/.test(md2) && /\| 28\.6% \(2\/7\); 1 · 1 · 1 · 2 \|/.test(md2), 'the page shows the rate and the four causes, counts only');
+}
 
 console.log(`test-ci-repeats: OK · ${n} checks`);

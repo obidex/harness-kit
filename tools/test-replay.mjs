@@ -50,11 +50,22 @@ const env = { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT
 const g = (...a) => spawnSync('git', ['-C', r, ...a], { encoding: 'utf8', env });
 g('init', '-q', '-b', 'main'); g('add', '-A'); g('commit', '-qm', 'base'); g('branch', 'base');
 const check = () => spawnSync(process.execPath, ['tools/check-version.mjs', 'base'], { cwd: r, encoding: 'utf8', env });
-const bump = (v) => { writeFileSync(join(r, '.harness/VERSION'), `${v}\n`); writeFileSync(join(r, 'CHANGELOG.md'), readFileSync(join(r, 'CHANGELOG.md'), 'utf8').replace('# Changelog\n', `# Changelog\n\n## ${v} · test\n\n- x\n`)); };
+const bump = (v) => { writeFileSync(join(r, '.harness/VERSION'), `${v}\n`); writeFileSync(join(r, 'CHANGELOG.md'), readFileSync(join(r, 'CHANGELOG.md'), 'utf8').replace('# Changelog\n', `# Changelog\n\n## ${v} · test\n\n- x\n\nTrial: 1 of 1 projects green at abcdef1\n`)); };
 // a tool-only change needs no replay
 appendFileSync(join(r, '.harness/tools/load.mjs'), '\n// tool change\n'); bump('9.0.0'); g('commit', '-qam', 'tool');
 let res = check();
 ok(res.status === 0 && !/replay/.test(res.stdout), 'a change to tools only needs no replay');
+// the trial line (K079): every release names its trial, and none may leave a project red without its fix prepared
+const entryWith = (line) => { writeFileSync(join(r, 'CHANGELOG.md'), readFileSync(join(r, 'CHANGELOG.md'), 'utf8').replace(/^(Trial: .*|No trial was run\.)$/m, line)); g('commit', '-qam', 'trial line'); return check(); };
+res = entryWith('No trial was run.');
+ok(res.status === 1 && /no trial line/.test(res.stdout), 'a release without its trial line fails (fails without K079)');
+res = entryWith('Trial: 3 of 4 projects green; 1 red at abcdef1');
+ok(res.status === 1 && /1 project\(s\) would get a red kit update with no fix prepared/.test(res.stdout), 'a release that would open a red update with no prepared fix fails');
+res = entryWith('Trial: 3 of 5 projects green; 1 red with the fix prepared at abcdef1');
+ok(res.status === 1 && /does not add up/.test(res.stdout), 'a trial line whose counts do not add up fails');
+res = entryWith('Trial: 3 of 4 projects green; 1 red with the fix prepared at abcdef1');
+ok(res.status === 0, 'a red project with its fix prepared passes: the release ships with the project fix named');
+entryWith('Trial: 1 of 1 projects green at abcdef1');
 // a change to the loaded rules without a result fails
 g('checkout', '-q', '-B', 'rules', 'base');
 appendFileSync(join(r, '.harness/owner-defaults.md'), '\n'); bump('9.0.0'); g('commit', '-qam', 'rules');

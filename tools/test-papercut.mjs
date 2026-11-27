@@ -148,4 +148,19 @@ x = await run(['fixed', '--what', 'a.mjs', '--note', `ghp_${'c'.repeat(36)}`, '-
 ok(x.code === 1 && !first.comments.some((c) => c.body.includes('ghp_')), 'fixed refuses a secret-shaped note');
 
 server.close();
+// known causes of failed checks (K079): a report may carry one of the four causes; the digest lists them in one place
+{
+  ok(problems({ ...r, cause: 'weather' }).some((x) => /--cause is one of product, flaky, infrastructure, old-rule/.test(x)) && problems({ ...r, cause: 'flaky' }).length === 0, 'a cause is one of the four, or none');
+  const c1 = comment({ ...r, what: 'harness-audit C17: a decision edited', cause: 'old-rule' });
+  ok(/^- \*\*Cause:\*\* old-rule$/m.test(c1) && parse([{ body: c1, created_at: at(1) }])[0].cause === 'old-rule' && !/Cause/.test(comment(r)), 'the cause is a line of the report, read back; a report without one has none');
+  const k = (min, what, cause) => ({ body: comment({ ...r, what, cause }), created_at: at(min) });
+  const items2 = parse([k(1, 'harness-audit C17: a decision edited', 'old-rule'), k(2, 'harness-audit C17: a decision edited', 'old-rule'), k(3, 'dashboard stress test timing', 'flaky'),
+    { body: fixedComment('dashboard stress test timing', 'same-runner baseline (#9)'), created_at: at(4) }, k(5, 'dashboard stress test timing', 'flaky'), k(6, 'inbox.mjs send', undefined)]);
+  const dd = digest([{ where: 'o/a#1', items: items2 }], now);
+  ok(dd.includes('**Known causes of failed checks**') && /\| o\/a#1 \| `harness-audit C17: a decision edited` \| old finding under a new rule \| 2 \| 2 \| — \| \*\*a prevention card\*\* \|/.test(dd),
+    'the digest lists known causes in one place; one seen twice with no fix recorded asks for a prevention card, not another investigation (fails without K079)');
+  ok(/`dashboard stress test timing` \| unreliable test \| 2 \| 1 \| same-runner baseline \(#9\) \| watch: the next one is a prevention \|/.test(dd) && !/`inbox\.mjs send` \| (product|unreliable)/.test(dd),
+    'after its fix, a cause counts again from one; a report with no cause is no known cause');
+}
+
 console.log(`test-papercut: OK · ${n} cases`);

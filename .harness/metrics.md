@@ -88,3 +88,27 @@ was open (GitHub's run listing often leaves the number out), never by branch alo
 Limits: a restart counts in full as same, though only the cancelled part was lost; a push to a tag counts as a
 change; a re-run started more than two days after its run is not seen by a host that closes days;
 commit statuses are not runs; a project whose squash commits drop "(#N)" has no ready-to-green.
+
+## 5. First pass and its causes (`tools/ci-repeats.mjs`, K079)
+
+One number per project, weekly, in the status feed beside §4: **first pass**, the share of ready changes whose
+first judged head passed every workflow on its first attempt. A ready change is a pull request whose first run
+started in the window; its first judged head is the first head whose runs all finished and were not cancelled (a
+head the next push cancelled is not judged). A head whose commit says it fails on purpose ("expected to fail",
+"deliberately failing", "fails on purpose", "[expect-fail]") is left out, so a failure that proves a test works
+never lowers the rate.
+
+Each failed first pass carries exactly one cause, taken in this order:
+
+| Cause | When | What it asks for |
+|---|---|---|
+| infrastructure | a failed job had no runner or timed out, the run could not start, or it failed with no failed job | the runner, GitHub or the network: the platform's card |
+| unreliable test | a re-run of the same attempt passed, or a later run of the same workflow on the same tree passed | the test: measure against a baseline taken in the same job, or count work instead of time |
+| old finding under a new rule | a kit update branch (`harness/kit-*`), or a workflow already red on the default branch before the pull request's first run | the rule's release: tried on the projects first (`trial.mjs`) |
+| product defect | the rest: a new commit fixed it | nothing new: this is what checks are for |
+
+The second time a known cause appears, the card that fixes it is a prevention, not another investigation: file it
+as a papercut with `--cause` (`papercuts.md`), and the weekly digest lists the known causes in one place.
+
+Limits: one cause per change, from its first failed workflow; a run whose jobs were not read is judged by its
+conclusion; a pull request whose runs carry no number and whose branch matches no listed pull request is not seen.

@@ -5,7 +5,8 @@
 //
 // Kit content is .harness/** (what projects install) and the frozen replay set. If it changed against the base, VERSION must
 // be higher than the base's, no tag v<VERSION> may exist yet (tags are immutable, K003), and
-// CHANGELOG.md must have a "## <VERSION>" entry.
+// CHANGELOG.md must have a "## <VERSION>" entry, with the trial line `.harness/tools/trial.mjs` printed (K079): the
+// version was tried on every project before it ships, and none is red without its fix prepared.
 
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -37,6 +38,14 @@ const was = git('show', `${base}:.harness/VERSION`).trim();
 if (cmp(now, was) <= 0) fail(`${changed.length} kit file(s) changed but VERSION is ${now}, not above ${was}`);
 if (git('tag', '--list', `v${now}`)) fail(`tag v${now} already exists; pick the next version`);
 if (!new RegExp(`^## ${now.replace(/\./g, '\\.')}\\b`, 'm').test(readFileSync('CHANGELOG.md', 'utf8'))) fail(`CHANGELOG.md has no "## ${now}" entry`);
+// the trial (K079): every kit release is tried on the projects' current default branches before it ships
+{
+  const entry = (readFileSync('CHANGELOG.md', 'utf8').split(new RegExp(`^## ${now.replace(/\./g, '\\.')}\\b`, 'm'))[1] || '').split(/^## /m)[0];
+  const t = entry.match(/^Trial: (\d+) of (\d+) projects green(?:; (\d+) red with the fix prepared)?(?:; (\d+) red)? at [0-9a-f]{7,40}\s*$/m);
+  if (!t) fail(`the ${now} changelog entry has no trial line (Trial: <G> of <N> projects green … at <commit>): run node .harness/tools/trial.mjs --project <each project's checkout> and copy its last line (K079)`);
+  if (t[4] && Number(t[4]) > 0) fail(`the ${now} trial line says ${t[4]} project(s) would get a red kit update with no fix prepared: fix the release first, or prepare the project's fix and name it with --prepared (K079)`);
+  if (Number(t[1]) + Number(t[3] || 0) !== Number(t[2]) || Number(t[2]) < 1) fail(`the ${now} trial line does not add up: ${t[0].trim()}`);
+}
 // a changed standing-approvals block reaches projects only by an inbox request each (K022): the
 // release names it in the changelog, so the maintainer sends them
 const blockOf = (t) => (t.match(/<!-- standing-approvals:begin -->[\s\S]*<!-- standing-approvals:end -->/) || [''])[0];

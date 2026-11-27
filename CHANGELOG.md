@@ -3,6 +3,33 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.68.0 · 2026-11-27 · caught where it is made, one plain failure line, every release tried on the projects first (K079)
+
+From the strategist's card on the owner's board (27 Nov 2026): failures arrive too often, and one cause arrives again in
+a new place, mostly as a red kit update. No always-loaded text changed (`core.md`, `owner-defaults.md` and the adapters
+unchanged), so there is no replay result.
+
+- **Root cause.** `harness-audit` skipped every pull request that touched no kit, entry, agent or workflow file, so an
+  edited decision merged green and turned the next kit update red. Every pull request now gets **`precheck.mjs`** (about a
+  second, no network): this change's own decisions, closed log, register, capped files and budget, and attribution in a
+  body (`--text`) or commit message; `--install` makes it a clone's pre-commit and commit-msg hooks.
+- **C17** proves a word-for-word move out of the closed log itself (no baseline line), and accepts a past edit of a written
+  decision once a newer decision names it and its commit. **`decisions.mjs new --supersedes <ID> [--commits …]`** writes
+  that decision; the audit's message names the exact command.
+- **`trial.mjs`**: a candidate release updated onto a copy of each project's current default branch and checked as its
+  kit update would be; a project with no pinned kit has its kit-facing settings read. **`check-version`** requires its
+  line in each release's changelog entry, with no project left red without its fix prepared.
+- **A17** no longer counts the kit's own pinned package under `.harness/` as the project's npm use: since 0.66.0 it would
+  have turned every project's kit update red (found by the first trial).
+- **One plain failure line** (`lib.mjs plainFail`): the audit, guard, decisions check and precheck write one sentence
+  with the next step as an error annotation (which the status feed reads from the check run) and in the job summary.
+- **First pass and its four causes** (`ci-repeats.mjs`, `metrics.md` §5): product defect, unreliable test, infrastructure,
+  old finding under a new rule; deliberate failures left out. **Papercuts** take `--cause`; the digest lists the known
+  causes and asks for a prevention card when one is seen twice since its last fix.
+- Checks: `test-precheck` (new), `test-decisions` 34-45, `test-ci-repeats` 20-23, `test-papercut` 40-43, `test-replay` 17-20.
+
+TRIALLINE
+
 ## 0.67.3 · 2026-11-27 · the allowance measure reads list_thread_sessions and pages with control characters (K072 follow-up)
 
 Two gaps the projects' coordinators met running `usage.mjs` (two projects' requests of the measure). No
