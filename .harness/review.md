@@ -89,7 +89,9 @@ used up before any answer). When an answer ran out of room, the same change is a
 that call's settings differ, so it writes the cache again (its worst case counts that). The call is
 streamed, so a long answer is never cut by the HTTP client's five-minute wait for headers. A call that
 breaks before its answer (the wait runs out, the stream is cut) may still be billed: it is recorded as
-`lost`, counted at its worst case against the day's cap, and the change is asked again. A worst-case Opus
+`lost`, counted at its worst case against the day's cap, and the change is asked again. A call that never left the
+runner (no network) is counted the same way, the safe direction: an outage on the runner can use up the
+day's room in a few commits. A worst-case Opus
 review holds about $0.64 of the day's room, so a large high-risk change meets the cap sooner.
 The model ids and prices are constants in `review.mjs` and change only by a kit release.
 
