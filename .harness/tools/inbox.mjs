@@ -12,7 +12,9 @@
 //   node .harness/tools/inbox.mjs pending --repo owner/name     the queued requests (JSON)
 //   node .harness/tools/inbox.mjs state --repo owner/name --issue <n> --to working|blocked|done
 //        [--note <text>]                  move a request; `done` needs --note with the evidence and
-//                                         closes the issue, `blocked` needs --note with the reason
+//                                         closes the issue, `blocked` needs --note with the reason,
+//                                         which the State line carries too ("blocked: <reason>"). A
+//                                         request filed by hand (`inbox`, no State line) gets one (K076)
 //   node .harness/tools/inbox.mjs wake --repo owner/name --issue <n>
 //                                         in Actions only (harness-inbox.yml, or hands-inbox.yml in the
 //                                         control repository): if that issue is a queued request not
@@ -76,11 +78,23 @@ export function parse(text) {
   return out;
 }
 
+/** The body with its State line set (K076): replaced, or added at the end of a request filed by hand. */
+export function withState(text, value) {
+  const b = String(text || '');
+  const v = String(value).replace(/\s*\n\s*/g, ' ').trim();
+  return /^- \*\*State:\*\*.*$/m.test(b) ? setField(b, 'State', v) : `${b.replace(/\s+$/, '')}\n\n- **State:** ${v}\n`;
+}
+/** What a request's State line says for a move: the word, and for blocked its reason (the owner's status page
+ *  shows what a request waits on from this line), cut to one line of at most 160 characters. */
+export const stateText = (to, note) => (to === 'blocked' && note ? `blocked: ${String(note).replace(/\s*\n\s*/g, ' ').trim().slice(0, 160)}` : to);
+
 /** The body with one field replaced. */
 export function setField(text, field, value) {
   const re = new RegExp(`^(- \\*\\*${field}:\\*\\*).*$`, 'm');
   if (!re.test(text)) throw new Error(`the request has no "${field}" line`);
-  return text.replace(re, `$1 ${String(value).replace(/\s*\n\s*/g, ' ').trim()}`);
+  // a function, so a "$" in the value (a price, "$1") is kept as written, never read as a replacement pattern
+  const v = String(value).replace(/\s*\n\s*/g, ' ').trim();
+  return text.replace(re, (_, head) => `${head} ${v}`);
 }
 
 // --- GitHub ---------------------------------------------------------------------------------------
@@ -439,10 +453,12 @@ async function main() {
     if (!STATES.includes(to) || to === 'queued') throw new Error(`--to must be working, blocked or done`);
     if ((to === 'done' || to === 'blocked') && !note) throw new Error(`--to ${to} needs --note (${to === 'done' ? 'the completion evidence' : 'the reason'})`);
     const i = await api('GET', `/repos/${repo}/issues/${n}`);
-    const f = parse(i.body);
-    if (!f) throw new Error(`#${n} is not an inbox request`);
-    let text = setField(i.body, 'State', to);
-    if (to === 'done') text = setField(text, 'Evidence', note);
+    // a request filed by hand (the label, no inbox-id) is a request too: its State line is added (K076)
+    const hand = !i.pull_request && (i.labels || []).some((l) => (l.name ?? l) === LABEL) && trusted(i);
+    const f = parse(i.body) || (hand ? { id: 'the request filed by hand', Source: null } : null);
+    if (!f) throw new Error(`#${n} is not an inbox request (no inbox-id, and no \`${LABEL}\` label from a trusted author)`);
+    let text = withState(i.body, stateText(to, note));
+    if (to === 'done') text = /^- \*\*Evidence:\*\*/m.test(text) ? setField(text, 'Evidence', note) : `${text.replace(/\s+$/, '')}\n- **Evidence:** ${String(note).replace(/\s*\n\s*/g, ' ').trim()}\n`;
     await api('PATCH', `/repos/${repo}/issues/${n}`, { body: text, ...(to === 'done' ? { state: 'closed', state_reason: 'completed' } : {}) });
     await api('POST', `/repos/${repo}/issues/${n}/comments`, { body: `**${to}**${note ? `: ${note}` : ''}` });
     console.log(`inbox: ${f.id} (#${n}) is ${to}`);

@@ -3,6 +3,17 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.65.0 · 2026-11-27 · every open request says its state in its own State line (K076)
+
+From a strategist's line on the owner's board (27 Nov 2026). No always-loaded text changed,
+so there is no replay result.
+
+- **`inbox.mjs state`** moves a request filed by hand (the `inbox` label, no inbox-id): it adds the State
+  line, and the Evidence line on `done`. `--to blocked --note <reason>` writes `blocked: <reason>` in the
+  State line, so a health page shows what it waits on.
+- **`inbox.md`**: every open request says its state in its own State line, kept current by its holder.
+- `test-inbox` gains the cases.
+
 ## 0.64.0 · 2026-11-27 · a GitHub hiccup never leaves a change stuck (K075)
 
 From the strategist's card on the owner's board (27 Nov 2026), part B. No always-loaded text changed
