@@ -85,7 +85,12 @@ files gets a line saying it is too large; a cut diff is never read as if it were
 Sonnet by default; Opus when a changed path is high-risk: the profile's `risk.tier3_paths`, and
 workflows and agent configuration in every project. Haiku never reviews (O06). Both run at medium
 effort with a bounded answer of 16,000 tokens (thinking included; 8,000 until K080, which a large diff
-used up before any answer). When an answer ran out of room, the same change is asked again at low effort.
+used up before any answer). When an answer ran out of room, the same change is asked again at low effort;
+that call's settings differ, so it writes the cache again (its worst case counts that). The call is
+streamed, so a long answer is never cut by the HTTP client's five-minute wait for headers. A call that
+breaks before its answer (the wait runs out, the stream is cut) may still be billed: it is recorded as
+`lost`, counted at its worst case against the day's cap, and the change is asked again. A worst-case Opus
+review holds about $0.64 of the day's room, so a large high-risk change meets the cap sooner.
 The model ids and prices are constants in `review.mjs` and change only by a kit release.
 
 ## Prompt caching (K080)

@@ -17,12 +17,14 @@ there is no replay result.
   own rates; worst cases count the cached prefix as a write. `review.mjs spent` adds `per_review` and
   `cache.read_share`; a check's record shows its cache read share.
 - **Room for the answer**: 16,000 tokens (was 8,000, which thinking used up on large diffs), an eight-minute call and a
-  twelve-minute review job; a change whose answer ran out of room is asked again at low effort.
+  twelve-minute review job; a change whose answer ran out of room is asked again at low effort. The call is streamed,
+  so fetch's own five-minute wait for the headers never cuts it; a call that breaks before its answer is recorded as
+  `lost`, counted at its worst case against the day's cap, and asked again.
 - **Scope note and tighter lenses**: `scope` in `.github/harness-review.json` (what the project has decided is not a
   defect) opens the rulebook of every code check; every check reports only what runs now and can be reached, and a
   migration defect a later unseen file may have changed is graded minor; the irreversible lens names the missing
   guard, the Arabic lens reports what breaks Arabic data rather than a screen left in another language by decision.
-- Checks: `test-review` 6, 7, 16, 26, 27, 42, 52, 53, 100 (the job's twelve minutes); `test-sweep` 13, 14, 15, 17, 29; each fails without this change.
+- Checks: `test-review` 6, 7, 16, 26, 27, 42, 52, 53, 79 (a broken call counted), 85-86 (streamed call), 103 (the job's twelve minutes); `test-sweep` 13, 14, 15, 17, 29; each fails without this change.
 
 Trial: 3 of 4 projects green; 1 red with the fix prepared at eb0577cef175
 

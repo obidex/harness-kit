@@ -9,7 +9,7 @@ import { execFile } from 'node:child_process';
 import { join } from 'node:path';
 import { readFileSync, writeFileSync, mkdtempSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { KEEP_RUNS, MAX_SCOPE, cachedChars, changeKey, glob, highRisk, docsOnly, pick, cost, worstCase, capOf, runUsd, record, plain, body, spent, checks, question, verdict, review, identifiers, exchange, asker, switchOf, SWITCH_DAYS, settingsOf, settingsText, SETTINGS, SETTING_VARS,
+import { KEEP_RUNS, MAX_SCOPE, assemble, cachedChars, changeKey, glob, highRisk, docsOnly, pick, cost, worstCase, capOf, runUsd, record, plain, body, spent, checks, question, verdict, review, identifiers, exchange, asker, switchOf, SWITCH_DAYS, settingsOf, settingsText, SETTINGS, SETTING_VARS,
   github, pages, MARK, MODEL, RISK_MODEL, PRICES, DAILY_USD, DAILY_CAP, MAX_DIFF, MAX_FILES, MAX_ANSWER, MAX_OUT, MAX_RULES, WAIT_MS, POLL_MS, ASK_MS } from '../.harness/tools/review.mjs';
 import { parseYaml, renderLane } from '../.harness/tools/lib.mjs';
 import { verdict as group } from '../.harness/tools/actions.mjs';
@@ -339,10 +339,26 @@ const w429 = world(); w429.answer = { status: 429, json: { error: { type: 'rate_
 ok(await rejects(w.go(), /529 overloaded_error/) && w.comments.length === 0 && await rejects(w429.go(), /429 rate_limit_error/) && w429.comments.length === 0, 'an outage or a rate limit fails the job with no comment and no record, so the next finished workflow tries the same commit again');
 w = world(); w.answer = { status: 200, json: { model: MODEL, stop_reason: 'refusal', stop_details: { category: 'cyber' }, usage: { input_tokens: 20000, output_tokens: 10 }, content: [] } }; r = await w.go();
 ok(r.status === 'refused' && /the model declined this change \(cyber\)/.test(w.comments[0].body) && record(w.comments[0]).runs[0].usd > 0, 'a refusal is said as a refusal, never as "no blockers", and what it cost is still counted');
+// K080: a call that broke before its answer is recorded with its model, counted at the dearest worst case, and asked again
+{ const x = world(); x.answer = { status: 0, json: { error: { type: 'TimeoutError' } } };
+  const a = await x.go(); const run0 = record(x.comments[0]).runs[0], sp = spent(x.comments, x.clock), said = x.comments[0].body;
+  x.pr.head.sha = SHA3; x.run = { ...x.run, head_sha: SHA3, pull_requests: [] }; x.clock += 60e3; x.answer = world().answer; const b = await x.go();
+  ok(a.status === 'lost' && run0.result === 'lost' && run0.model === MODEL && run0.why === 'TimeoutError' && !('in' in run0) && sp.reviews === 1 && sp.usd === runUsd({ model: MODEL }) && sp.usd > 0.5
+    && /the model call broke before its answer \(TimeoutError\); it is counted at its worst case/.test(said) && b.status === 'blockers' && x.asked.length === 2,
+    'K080: a call that broke before its answer is recorded, counted at its worst case against the day\'s cap, and the change is asked again'); }
 
 // --- identity, the exchange and the API call over HTTP ---------------------------------------------
 const IDS = { REVIEW_FEDERATION_RULE: 'fdrl_01AbC', REVIEW_ORGANIZATION: '01234567-89ab-cdef-0123-456789abcdef', REVIEW_SERVICE_ACCOUNT: 'svac_01AbC', REVIEW_WORKSPACE: 'wrkspc_01AbC' };
 ok(identifiers(IDS).rule === 'fdrl_01AbC' && throws(() => identifiers({ ...IDS, REVIEW_WORKSPACE: '' }), /workspace/) && throws(() => identifiers({ ...IDS, REVIEW_FEDERATION_RULE: 'sk-ant-api03-zzz' }), /rule/) && throws(() => identifiers({ ...IDS, REVIEW_ORGANIZATION: 'x"y' }), /org/), 'the four identifiers are checked for shape; a missing one, or something key-shaped, is refused');
+// a streamed answer as the Messages API sends it: events, with thinking before the text (K080)
+const SSE = (text, extra = []) => [
+  { type: 'message_start', message: { id: 'msg_1', type: 'message', role: 'assistant', model: MODEL, content: [], stop_reason: null, usage: { input_tokens: 10, cache_creation_input_tokens: 3, cache_read_input_tokens: 4, output_tokens: 1 } } },
+  { type: 'ping' },
+  { type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: '' } }, { type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'look' } }, { type: 'content_block_stop', index: 0 },
+  { type: 'content_block_start', index: 1, content_block: { type: 'text', text: '' } }, { type: 'content_block_delta', index: 1, delta: { type: 'text_delta', text: text.slice(0, 3) } }, { type: 'content_block_delta', index: 1, delta: { type: 'text_delta', text: text.slice(3) } }, { type: 'content_block_stop', index: 1 },
+  { type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: 2 } }, ...extra, { type: 'message_stop' },
+].map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join('');
+let streamMode = 'whole';
 const seen = [];
 let exchangeCode = 200, settingsFile = null;
 const srv = createServer((qq, res) => {
@@ -354,6 +370,14 @@ const srv = createServer((qq, res) => {
     const send = (code, j) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(typeof j === 'string' ? j : JSON.stringify(j)); };
     if (u.pathname === '/idtoken') return send(qq.headers.authorization === 'bearer RUNTOKEN' ? 200 : 401, { value: 'JWT.FROM.GITHUB' });
     if (u.pathname === '/v1/oauth/token') return send(exchangeCode, exchangeCode === 200 ? { access_token: 'SHORT-LIVED', expires_in: 600 } : { error: { type: 'authentication_error' } });
+    if (u.pathname === '/v1/messages' && JSON.parse(data).stream === true) {
+      res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8' });
+      const all = SSE('NO BLOCKERS');
+      if (streamMode === 'cut') { return res.end(all.slice(0, all.indexOf('event: message_delta'))); }
+      if (streamMode === 'reset') { res.write(all.slice(0, all.indexOf('event: message_delta'))); return res.destroy(); }
+      if (streamMode === 'error') return res.end(all.slice(0, all.indexOf('event: content_block_start')) + `event: error\ndata: ${JSON.stringify({ type: 'error', error: { type: 'overloaded_error', message: 'Overloaded' } })}\n\n`);
+      return res.end(all);
+    }
     if (u.pathname === '/v1/messages') return send(200, { model: MODEL, stop_reason: 'end_turn', usage: { input_tokens: 10, output_tokens: 2 }, content: [{ type: 'text', text: 'NO BLOCKERS' }] });
     // the stand-in GitHub for the command line
     if (u.pathname === '/repos/o/r/contents/.github/harness-review.json') return settingsFile === 'ERR' ? send(500, { message: 'oops' }) : u.searchParams.get('ref') === 'main' && settingsFile !== null ? send(200, settingsFile) : send(404, { message: 'Not Found' });
@@ -385,6 +409,18 @@ exchangeCode = 200;
 const a = await asker('SHORT-LIVED', base)(q);
 const sent = seen.findLast((s) => s.path === '/v1/messages');
 ok(a.status === 200 && sent.auth === 'Bearer SHORT-LIVED' && sent.version === '2023-06-01' && sent.key === '' && JSON.parse(sent.body).model === MODEL, 'the model call carries the short-lived token as a bearer, never an API key');
+// K080: the call is streamed, so fetch's own five-minute wait for the headers never cuts a long answer; the
+// events build the same message an unstreamed answer would be, thinking and text apart, usage merged
+ok(JSON.parse(sent.body).stream === true && a.json.model === MODEL && a.json.stop_reason === 'end_turn' && verdict(a.json).result === 'clear' && a.json.content.map((b) => b.type).join() === 'thinking,text'
+  && a.json.content[1].text === 'NO BLOCKERS' && a.json.usage.input_tokens === 10 && a.json.usage.cache_creation_input_tokens === 3 && a.json.usage.cache_read_input_tokens === 4 && a.json.usage.output_tokens === 2,
+  'K080: the model call is streamed, and its events are put together as the whole answer, with its usage');
+streamMode = 'cut'; const cutA = await asker('SHORT-LIVED', base)(q);
+streamMode = 'reset'; const resetA = await asker('SHORT-LIVED', base)(q);
+streamMode = 'error'; const errA = await asker('SHORT-LIVED', base)(q);
+streamMode = 'whole'; const goneA = await asker('SHORT-LIVED', 'http://127.0.0.1:9')(q);
+const half = assemble(SSE('NO BLOCKERS').split('event: message_stop')[0]);
+ok(cutA.status === 0 && cutA.json.error.type === 'stream_cut' && resetA.status === 0 && errA.status === 0 && errA.json.error.type === 'overloaded_error' && goneA.status === 0 && half.done === false && half.message.content[1].text === 'NO BLOCKERS' && assemble('data: {oops\n\n').message === null,
+  'K080: a call that broke after it was sent (a cut stream, an error inside it, no connection) is a call with no answer that may be billed (status 0); it never throws');
 
 // the command line, as the job runs it
 const tmp = mkdtempSync(join(tmpdir(), 'harness-review-'));

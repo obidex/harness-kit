@@ -242,6 +242,7 @@ const HEADLINE = {
   'too-large': (r) => `**Second review (advisory)** of \`${short(r.sha)}\`: not reviewed, the change is too large to read whole (${r.why}).`,
   capped: (r) => `**Second review (advisory)** of \`${short(r.sha)}\`: not reviewed, today's review cap is used up (${r.why}). Merges go on.`,
   refused: (r) => `**Second review (advisory)** of \`${short(r.sha)}\`: not reviewed, the model declined this change${r.why ? ` (${r.why})` : ''}.`,
+  lost: (r) => `**Second review (advisory)** of \`${short(r.sha)}\`: not reviewed, the model call broke before its answer (${r.why}); it is counted at its worst case and asked again on the next finished workflow. Merges go on.`,
   unavailable: (r) => `**Second review (advisory)** of \`${short(r.sha)}\`: not reviewed, the API refused the call (${r.why}). Merges go on.`,
 };
 const FOOT = '<sub>Advisory: never a required check and never an approval. It saw only the diff and the rulebook. Each point ends FIXED, TRACKED or DISMISSED by whoever owns this pull request.</sub>';
@@ -325,8 +326,9 @@ You cannot run code and you see only the diff. When a finding depends on code yo
 
 Answer in plain Markdown: at most 10 findings, the most serious first, each starting with \`path:line\`.`;
 /** The rulebook as a cached block (K080). Its tag ends in a word made from the rulebook itself, so the same
- *  rulebook gives the same bytes call after call, and the text cannot hold its own closing tag (it would have to
- *  contain its own hash). It is read from the default branch, never from the pull request. */
+ *  rulebook gives the same bytes call after call. The word is no secret (anyone can hash the default branch), so
+ *  the tag guards nothing by itself: the rulebook is read from the default branch, never from the pull request,
+ *  and what the pull request brings stays inside tags ending in the call's fresh random word. */
 export function rulebookBlock(rules, cutRules, max = MAX_RULES, none = '(this repository has no rulebook on its default branch)') {
   const text = rules || none;
   const rtag = createHash('sha256').update(text).digest('hex').slice(0, 12);
@@ -453,6 +455,13 @@ export async function review({ gh, ask, repo, run, env = {}, now = () => Date.no
   if (used.usd + worst > usdCap) return post({ sha, at, change, result: 'capped', why: `$${used.usd.toFixed(2)} of $${usdCap.toFixed(2)} spent` });
 
   const a = await ask(request);
+  // a call that broke after it was sent may be billed: recorded with its model and no tokens, it counts at the
+  // dearest worst case (runUsd), and the change is asked again on the next finished workflow (K080)
+  if (a.status === 0) {
+    const type = String(a.json?.error?.type || 'error').replace(/[^\w-]/g, '').slice(0, 40);
+    log(`the model call broke before its answer: ${type}`);
+    return post({ sha, at, change, result: 'lost', model, why: type });
+  }
   if (a.status !== 200) {
     const type = String(a.json?.error?.type || 'error').replace(/[^\w-]/g, '').slice(0, 40);
     log(`the model call answered ${a.status} ${type}`);
@@ -494,12 +503,47 @@ export async function exchange(env, api) {
   console.log(`::add-mask::${j.access_token}`);
   return j.access_token;
 }
-/** One Messages API call. Never throws on an HTTP answer: `{ status, json }`. */
+/** The message a streamed answer builds (K080): its events put together as the unstreamed answer would
+ *  read, `{ message, error, done }`; `done` only once the stream's last event came. */
+export function assemble(sse) {
+  let message = null, error = null, done = false;
+  for (const part of String(sse || '').split(/\r?\n\r?\n/)) {
+    const data = part.split(/\r?\n/).filter((l) => l.startsWith('data:')).map((l) => l.slice(5).trimStart()).join('\n');
+    let e;
+    try { e = data ? JSON.parse(data) : null; } catch { e = null; }
+    if (!e) continue;
+    if (e.type === 'error') error = String(e.error?.type || 'error');
+    else if (e.type === 'message_start') message = { ...e.message, content: [] };
+    else if (!message) continue;
+    else if (e.type === 'content_block_start') message.content[e.index] = { ...e.content_block };
+    else if (e.type === 'content_block_delta' && message.content[e.index]) {
+      const b = message.content[e.index], d = e.delta || {};
+      if (d.type === 'text_delta') b.text = (b.text || '') + d.text;
+      else if (d.type === 'thinking_delta') b.thinking = (b.thinking || '') + d.thinking;
+    } else if (e.type === 'message_delta') { Object.assign(message, e.delta); message.usage = { ...message.usage, ...e.usage }; }
+    else if (e.type === 'message_stop') done = true;
+  }
+  if (message) message.content = message.content.filter(Boolean);
+  return { message, error, done };
+}
+/** One Messages API call, streamed. Never throws: an HTTP answer is `{ status, json }`. A call that broke
+ *  after it was sent (the wait ran out, the connection or the stream broke, an error inside the stream)
+ *  may still be billed: it is `{ status: 0, json: { error: { type } } }`, and the caller counts its worst case. */
 export const asker = (token, api) => async (request) => {
-  // a 16000-token answer can take minutes: the wait is longer than the most it could take (K080)
-  const r = await fetch(`${api}/v1/messages`, { method: 'POST', signal: AbortSignal.timeout(ASK_MS),
-    headers: { authorization: `Bearer ${token}`, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' }, body: JSON.stringify(request) });
-  return { status: r.status, json: await r.json().catch(() => null) };
+  const lost = (type) => ({ status: 0, json: { error: { type: String(type || 'error').replace(/[^\w-]/g, '').slice(0, 40) } } });
+  try {
+    // a 16000-token answer can take minutes. Streamed, the headers come at once and events keep coming, so
+    // fetch's own five-minute waits (for the headers, between two parts of the body) never end it; ASK_MS
+    // bounds the whole call (K080)
+    const r = await fetch(`${api}/v1/messages`, { method: 'POST', signal: AbortSignal.timeout(ASK_MS),
+      headers: { authorization: `Bearer ${token}`, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' }, body: JSON.stringify({ ...request, stream: true }) });
+    if (r.status !== 200 || !/^text\/event-stream/.test(r.headers.get('content-type') || '')) return { status: r.status, json: await r.json().catch(() => null) };
+    const s = assemble(await r.text());
+    if (s.error) return lost(s.error);
+    return s.message && s.done ? { status: 200, json: s.message } : lost('stream_cut');
+  } catch (e) {
+    return lost(e?.cause?.code || e?.name);
+  }
 };
 
 // --- command line -----------------------------------------------------------------------------------
