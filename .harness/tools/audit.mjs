@@ -443,14 +443,15 @@ const checks = {
       const idOf = (f) => f.split('/').pop().replace(/\.md$/, '');
       // a commit the baseline lists for C17 (K073: a redaction on the owner's rule, history never rewritten) is
       // skipped here too, by its SHA; so is a past commit a newer decision records by naming it and the decision it
-      // changed (K079, `decisions.mjs new --supersedes <ID> --commits <sha>`); any other commit that touches a
+      // changed (K079, `decisions.mjs new --supersedes <ID> --commits <sha>`; only where the default branch resolves, so
+      // the checkout's own commits are never excused); any other commit that touches a
       // written decision still FAILs, and this checkout's own change against the default branch always does
       const edits = (...range) => {
         const { kept, skipped } = exceptCommits('C17', git('log', '-200', '--diff-filter=MDR', '--name-only', '--format=%x1e%H', ...range, '--', reg.folder) || '');
         const open = [], recorded = [];
         for (const c of kept) {
           const [sha, ...files] = names(c);
-          if (files.length && recordedEdit(sha, [...new Set(files.map(idOf))], reg.files)) recorded.push(sha); else open.push({ sha, files });
+          if (base && files.length && recordedEdit(sha, [...new Set(files.map(idOf))], reg.files)) recorded.push(sha); else open.push({ sha, files });
         }
         return { open, skipped, recorded };
       };
@@ -793,7 +794,7 @@ if (flags.has('--strict')) {
   const fresh = results.filter((r) => r.result === FAIL && !accepted.has(r.id));
   if (fresh.length) {
     for (const r of fresh) console.log(`audit: FAIL ${r.id} ${r.title}: ${r.evidence}`);
-    // one plain line per failed rule where the feed and the Control Center read it (K079): the check run's annotations
+    // one plain line per failed rule where a status feed reads it (K079): the check run's annotations
     for (const r of fresh) plainFail(`harness-audit ${r.id}`, `${r.title}: ${r.evidence}`);
     process.exit(1);
   }

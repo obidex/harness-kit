@@ -90,7 +90,10 @@ export function tryProject(dir, { kit = KIT, prepared = {} } = {}) {
     git(p, 'update-ref', `refs/remotes/origin/${main}`, head);
     git(p, 'symbolic-ref', 'refs/remotes/origin/HEAD', `refs/remotes/origin/${main}`);
     git(p, 'checkout', '--quiet', '-B', 'trial', head);
-    const before = auditFails(run(process.execPath, ['.harness/tools/audit.mjs', '.', '--strict', '--json', join(tmp, 'before.json')], p).out);
+    // an audit that exits non-zero without one FAIL line did not finish (it threw, or read a broken file): that is
+    // a failure of its own, never a pass
+    const audit = (json) => { const a = run(process.execPath, ['.harness/tools/audit.mjs', '.', '--strict', '--json', join(tmp, json)], p); const fails = auditFails(a.out); return { fails, broke: !a.ok && !Object.keys(fails).length ? (a.out.split('\n').find((l) => /\b\w*Error\b/.test(l)) || lastLine(a.out) || 'exit without output').trim().slice(0, 200) : null }; };
+    const before = audit('before.json');
     const target = readFileSync(join(kit, '.harness/VERSION'), 'utf8').trim();
     const was = readFileSync(join(p, '.harness/VERSION'), 'utf8').trim();
     const lines = [];
@@ -99,7 +102,8 @@ export function tryProject(dir, { kit = KIT, prepared = {} } = {}) {
     else if (was === target) lines.push(`already at ${target}: nothing to try (raise VERSION in the candidate first)`);
     else {
       git(p, 'add', '-A');
-      git(p, 'commit', '--quiet', '-m', `chore(harness): update kit ${was} to ${target} (trial)`);
+      const cm = git(p, 'commit', '--quiet', '--no-gpg-sign', '--no-verify', '-m', `chore(harness): update kit ${was} to ${target} (trial)`);
+      if (!cm.ok) { lines.push(`the trial could not commit the update in its copy, so nothing after it was checked: ${lastLine(cm.out).slice(0, 200)}`); return { name, verdict: 'RED', lines, prepared: prepared[name] || null }; }
       const changed = git(p, 'diff', '--name-only', 'HEAD~1', 'HEAD').out.split('\n').filter(Boolean);
       const local = changed.filter((f) => LOCAL_STATE.test(f));
       if (local.length) lines.push(`harness-guard: the update would add one person's local state (${local.join(', ')})`);
@@ -109,9 +113,10 @@ export function tryProject(dir, { kit = KIT, prepared = {} } = {}) {
       if (!va.ok) lines.push(`harness-audit: the settings file is not valid under ${target}: ${lastLine(va.out).slice(0, 200)}`);
       const pc = run(process.execPath, ['.harness/tools/precheck.mjs', '--base', head], p);
       if (!pc.ok) lines.push(`harness-audit precheck: ${pc.out.split('\n').filter((l) => /FAILED/.test(l)).map((l) => l.replace(/^.*FAILED: /, '')).join(' | ').slice(0, 300)}`);
-      const after = auditFails(run(process.execPath, ['.harness/tools/audit.mjs', '.', '--strict', '--json', join(tmp, 'after.json')], p).out);
+      const after = audit('after.json');
       lines.push(...kitFacing(p));
-      for (const [id, line] of Object.entries(after)) lines.push(`harness-audit ${id}: ${line.slice(0, 260)}${before[id] ? ' (already failing before this release)' : ''}`);
+      if (after.broke) lines.push(`harness-audit: the audit did not finish: ${after.broke}${before.broke ? ' (already failing before this release)' : ''}`);
+      for (const [id, line] of Object.entries(after.fails)) lines.push(`harness-audit ${id}: ${line.slice(0, 260)}${before.fails[id] ? ' (already failing before this release)' : ''}`);
     }
     const verdict = lines.length ? 'RED' : 'GREEN';
     return { name, verdict, lines, prepared: verdict === 'RED' ? prepared[name] || null : null };

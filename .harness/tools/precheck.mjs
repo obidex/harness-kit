@@ -27,7 +27,7 @@ import { readFileSync, existsSync, writeFileSync, mkdirSync, chmodSync } from 'n
 import { join, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { load, folderFor, movedWordForWord, problems as registerProblems, logPath } from './decisions.mjs';
+import { load, folderFor, movedWordForWord, diffParts, problems as registerProblems, logPath } from './decisions.mjs';
 import { loadSet, budgetOf } from './load.mjs';
 import { footerLines } from './scrub.mjs';
 import { plainFail } from './lib.mjs';
@@ -41,6 +41,8 @@ ${kind === 'commit-msg' ? 'exec node .harness/tools/precheck.mjs --message "$1"'
 /** The problems of one change. `git(args)` returns stdout or null; `read(path)` the working-tree text or null. */
 export function check({ root, base, git, read, texts = [] }) {
   const out = [];
+  // a base git cannot resolve would read as "nothing changed": that is a failure, never an OK
+  if (!(git(['rev-parse', '--verify', '--quiet', `${base}^{commit}`]) || '').trim()) return [['C17', `The starting point ${base} is not a commit in this clone, so this change cannot be checked: fetch it (a shallow clone needs \`git fetch --unshallow\`) or name another with --base`]];
   let profile = null;
   try { profile = JSON.parse(read('.harness/profile.json') || 'null'); } catch { out.push(['C17', 'The profile .harness/profile.json is not JSON, so the caps and the decisions log are unknown; fix the file']); }
   const logFile = logPath(root), folder = folderFor(logFile);
@@ -54,9 +56,9 @@ export function check({ root, base, git, read, texts = [] }) {
   }
   // the closed log: lines it loses must be, word for word, the files this change adds
   if (status.some(([s, f]) => f === logFile && /^[MD]/.test(s))) {
-    const diff = git(['diff', base, '--', logFile]) || '';
-    const removed = diff.split('\n').filter((l) => /^-[^-]/.test(l) || /^-$/.test(l)).map((l) => l.slice(1));
-    if (removed.some((l) => l.trim())) {
+    // the same hunk reading as the audit's verified move (a removed `- bullet` line counts)
+    const { removed } = diffParts(git(['diff', base, '--', logFile]) || '', logFile, folder);
+    if (removed.length) {
       const added = {};
       for (const f of [...status.filter(([s]) => /^A/.test(s)).map(([, f]) => f), ...untracked]) if (f.startsWith(`${folder}/`)) added[f] = String(read(f) || '').split('\n');
       if (!movedWordForWord(removed, added)) out.push(['C17', `The closed decisions log ${logFile} lost lines that are not a word-for-word move into a new decision file. Put the lines back; a change is a new decision: node .harness/tools/decisions.mjs new --supersedes <ID>`]);

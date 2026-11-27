@@ -92,12 +92,14 @@ export function nextId({ log = '', files = {} }) {
  *  file it adds under `folder`: { removed: [line], added: { path: [line] } }, blank lines left out, line ends trimmed. */
 export function diffParts(diff, logFile, folder) {
   const removed = [], added = {};
-  let file = null, isNew = false;
+  // a line counts only inside a hunk (after its `@@`), so a removed Markdown bullet (`-- point`) or a removed line
+  // that starts with `-- ` is a removed line, never read as a `---` header
+  let file = null, isNew = false, inHunk = false;
   for (const l of String(diff || '').split('\n')) {
     const h = l.match(/^diff --git a\/(.+?) b\/(.+)$/);
-    if (h) { file = h[2]; isNew = false; continue; }
-    if (/^new file mode/.test(l)) { isNew = true; continue; }
-    if (/^(---|\+\+\+) /.test(l) || /^(index|deleted file|old mode|new mode|similarity|rename|@@)/.test(l)) continue;
+    if (h) { file = h[2]; isNew = false; inHunk = false; continue; }
+    if (!inHunk) { if (/^new file mode/.test(l)) isNew = true; if (/^@@ /.test(l)) inHunk = true; continue; }
+    if (/^@@ /.test(l)) continue;
     if (file === logFile && l.startsWith('-') && l.slice(1).trim()) removed.push(l.slice(1).trimEnd());
     if (isNew && file && file.startsWith(`${folder}/`) && l.startsWith('+') && l.slice(1).trim()) (added[file] ||= []).push(l.slice(1).trimEnd());
   }

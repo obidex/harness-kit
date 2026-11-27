@@ -56,6 +56,22 @@ r = pre2();
 ok(r.status === 1 && /lost lines that are not a word-for-word move/.test(r.stderr), 'a move that changed a word fails');
 rmSync(join(p, 'docs/decisions/K003.md')); put('docs/DECISIONS.md', '# d\n\n## K001 · first, edited\n\ntext\n\n## K003 · appended\n\nentry\n');
 ok(/lost lines/.test(pre2().stderr), 'an edit of the closed log fails');
+// a removed Markdown bullet is a removed line (review of K079: `-- point` in the diff was skipped as a header)
+git(p, 'checkout', '-q', '--', '.');
+put('docs/DECISIONS.md', '# d\n\n## K001 · first\n\ntext\n\n## K003 · appended\n\nentry\n\n- one\n- two\n'); git(p, 'commit', '-qam', 'bullets');
+{
+  const base3 = git(p, 'rev-parse', 'HEAD').stdout.trim();
+  const pre3 = (b = base3) => node(p, [join(kit, '.harness/tools/precheck.mjs'), '--base', b]);
+  put('docs/DECISIONS.md', '# d\n\n## K001 · first\n\ntext\n\n## K003 · appended\n\nentry\n');
+  r = pre3();
+  ok(r.status === 1 && /lost lines/.test(r.stderr), 'taking two bullet lines out of the closed log fails (passed before the review fix)');
+  put('docs/DECISIONS.md', '# d\n\n## K001 · first\n\ntext\n'); put('docs/decisions/K003.md', '## K003 · appended\n\nentry\n\n- one\n- two\n');
+  ok(pre3().status === 0, 'moving an entry with bullets word for word passes, as the audit\'s verified move does (failed before the review fix)');
+  r = pre3('1111111111111111111111111111111111111111');
+  ok(r.status === 1 && /is not a commit in this clone/.test(r.stderr), 'a starting point git cannot resolve fails with one plain line, never an OK on "nothing changed"');
+  rmSync(join(p, 'docs/decisions/K003.md'));
+  git(p, 'checkout', '-q', '--', '.'); git(p, 'reset', '-q', '--hard', base2);
+}
 git(p, 'checkout', '-q', '--', '.');
 put('docs/STATE.md', 'x'.repeat(60));
 r = pre2();
@@ -105,6 +121,26 @@ ok(/^::error title=precheck O09::.*carries Claude attribution/m.test(r.stdout) &
   ok(res.result === 'PASS' && !/npmrc/.test(res.evidence), `the kit's own package under .harness/ is no npm use of the project's: no red A17 on every kit update (found by the trial; ${res.result}: ${res.evidence})`);
 }
 
+// --- the audit excuses a recorded past edit only against the default branch (review of K079) ----------------
+{
+  const d = join(work, 'rec');
+  mkdirSync(join(d, 'decisions'), { recursive: true });
+  const prof = JSON.parse(readFileSync(join(kit, 'examples/profile.example.json'), 'utf8'));
+  writeFileSync(join(d, 'CLAUDE.md'), '# x\n'); mkdirSync(join(d, '.harness')); writeFileSync(join(d, '.harness/profile.json'), JSON.stringify({ ...prof, branches: { ...prof.branches, default: 'main' }, canon: { ...prof.canon, decisions: 'DECISIONS.md', caps: {}, generated: [] } }));
+  writeFileSync(join(d, 'DECISIONS.md'), '# d\n'); writeFileSync(join(d, 'decisions/P001.md'), '## P001 · 2026-11-20 · STANDING — x\n');
+  git(d, 'init', '-q', '-b', 'main'); git(d, 'add', '-A'); git(d, 'commit', '-qm', 'x');
+  writeFileSync(join(d, 'decisions/P001.md'), '## P001 · 2026-11-20 · STANDING — x, edited\n'); git(d, 'commit', '-qam', 'edit');
+  const sha = git(d, 'rev-parse', 'HEAD').stdout.trim();
+  writeFileSync(join(d, 'decisions/P002.md'), `## P002 · 2026-11-27 · STANDING — y\n\n**Supersedes** P001, and records the changes already made to it after it was written: ${sha.slice(0, 7)}.\n`);
+  git(d, 'add', '-A'); git(d, 'commit', '-qm', 'record');
+  const c17 = () => { node(d, [join(kit, '.harness/tools/audit.mjs'), d, '--json', join(work, 'rec.json')]); return JSON.parse(readFileSync(join(work, 'rec.json'), 'utf8')).results.find((x) => x.id === 'C17'); };
+  let res = c17();
+  ok(res.result === 'PASS' && /recorded by a newer decision/.test(res.evidence), `on the default branch, a past edit a newer decision records passes (${res.result}: ${res.evidence.slice(0, 120)})`);
+  git(d, 'checkout', '-q', '--detach'); git(d, 'branch', '-q', '-D', 'main');
+  res = c17();
+  ok(res.result === 'FAIL' && /Decision P001/.test(res.evidence), 'with no default branch to judge against, the checkout\'s own edit is never excused by its record');
+}
+
 // --- the trial: a candidate release tried on project checkouts -------------------------------------------
 {
   ok(trialLine([{ verdict: 'GREEN' }, { verdict: 'RED', prepared: 'x#1' }, { verdict: 'SKIPPED' }], 'abcdef0123456') === 'Trial: 1 of 2 projects green; 1 red with the fix prepared at abcdef012345'
@@ -149,6 +185,14 @@ ok(/^::error title=precheck O09::.*carries Claude attribution/m.test(r.stdout) &
     'a project whose update pull request would be red is RED, with one plain line per failed check, marked when the release did not cause it');
   r = trial('--project', proj, '--prepared', 'proj=owner/proj#9');
   ok(r.status === 0 && /proj: RED \(fix prepared: owner\/proj#9\)/.test(r.stdout) && /1 red with the fix prepared/.test(r.stdout), 'with the project\'s fix prepared and named, the release may ship');
+  // a candidate whose audit cannot finish is RED, never GREEN for want of a FAIL line (review of K079)
+  git(proj, 'reset', '-q', '--hard', before);
+  const auditFile = join(cand, '.harness/tools/audit.mjs'), good = readFileSync(auditFile, 'utf8');
+  writeFileSync(auditFile, good.replace(/^(import [^\n]*\n)/m, '$1throw new Error("broken release");\n')); git(cand, 'commit', '-qam', 'broken audit');
+  r = trial('--project', proj);
+  ok(r.status === 1 && /proj: RED/.test(r.stdout) && /harness-audit: the audit did not finish/.test(r.stdout), `a release whose audit throws makes the project RED (was GREEN before the review fix): ${r.stdout.split('\n').slice(0, 3).join(' | ')}`);
+  writeFileSync(auditFile, good); git(cand, 'commit', '-qam', 'audit back');
+  ok(/proj: GREEN/.test(trial('--project', proj).stdout), 'with the audit back, the same project is GREEN again');
   // a project that pins no kit, and one whose kit-facing settings the candidate cannot read
   const bare = join(work, 'bare'); mkdirSync(join(bare, '.github'), { recursive: true });
   git(bare, 'init', '-q', '-b', 'main'); writeFileSync(join(bare, 'x'), 'x'); git(bare, 'add', '-A'); git(bare, 'commit', '-qm', 'x');
