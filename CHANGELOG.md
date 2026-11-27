@@ -5,7 +5,7 @@ Each version is the tag `v<version>` on this repository, never moved (K003). Pro
 
 ## 0.67.3 · 2026-11-27 · the allowance measure reads list_thread_sessions and pages with control characters (K072 follow-up)
 
-Two gaps the projects' coordinators met running `usage.mjs` (ERP request and Control Center request of roadmap#202). No
+Two gaps the projects' coordinators met running `usage.mjs` (two projects' requests of the measure). No
 always-loaded text changed, so there is no replay result.
 
 - **`usage.mjs`**: a thread listing from `list_thread_sessions` (the name the tool has in some sessions, same shape) is
