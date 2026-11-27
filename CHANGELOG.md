@@ -3,7 +3,7 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
-## 0.64.0 · 2026-11-27 · a bug sweep by the Agent SDK, paid from the API credit (K075)
+## 0.66.0 · 2026-11-27 · a bug sweep by the Agent SDK, paid from the API credit (K077)
 
 No always-loaded text changed, so there is no replay result.
 
@@ -17,6 +17,35 @@ No always-loaded text changed, so there is no replay result.
   Code trims paths after the hook and reads an `@` mention in the prompt itself.
 - **`templates/agent-sweep.yml`**: the job, copied by hand into one project; the kit does not install it.
 - `review.md` "The agent sweep trial"; CI runs `test-agent-sweep`.
+
+## 0.65.0 · 2026-11-27 · every open request says its state in its own State line (K076)
+
+From a strategist's line on the owner's board (27 Nov 2026). No always-loaded text changed,
+so there is no replay result.
+
+- **`inbox.mjs state`** moves a request filed by hand (the `inbox` label, no inbox-id): it adds the State
+  line, and the Evidence line on `done`. `--to blocked --note <reason>` writes `blocked: <reason>` in the
+  State line, so a health page shows what it waits on.
+- **`inbox.md`**: every open request says its state in its own State line, kept current by its holder.
+- `test-inbox` gains the cases.
+
+## 0.64.0 · 2026-11-27 · a GitHub hiccup never leaves a change stuck (K075)
+
+From the strategist's card on the owner's board (27 Nov 2026), part B. No always-loaded text changed
+(`core.md`, `owner-defaults.md` and the adapters unchanged), so there is no replay result.
+
+- **Reads retry.** `lib.mjs` `ghCall` (and its exact copy in `inbox.mjs`) tries a GET or HEAD three times
+  on a 500, 502, 503, 504 or no answer, 2 s then 4 s apart, one stderr line a retry. Writes are sent once.
+- **scrub**: a pull request's own run fails only when its own body could not be read clean; a sweep that
+  still fails is a warning there, and such a run no longer anchors the sweep window (an issue or comment
+  run does, and still fails on a failed sweep).
+- **harness-rerun** (new workflow, `rerun.mjs`): a pull-request workflow that failed on its first attempt,
+  with no failed job that is a required check and no required check failed on the head, runs its failed
+  jobs once more. Installed with the other kit workflows on the next update; chore lane.
+- **hands-keep**: a kit update PR that passes every required check but that auto-merge does not merge gets
+  one inbox request in its repository, and its coordinator is woken to merge it. Its App token asks for
+  `issues: write` too (the control repository takes the new template with this release).
+- CI runs `test-rerun`; `test-scrub` and `test-hands` gain the cases.
 
 ## 0.63.0 · 2026-11-27 · a staff guide written from the code (K074)
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// test-agent-sweep — the agent sweep trial (K075), offline: the settings file, the module, the guard
+// test-agent-sweep — the agent sweep trial (K077), offline: the settings file, the module, the guard
 // hook (paths, links, tools), the agent's environment, the answer, the record and its money, the issues,
 // the command line's plan, and the template's shape. The SDK itself is not installed here.
 //
@@ -49,7 +49,7 @@ const m = scope({ paths: tracked, only: ['tools'], stat });
 ok(m.files.join() === 'tools/README.md,tools/a.mjs,tools/b.mjs' && m.skipped.some(([p, w]) => p === 'tools/.env' && /secret/.test(w)) && m.skipped.some(([p]) => p === 'tools/link.js'),
   'the module is the tracked files under its paths: a file that may hold a secret and a symbolic link are left out, a document is kept (it may hold the rules)');
 ok(throws(() => scope({ paths: tracked, only: [], stat }), /name the module/) && throws(() => scope({ paths: tracked, only: ['nothing'], stat }), /no tracked file/), 'no module named, or one with no file: refused');
-// the review of 0.64.0: a name goes into the prompt, where Claude Code reads an @mention itself, past the guard
+// the review of K077: a name goes into the prompt, where Claude Code reads an @mention itself, past the guard
 const odd = scope({ paths: [...tracked, 'tools/x @/tmp/run/id/token', 'tools/y z.mjs', 'tools/@w.mjs'], only: ['tools'], stat });
 ok(odd.files.join() === m.files.join() && ['tools/x @/tmp/run/id/token', 'tools/y z.mjs', 'tools/@w.mjs'].every((p) => odd.skipped.some(([q, w]) => q === p && /character/.test(w))),
   'a tracked name with @, a space or another sign outside the plain set is left out of the module');
@@ -72,7 +72,7 @@ ok(/search pattern/.test(refusal(repo, 'Glob', { pattern: '/etc/**' })) && /sear
   && ['{../,}secret*', '{/etc,x}/*', 'a/{x,/etc}/*', '{~,x}/*', 'tools/..'].every((g) => /search pattern/.test(refusal(repo, 'Glob', { pattern: g })) && /search pattern/.test(refusal(repo, 'Grep', { pattern: 'x', glob: g }))),
   'a search pattern that is absolute, steps up or names the home folder is refused, also inside braces');
 ok(/git's own folder/.test(refusal(repo, 'Read', { file_path: '.git/config' })) && /git's own folder/.test(refusal(repo, 'Grep', { pattern: 'x', path: '.git' })), 'git\'s own folder is not read');
-// the review of 0.64.0: Claude Code trims and expands a path after the hook, so a path with space around it was judged as a name inside
+// the review of K077: Claude Code trims and expands a path after the hook, so a path with space around it was judged as a name inside
 const padded = [' /', ' ..', '\t/x', '/ ', `${outside} `, ` ${join(outside, 'token')}`, '\n..', ' /'];
 ok(padded.every((p) => refusal(repo, 'Grep', { pattern: 'SECRET', path: p }) !== null && refusal(repo, 'Glob', { pattern: '*', path: p }) !== null && refusal(repo, 'Read', { file_path: p }) !== null),
   'a path with space or a control character around it is refused for Grep, Glob and Read');
@@ -173,7 +173,7 @@ await prepare({ gh: h.gh, repo: 'o/r', settingsText: FILE(), paths: ['tools/a.mj
 f = await file({ gh: h.gh, repo: 'o/r', runId: '7-1', result: { paths: ['tools/a.mjs'], status: 'not started: no identity token', turns: 0, usd: 0, costKnown: true, answer: null, text: '' }, sha: 'abcdef1234', settingsText: FILE(), now: NOW });
 ok(f.usd === 0 && spentOf(stateOf(h.issues.find((i) => i.title === TITLE))) === 0, 'a run stopped before its first question records $0, so a set-up fault does not eat the trial');
 
-// the review of 0.64.0: the end time holds inside the run, not only when it is cleared
+// the review of K077: the end time holds inside the run, not only when it is cleared
 const sdkDir = join(tmp, 'sdk');
 mkdirSync(join(sdkDir, 'node_modules/@anthropic-ai/claude-agent-sdk-linux-x64'), { recursive: true }); mkdirSync(join(sdkDir, 'node_modules/@anthropic-ai/claude-agent-sdk'), { recursive: true });
 writeFileSync(join(sdkDir, 'node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude'), ''); writeFileSync(join(sdkDir, 'node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs'), 'throw new Error("not to be loaded")');

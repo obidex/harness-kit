@@ -1,5 +1,5 @@
 # Action group: approval (started by hand, on the owner's command, inside his window; harness-kit .harness/tools/actions.mjs)
-# A trial, not installed by the kit (kit K075): copy this file to .github/workflows/agent-sweep.yml in ONE
+# A trial, not installed by the kit (kit K077): copy this file to .github/workflows/agent-sweep.yml in ONE
 # private repository, replace KIT_COMMIT and KIT_VERSION with a released kit commit and its version, and add
 # .github/agent-sweep.json (until, command, the four federation identifiers; review.md "The agent sweep trial").
 # One bug sweep of one module by the Claude Agent SDK with read-only tools (Read, Grep, Glob; no Bash, no

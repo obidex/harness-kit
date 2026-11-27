@@ -41,6 +41,8 @@ jobs:
         run: node tools/test-harness.mjs
       - name: Attribution scrubber
         run: node tools/test-scrub.mjs
+      - name: One re-run of a failed check that does not block the merge (K075)
+        run: node tools/test-rerun.mjs
       - name: Settings as code and the hands workflows
         run: node tools/test-hands.mjs
       - name: Inbox (cross-project requests)

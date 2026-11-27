@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // agent-sweep — a trial: one bug sweep of one module by an agent with read-only tools, paid from the
-// API credit through the Claude Agent SDK (K075). No dependencies of its own; the SDK is installed by
+// API credit through the Claude Agent SDK (K077). No dependencies of its own; the SDK is installed by
 // the job from agent-sdk/package-lock.json.
 //
 //   node .harness/tools/agent-sweep.mjs plan    --root <dir> --paths a,b     the files in scope; no model call (JSON)
@@ -223,7 +223,7 @@ export const spentOf = (state) => Math.round(state.runs.reduce((n, r) => n + (mo
 export function recordBody(state, cap) {
   const rows = state.runs.map((r) => `| ${one(r.at).slice(0, 16)} | \`${one((r.paths || []).join(', '))}\` | ${r.usd === null || r.usd === undefined ? `reserved $${Number(r.reserve).toFixed(2)}` : `$${Number(r.usd).toFixed(2)}`} | ${one(r.status)} | ${r.issue ? `#${Number(r.issue)}` : ''} |`);
   return [mark(state),
-    `A trial (kit K075): one bug sweep of one module by the Claude Agent SDK with read-only tools, paid from the API credit. Advisory; it gates nothing.`, '',
+    `A trial (kit K077): one bug sweep of one module by the Claude Agent SDK with read-only tools, paid from the API credit. Advisory; it gates nothing.`, '',
     `**Used:** $${spentOf(state).toFixed(2)} of $${cap.toFixed(2)} for every run of this trial (a run's reserve counts until its cost is known).`, '',
     '| Started (UTC) | Module | Cost | Result | Findings |', '|---|---|---|---|---|', ...rows.slice(-40), '',
     'Each run\'s cost is the SDK\'s own figure at list price, from the tokens it reports; the Console\'s figure is the bill.'].join('\n');
@@ -234,7 +234,7 @@ export function findingsIssue(r, sha) {
   const a = r.answer, f = a?.findings || [];
   const count = SEV.map((s) => f.filter((x) => x.severity === s).length);
   const proven = f.filter((x) => x.proof === 'reproduced').length;
-  const head = `**Agent sweep (advisory, trial K075)** of \`${one((r.paths || []).join(', '))}\` at \`${String(sha).slice(0, 7)}\`: ${MODEL}, effort ${EFFORT}, ${Number(r.turns) || 0} turns, $${Number(r.usd || 0).toFixed(2)}.`;
+  const head = `**Agent sweep (advisory, trial K077)** of \`${one((r.paths || []).join(', '))}\` at \`${String(sha).slice(0, 7)}\`: ${MODEL}, effort ${EFFORT}, ${Number(r.turns) || 0} turns, $${Number(r.usd || 0).toFixed(2)}.`;
   const body = a ? [head, '', `${f.length} finding${f.length === 1 ? '' : 's'}: ${count[0]} blocker · ${count[1]} major · ${count[2]} minor; ${proven} with an exact reproduction, ${f.length - proven} suspected.`, '',
     ...f.flatMap((x, i) => [`### ${i + 1}. ${x.severity} · ${x.proof} · \`${one(x.path)}${x.line ? `:${x.line}` : ''}\` · ${one(x.title)}`, '', safe(x.why, 4000), ...(x.reproduction ? ['', `**Reproduction.** ${safe(x.reproduction, 4000)}`] : []), '']),
     ...(a.notes ? [`**Limits it noted.** ${safe(a.notes, 2000)}`, ''] : []), `Read: ${a.read.length} files.`, '', FOOT]

@@ -92,7 +92,7 @@ const srv = createServer((q, res) => {
 await new Promise((d) => srv.listen(0, '127.0.0.1', d));
 const base = `http://127.0.0.1:${srv.address().port}`;
 const tool = join(new URL('..', import.meta.url).pathname, '.harness/tools/inbox.mjs');
-const run = (args, env = {}) => new Promise((d) => execFile(process.execPath, [tool, ...args], { env: { ...process.env, GITHUB_API_URL: base, GH_TOKEN: 't', INBOX_FIRE_BASE: base, INBOX_RECHECK_MS: '0', INBOX_POLL_MS: '50', INBOX_WAIT_MS: '8000', INBOX_HANDS_REPO: '', INBOX_ROUTINE_URL: '', INBOX_ROUTINE_TOKEN: '', GITHUB_ACTIONS: 'true', ...env } }, (e, stdout, stderr) => d({ code: e ? e.code : 0, out: stdout + stderr })));
+const run = (args, env = {}) => new Promise((d) => execFile(process.execPath, [tool, ...args], { env: { ...process.env, GITHUB_API_URL: base, GH_TOKEN: 't', INBOX_FIRE_BASE: base, INBOX_RECHECK_MS: '0', INBOX_POLL_MS: '50', INBOX_WAIT_MS: '8000', INBOX_HANDS_REPO: '', INBOX_ROUTINE_URL: '', INBOX_ROUTINE_TOKEN: '', GITHUB_ACTIONS: 'true', HARNESS_GH_RETRY_MS: '0', ...env } }, (e, stdout, stderr) => d({ code: e ? e.code : 0, out: stdout + stderr })));
 const settle = async () => { while (jobs.length) await jobs.shift(); };
 const send = ['send', '--repo', 'o/r', '--id', req.id, '--title', 'Proof', '--outcome', req.outcome, '--source', req.source, '--coordinator', req.coordinator, '--covered-by', req.coveredBy];
 const wired = { INBOX_ROUTINE_URL: `${base}/v1/claude_code/routines/trig_01ABC/fire`, INBOX_ROUTINE_TOKEN: 'sk-test' };
@@ -225,7 +225,7 @@ ok(again.code === 0 && wakes.length === 2 && issues[0].comments.some((c) => c.st
     await settle();
     const rf = issues.find((i) => parse(i.body).id === 'kit/label-flaky');
     rf.comments = []; rf.labels = rf.labels.filter((l) => l.name !== 'wake');
-    stateDownOnce = 1;   // the receiver's own job: its first STATE lookup fails, the next one answers
+    stateDownOnce = 3;   // the receiver's own job: its first STATE lookup fails (all three tries, K075), the next one answers
     const oj = await run(['wake', '--repo', 'o/r', '--issue', String(rf.number)], own);
     ok(!rf.labels.some((l) => l.name === 'wake') && !rf.comments.some((c) => c.startsWith('<!-- inbox-woke -->')) && oj.code === 3, 'the receiver\'s own job never sets the label or writes "Woke", even when its first STATE lookup fails and the next one answers');
     stateDownOnce = 0;
@@ -323,6 +323,27 @@ const d = await run(['state', '--repo', 'o/r', '--issue', '1', '--to', 'done', '
 ok(d.code === 0 && issues[0].state === 'closed' && parse(issues[0].body).Evidence === 'PR #9 merged, ci green' && issues[0].comments.at(-1).includes('PR #9'), 'done records the evidence on the issue and closes it');
 ok(/wake\.mjs handoff --repo o\/src --issue 12 --from o\/r$/m.test(d.out), 'done ends by naming the hand-off to the project that asked, read from the Source line (K056)');
 ok(JSON.parse((await run(['pending', '--repo', 'o/r'])).out).length === 0 && /already .*closed, done/.test((await run(send)).out), 'after done nothing is pending, and a resend points at the finished issue');
+// K076: a request filed by hand (the label, no inbox-id) gets its State line from `state`; blocked carries its reason
+{
+  const CARD = '**From the strategist.** Do X for us.';
+  issues.push({ number: issues.length + 1, state: 'open', author_association: 'OWNER', user: { login: 'owner', type: 'User' }, html_url: 'https://gh.test/o/r/issues/h', body: CARD, labels: [{ name: 'inbox' }], comments: [] });
+  const h = issues.at(-1), hn = String(h.number);
+  const b = await run(['state', '--repo', 'o/r', '--issue', hn, '--to', 'blocked', '--note', 'waits on the other project\'s reply\non its card']);
+  ok(b.code === 0 && h.body === `${CARD}\n\n- **State:** blocked: waits on the other project's reply on its card\n` && h.state === 'open', `a hand-filed request gets a State line, and blocked carries what it waits on in one line (${b.out.trim()})`);
+  const w = await run(['state', '--repo', 'o/r', '--issue', hn, '--to', 'working']);
+  ok(w.code === 0 && /- \*\*State:\*\* working$/m.test(h.body) && (h.body.match(/State:/g) || []).length === 1, 'the next move replaces the line, never adds a second');
+  const dl = await run(['state', '--repo', 'o/r', '--issue', hn, '--to', 'blocked', '--note', "the owner's OK for $100 a month, $' and $&"]);
+  ok(dl.code === 0 && h.body === `${CARD}\n\n- **State:** blocked: the owner's OK for $100 a month, $' and $&\n`, 'a dollar sign in a reason is kept as written: the body is never corrupted by a replacement pattern');
+  const dn = await run(['state', '--repo', 'o/r', '--issue', hn, '--to', 'done', '--note', 'merged as abc123']);
+  ok(dn.code === 0 && h.state === 'closed' && /- \*\*State:\*\* done\n- \*\*Evidence:\*\* merged as abc123\n$/.test(h.body), 'done adds the Evidence line to a hand-filed request and closes it');
+  issues.push({ number: issues.length + 1, state: 'open', author_association: 'OWNER', user: { login: 'owner', type: 'User' }, html_url: 'https://gh.test/o/r/issues/p', body: 'plain issue', labels: [{ name: 'bug' }], comments: [] });
+  const p = await run(['state', '--repo', 'o/r', '--issue', String(issues.length), '--to', 'working']);
+  ok(p.code === 1 && /is not an inbox request/.test(p.out) && issues.at(-1).body === 'plain issue', 'an issue without the inbox label is no request: nothing is written');
+  issues.push({ number: issues.length + 1, state: 'open', author_association: 'NONE', user: { login: 'stranger', type: 'User' }, html_url: 'https://gh.test/o/r/issues/u', body: CARD, labels: [{ name: 'inbox' }], comments: [] });
+  const u = await run(['state', '--repo', 'o/r', '--issue', String(issues.length), '--to', 'done', '--note', 'closed by a stranger\'s card']);
+  ok(u.code === 1 && /is not an inbox request/.test(u.out) && issues.at(-1).body === CARD && issues.at(-1).state === 'open' && !issues.at(-1).comments.length,
+    'an inbox-labelled issue filed by hand by an author without write access is refused: nothing is written, nothing is closed');
+}
 const locked = await run(['pending', '--repo', 'o/locked']);
 ok(locked.code === 1 && /answered 401/.test(locked.out) && /attach it first \(add_repo o\/locked with access "push"\)/.test(locked.out), 'a refused token names the fix: attach the repository to the session (cloud) or give GH_TOKEN access');
 srv.close();

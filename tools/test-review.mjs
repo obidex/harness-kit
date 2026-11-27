@@ -292,7 +292,7 @@ const srv = createServer((qq, res) => {
 });
 await new Promise((done) => srv.listen(0, '127.0.0.1', done));
 const base = `http://127.0.0.1:${srv.address().port}`;
-const ENV = { ...IDS, ACTIONS_ID_TOKEN_REQUEST_URL: `${base}/idtoken?api-version=2`, ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'RUNTOKEN' };
+const ENV = { ...IDS, ACTIONS_ID_TOKEN_REQUEST_URL: `${base}/idtoken?api-version=2`, ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'RUNTOKEN', HARNESS_GH_RETRY_MS: '0' };
 const logged = [];
 const realLog = console.log; console.log = (...a) => logged.push(a.join(' '));
 const token = await exchange(ENV, base);
@@ -344,7 +344,7 @@ const f3 = await cli(['run'], { ...ENV, REVIEW_API_URL: base, REVIEW_UNTIL: SOON
 ok(f3.code === 0 && /without a command line naming the owner's command/.test(f3.out) && seen.length === at + 1, 'an end time in the file without the owner\'s command line switches the reviewer off, whatever the variable says');
 settingsFile = 'ERR'; at = seen.length;
 const f4 = await cli(['run'], { ...ENV, REVIEW_API_URL: base, REVIEW_UNTIL: SOON });
-ok(f4.code === 1 && seen.length === at + 1, 'a settings file that cannot be fetched fails the job before anything else: it never falls back to the variable');
+ok(f4.code === 1 && seen.length === at + 3 && settingsReads(at), 'a settings file that cannot be fetched (a 500, tried three times, K075) fails the job before anything else: it never falls back to the variable');
 settingsFile = null;
 writeFileSync(join(tmp, 'mine.json'), JSON.stringify({ until: SOON, command: 'owner, in a test' }));
 const s4 = await cli(['switch', '--file', 'mine.json'], { REVIEW_UNTIL: GONE }), s5 = await cli(['switch'], { REVIEW_UNTIL: SOON });

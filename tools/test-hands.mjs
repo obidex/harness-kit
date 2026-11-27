@@ -8,7 +8,8 @@ import { join } from 'node:path';
 import { createServer } from 'node:http';
 import { execFile } from 'node:child_process';
 import { tmpdir } from 'node:os';
-import { plan, covers, validate, controlProblems, controlUpdate, controlCopyProblems, unsafe, paused, keepAction, keepHours, watched, api } from '../.harness/tools/hands.mjs';
+import { plan, covers, validate, controlProblems, controlUpdate, controlCopyProblems, unsafe, paused, keepAction, keepHours, watched, api, mergeWaits, mergeRequest, mergeRequestId } from '../.harness/tools/hands.mjs';
+import { body as inboxBody, parse as inboxParse } from '../.harness/tools/inbox.mjs';
 import { parseYaml, validateSchema } from '../.harness/tools/lib.mjs';
 import { spawnSync } from 'node:child_process';
 
@@ -411,13 +412,22 @@ const run = (srv, args, env = {}) => new Promise((done) => {
   ok(keepAction(pr({ created_at: '2026-10-02T17:00:00Z' }), o) === 'old' && !watched('old') && watched('conflicted') && keepAction(pr({ created_at: '2026-10-02T19:00:00Z' }), o) === 'update', 'a PR open longer than HANDS_KEEP_HOURS is left to the stale-work check');
   let bad = '';
   try { keepHours({ HANDS_KEEP_HOURS: 'soon' }); } catch (e) { bad = e.message; }
+  // K075: a ready kit PR that nothing merges asks its coordinator, once
+  ok(mergeWaits(pr({ mergeable_state: 'clean' })) && mergeWaits(pr({ mergeable_state: 'unstable' })) && !mergeWaits(pr({ mergeable_state: 'clean', auto_merge: { merge_method: 'squash' } }))
+    && !mergeWaits(pr({ mergeable_state: 'blocked' })) && !mergeWaits(pr({ mergeable_state: 'behind' })) && !mergeWaits(pr({ mergeable_state: 'clean', draft: true })),
+    'a kit PR waits for a merge only when every required check passes (clean or unstable) and auto-merge is not on; blocked, behind or draft never');
+  const mr = mergeRequest('o/r', pr({ number: 902, mergeable_state: 'unstable', title: 'chore(harness): update kit 0.60.0 to 0.62.1', html_url: 'https://github.com/o/r/pull/902' }));
+  const mf = inboxParse(inboxBody(mr));
+  ok(mf.id === 'kit-update/merge-pr-902' && mergeRequestId({ number: 902 }) === mf.id && mf.Source === 'https://github.com/o/r/pull/902' && /not required failed; it does not block the merge/.test(mf.Outcome) && /K075/.test(mf['Covered by']) && mf.State === 'queued',
+    'the merge request is a valid inbox request: one stable ID per PR, the PR as its source, the failed optional check named as harmless, K075 as its cover');
   ok(keepHours({}) === 72 && keepHours({ HANDS_KEEP_HOURS: '' }) === 72 && keepHours({ HANDS_KEEP_HOURS: '24' }) === 24 && /number of hours/.test(bad), 'HANDS_KEEP_HOURS defaults to 72 and must be a number');
 
   // end to end against a stand-in API: listing, a state GitHub works out on the second read, the update call
   const created = new Date(Date.now() - 3600000).toISOString();
   const repos = {
     'o/proj': { lock: true, pulls: [pr({ number: 7, created_at: created, mergeable_state: 'unknown' }), pr({ number: 8, created_at: created, head: { ref: 'feature/y', sha: 'f', repo: { full_name: 'o/proj' } } })], reads: {} },
-    'o/quiet': { lock: true, pulls: [pr({ number: 3, created_at: created, mergeable_state: 'clean', head: { ref: 'harness/kit-0.11.0', sha: 'q', repo: { full_name: 'o/quiet' } }, base: { ref: 'main', repo: { full_name: 'o/quiet' } } })], reads: {} },
+    'o/quiet': { lock: true, pulls: [pr({ number: 3, created_at: created, mergeable_state: 'clean', auto_merge: { merge_method: 'squash' }, head: { ref: 'harness/kit-0.11.0', sha: 'q', repo: { full_name: 'o/quiet' } }, base: { ref: 'main', repo: { full_name: 'o/quiet' } } })], reads: {} },
+    'o/manual': { lock: true, pulls: [pr({ number: 902, created_at: created, mergeable_state: 'unstable', html_url: 'https://github.com/o/manual/pull/902' })], reads: {}, issues: [], labels: [], notes: [] },
     'o/none': { lock: false, pulls: [], reads: {} },
     'o/control': { lock: false, pulls: [], reads: {} },
   };
@@ -431,6 +441,7 @@ const run = (srv, args, env = {}) => new Promise((done) => {
         const u = new URL(req.url, 'http://x');
         const send = (code, data) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(data)); };
         if (u.pathname === '/installation/repositories') return send(200, { repositories: Object.keys(repos).map((full_name) => ({ full_name, archived: false })) });
+        if (u.pathname === '/user') return send(403, { message: 'Resource not accessible by integration' });
         const m = u.pathname.match(/^\/repos\/([^/]+\/[^/]+)(.*)$/);
         const r = m && repos[m[1]];
         if (!r) return send(404, {});
@@ -445,6 +456,13 @@ const run = (srv, args, env = {}) => new Promise((done) => {
           // GitHub answers unknown until it has worked the state out
           return send(200, { ...p, mergeable_state: p.mergeable_state === 'unknown' && r.reads[one[1]] > 1 ? 'behind' : p.mergeable_state });
         }
+        // the inbox side (K075): its requests, a new one, its STATE issue (wakes by label), the label, the notes
+        if (rest === '/issues' && req.method === 'GET' && u.searchParams.get('labels') === 'inbox') return send(200, u.searchParams.get('page') === '1' ? (r.issues || []) : []);
+        if (rest === '/issues' && req.method === 'GET' && u.searchParams.get('labels') === 'coordinator-state') return send(200, [{ number: 1, user: { login: 'github-actions[bot]', type: 'Bot' }, body: '<!-- coordinator-state -->', labels: [] }]);
+        if (rest === '/issues' && req.method === 'POST') { const b = JSON.parse(body); const i = { number: 60 + r.issues.length, html_url: `https://github.com/${m[1]}/issues/${60 + r.issues.length}`, user: { login: 'hands[bot]', type: 'Bot' }, ...b, labels: b.labels.map((name) => ({ name })) }; r.issues.push(i); return send(201, i); }
+        if (/^\/issues\/\d+\/comments$/.test(rest)) { if (req.method === 'POST') r.notes.push(JSON.parse(body).body); return send(req.method === 'POST' ? 201 : 200, req.method === 'POST' ? { id: 1 } : []); }
+        if (/^\/issues\/\d+\/labels$/.test(rest) && req.method === 'POST') { r.labels.push(...JSON.parse(body).labels); return send(200, JSON.parse(body).labels.map((name) => ({ name }))); }
+        if (/^\/issues\/\d+$/.test(rest)) return send(200, { labels: [] });
         const up = rest.match(/^\/pulls\/(\d+)\/update-branch$/);
         if (up && req.method === 'PUT') { updates.push({ repo: m[1], n: up[1], body: JSON.parse(body) }); return send(202, { message: 'Updating pull request branch.' }); }
         return send(404, {});
@@ -455,9 +473,16 @@ const run = (srv, args, env = {}) => new Promise((done) => {
   const k = await run(srv, ['keep'], { SLUG: 'hands', HANDS_KEEP_RETRY_MS: '10', GITHUB_REPOSITORY: 'o/control' });
   const res = JSON.parse(k.stdout || '{}');
   ok(k.code === 0 && updates.length === 1 && updates[0].repo === 'o/proj' && updates[0].n === '7' && updates[0].body.expected_head_sha === 'abc', `keep updates the one behind kit PR, pinned to the head it saw (${JSON.stringify(updates)})`);
-  ok(res.watched === 2 && res.updated === 1 && /o\/proj: applied update-branch to #7 \(harness\/kit-0\.11\.0\): it was behind main/.test(k.stderr) && /o\/quiet: #3 .* is current; nothing to do/.test(k.stderr) && !/#8/.test(k.stderr),
-    'the update is logged as a write (the hands log records it); a current PR is watched; other PRs are not touched');
-  repos['o/proj'].pulls = []; repos['o/quiet'].pulls = [];
+  ok(res.watched === 3 && res.updated === 1 && /o\/proj: applied update-branch to #7 \(harness\/kit-0\.11\.0\): it was behind main/.test(k.stderr) && /o\/quiet: #3 .* is current; nothing to do/.test(k.stderr) && !/#8/.test(k.stderr),
+    'the update is logged as a write (the hands log records it); a current PR with auto-merge on is watched; other PRs are not touched');
+  const man = repos['o/manual'];
+  ok(res.asked === 1 && man.issues.length === 1 && man.issues[0].labels[0].name === 'inbox' && inboxParse(man.issues[0].body).id === 'kit-update/merge-pr-902' && JSON.stringify(man.labels) === '["wake"]'
+    && man.notes.some((b) => b.startsWith('<!-- inbox-woke -->')) && /o\/manual: #902 .* passes its required checks and auto-merge is not on: asked its coordinator to merge it \(https:\/\/github\.com\/o\/manual\/issues\/60; woke it/.test(k.stderr),
+    `a ready kit PR that auto-merge does not merge files one inbox request and wakes its coordinator by label, as a write for the log (K075) (${k.stderr.split('\n').filter((l) => /manual/.test(l)).join(' | ')})`);
+  const again = await run(srv, ['keep'], { SLUG: 'hands', HANDS_KEEP_RETRY_MS: '10' });
+  ok(again.code === 0 && JSON.parse(again.stdout).asked === 0 && man.issues.length === 1 && /o\/manual: #902 .* waits for its coordinator to merge it \(asked on an earlier run\)/.test(again.stderr),
+    'the next run asks again never: one request per PR');
+  repos['o/proj'].pulls = []; repos['o/quiet'].pulls = []; repos['o/manual'].pulls = [];
   const idle = await run(srv, ['keep'], { SLUG: 'hands' });
   ok(idle.code === 0 && JSON.parse(idle.stdout).watched === 0 && /0 open kit update PR\(s\) watched/.test(idle.stderr), 'with no kit PR open keep watches none (the workflow then turns itself off)');
   repos['o/proj'].pulls = [pr({ number: 9, created_at: created })]; repos['o/proj'].pulls[0].base.repo.full_name = 'o/proj'; repos['o/proj'].pulls[0].head.repo.full_name = 'o/proj';
@@ -480,6 +505,7 @@ const run = (srv, args, env = {}) => new Promise((done) => {
   ok(hk.on.schedule.length === 1 && /^\d+ \* \* \* \*$/.test(hk.on.schedule[0].cron) && hk.on.workflow_dispatch !== undefined && /75/.test(files['hands-keep.yml']), 'hands-keep is at most hourly, runs on dispatch, and names its estimate');
   ok(hk.jobs.keep.permissions.actions === 'write' && /needs\.keep\.outputs\.wrote == '1'/.test(hk.jobs.report.if) && /needs\.keep\.outputs\.idle == '1'/.test(hk.jobs.report.if) && /needs\.keep\.result == 'failure'/.test(hk.jobs.report.if),
     'a quiet run starts no report job; a write, a failure or turning off does');
+  ok(hk.jobs.keep.steps.find((x) => x.id === 'token').with['permission-issues'] === 'write', 'hands-keep\'s App token may write issues: the merge request and its wake label (K075)');
   const step = hk.jobs.keep.steps.find((x) => x.id === 'keep');
   const dir = mkdtempSync(join(tmpdir(), 'hands-keep-'));
   mkdirSync(join(dir, 'kit/.harness/tools'), { recursive: true }); mkdirSync(join(dir, 'bin'));
@@ -497,6 +523,8 @@ const run = (srv, args, env = {}) => new Promise((done) => {
   ok(r.code === 0 && /wrote=1/.test(r.out) && !/idle/.test(r.out) && r.gh === '' && /applied update-branch/.test(r.log), 'a PR still open keeps it on; an update is a write for the log');
   r = keepRun('{"watched":1,"updated":1}', 1);
   ok(r.code === 1 && /wrote=1/.test(r.out) && !/idle/.test(r.out) && r.gh === '' && /applied update-branch/.test(r.log), 'a failed run still hands on its writes and log, fails the job, and never turns the workflow off');
+  r = keepRun('{"watched":1,"updated":0,"asked":1}', 0);
+  ok(r.code === 0 && /wrote=1/.test(r.out) && !/idle/.test(r.out), 'a merge asked of a coordinator is a write for the log too (K075)');
   r = keepRun('not json', 1);
   ok(r.code === 1 && r.gh === '', 'unreadable output is a failure that keeps the workflow on');
   rmSync(dir, { recursive: true, force: true });

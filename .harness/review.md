@@ -198,7 +198,7 @@ first. It reads code it cannot run, so a page can still be wrong: someone reads 
 Like the reviewer it cannot run code and sees one batch at a time, so a finding that depends on
 another folder says so, and "no findings" is not evidence that the code works (C07).
 
-## The agent sweep trial (K075)
+## The agent sweep trial (K077)
 
 A trial of one more way to hunt bugs in existing code: the method of a thread's bug sweep (one module,
 high effort, a reader who did not write it, a bug counts only with an exact reproduction), run by the
