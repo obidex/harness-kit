@@ -23,7 +23,7 @@ so there is no replay result.
 - Checks: `test-state-note` 1-36, each failing without the change; 26-32 and 35 from the independent review (an ask
   under a sub-heading, a bold label, under REMARKS, an empty field, a remark dressed as an ask: each was dropped or passed).
 
-Trial: TRIAL_LINE
+Trial: 3 of 4 projects green; 1 red with the fix prepared at c43d36b32ebb
 
 ## 0.70.0 · 2026-11-27 · the second reviewer may ask another family through OpenRouter, and its noise is counted (K081)
 
