@@ -102,6 +102,17 @@ r = git(p, 'commit', '-qm', 'a new decision\n\nCo-Authored-By: Claude <noreply@a
 ok(r.status !== 0 && /commit message carries Claude attribution/.test(r.stderr), 'the commit-msg hook refuses a Claude co-author line (O09, A10)');
 ok(git(p, 'commit', '-qm', 'a new decision').status === 0, 'and the same commit with a clean message goes through');
 
+// a clone's very first commit, with the hooks installed, is checked against the empty tree, never refused for it
+{
+  const e = join(work, 'empty');
+  mkdirSync(join(e, '.harness'), { recursive: true }); cpSync(join(kit, '.harness/tools'), join(e, '.harness/tools'), { recursive: true });
+  git(e, 'init', '-q', '-b', 'main');
+  node(e, ['.harness/tools/precheck.mjs', '--install']);
+  writeFileSync(join(e, 'x.md'), 'x\n'); git(e, 'add', '-A');
+  r = git(e, 'commit', '-qm', 'first');
+  ok(r.status === 0 && git(e, 'rev-parse', '--verify', '--quiet', 'HEAD').status === 0, `with the hooks installed, a new clone's first commit goes through (${r.stderr.trim().slice(0, 120)})`);
+}
+
 // --- the one plain line ----------------------------------------------------------------------------------
 const sum = join(work, 'summary.md');
 r = node(p, [join(kit, '.harness/tools/precheck.mjs'), '--text', join(work, 'body.md')], { GITHUB_ACTIONS: 'true', GITHUB_STEP_SUMMARY: sum });

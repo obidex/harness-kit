@@ -42,7 +42,7 @@ ${kind === 'commit-msg' ? 'exec node .harness/tools/precheck.mjs --message "$1"'
 export function check({ root, base, git, read, texts = [] }) {
   const out = [];
   // a base git cannot resolve would read as "nothing changed": that is a failure, never an OK
-  if (!(git(['rev-parse', '--verify', '--quiet', `${base}^{commit}`]) || '').trim()) return [['C17', `The starting point ${base} is not a commit in this clone, so this change cannot be checked: fetch it (a shallow clone needs \`git fetch --unshallow\`) or name another with --base`]];
+  if (!(git(['rev-parse', '--verify', '--quiet', `${base}^{${/^4b825dc6/.test(base) ? 'tree' : 'commit'}}`]) || '').trim()) return [['C17', `The starting point ${base} is not a commit in this clone, so this change cannot be checked: fetch it (a shallow clone needs \`git fetch --unshallow\`) or name another with --base`]];
   let profile = null;
   try { profile = JSON.parse(read('.harness/profile.json') || 'null'); } catch { out.push(['C17', 'The profile .harness/profile.json is not JSON, so the caps and the decisions log are unknown; fix the file']); }
   const logFile = logPath(root), folder = folderFor(logFile);
@@ -88,7 +88,8 @@ function startOf(git, given) {
     const mb = (git(['merge-base', 'HEAD', r]) || '').trim();
     if (mb) return mb;
   }
-  return 'HEAD';
+  // a clone's first commit (no HEAD yet) is judged against the empty tree, so the hook never refuses it for that
+  return (git(['rev-parse', '--verify', '--quiet', 'HEAD^{commit}']) || '').trim() ? 'HEAD' : '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
