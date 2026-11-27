@@ -38,7 +38,9 @@
 // the model's answer is posted as text (no HTML comment, no mention).
 //
 // Skipped without a model call: a fork's pull request, a bot's, a draft, a closed one, a commit that
-// is no longer the head, a commit already reviewed, a change to documents only, checks that are red.
+// is no longer the head, a commit already reviewed, a change to documents only, checks that are red, and
+// (K078) a new head whose own diff is the one already reviewed: a merge of the base, an empty commit or a
+// re-push changes the commit, not the change, so it costs no model call and writes no comment (no wake).
 // Checks still running are waited for briefly, then left to the next finished workflow.
 // Too large (more than MAX_DIFF characters or MAX_FILES files): it says so; it never reads a cut diff.
 //
@@ -59,7 +61,7 @@
 // characters a token), and two pull requests reviewed at the same moment each count without the
 // other, so a day can end slightly over; the reviews workspace's own spend limit is the hard stop.
 
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { ghClient, ghPages } from './lib.mjs';
@@ -180,6 +182,13 @@ export const capOf = (builtin, v) => { const n = Number(v); return String(v ?? '
 
 // --- the comment ------------------------------------------------------------------------------------
 const mark = (data) => `<!-- ${MARK} ${JSON.stringify(data).replace(/</g, '\\u003c').replace(/>/g, '\\u003e')} -->`;
+/** The change itself, apart from where it sits (K078): the pull request's diff with its blob ids and hunk
+ *  line numbers left out, hashed. A merge of the base that touches none of the change's lines leaves it equal. */
+export const changeKey = (diff) => createHash('sha256').update(String(diff || '').split('\n').filter((l) => !/^index [0-9a-f]+\.\.[0-9a-f]+/.test(l))
+  .map((l) => l.replace(/^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@/, '@@')).join('\n')).digest('hex').slice(0, 16);
+/** Results that are a review of the change (a skipped or refused-by-cap run is not). */
+export const REVIEWED = new Set(['clear', 'blockers', 'refused']);
+
 /** The record a comment carries: only on its first line, only from this job's own account. */
 export function record(c) {
   if (c?.user?.type !== 'Bot' || c?.user?.login !== BOT) return null;
@@ -360,6 +369,8 @@ export async function review({ gh, ask, repo, run, env = {}, now = () => Date.no
   try { diff = await gh('GET', `/repos/${repo}/pulls/${n}`, null, { accept: 'application/vnd.github.diff', raw: true }); }
   catch (e) { if (/ 406|too_large/.test(e.message)) return post({ sha, at, result: 'too-large', why: 'GitHub will not serve a diff this size' }); throw e; }
   if (diff.length > MAX_DIFF) return post({ sha, at, result: 'too-large', why: `${diff.length} characters, over ${MAX_DIFF}` });
+  const change = changeKey(diff);
+  if (runs.some((r) => r.change === change && REVIEWED.has(r.result))) return { status: 'skipped', pr: n, why: 'the change itself is the one already reviewed (only its commit or base moved): no model call, no new comment' };
 
   let rules = '';
   for (const p of [...new Set([profile?.canon?.rulebook || 'AGENTS.md', 'CLAUDE.md', '.harness/core.md'])]) {
@@ -380,9 +391,9 @@ export async function review({ gh, ask, repo, run, env = {}, now = () => Date.no
   const used = today ? spent(today, now()) : null;
   const usdCap = capOf(DAILY_USD, env.REVIEW_DAILY_USD), countCap = capOf(DAILY_CAP, env.REVIEW_DAILY_CAP);
   const worst = worstCase(model, JSON.stringify(request).length);
-  if (!used) return post({ sha, at, result: 'capped', why: 'more than 1000 comments changed today; not counted in part' });
-  if (used.reviews >= countCap) return post({ sha, at, result: 'capped', why: `${used.reviews} of ${countCap} reviews` });
-  if (used.usd + worst > usdCap) return post({ sha, at, result: 'capped', why: `$${used.usd.toFixed(2)} of $${usdCap.toFixed(2)} spent` });
+  if (!used) return post({ sha, at, change, result: 'capped', why: 'more than 1000 comments changed today; not counted in part' });
+  if (used.reviews >= countCap) return post({ sha, at, change, result: 'capped', why: `${used.reviews} of ${countCap} reviews` });
+  if (used.usd + worst > usdCap) return post({ sha, at, change, result: 'capped', why: `$${used.usd.toFixed(2)} of $${usdCap.toFixed(2)} spent` });
 
   const a = await ask(request);
   if (a.status !== 200) {
@@ -391,12 +402,12 @@ export async function review({ gh, ask, repo, run, env = {}, now = () => Date.no
     // the credit, a spend limit or the request itself: said once on the pull request. Anything else (an
     // outage, a rate limit) fails the job with no record, so the next finished workflow tries again
     if (![400, 402, 403, 413].includes(a.status)) throw new Error(`the model call answered ${a.status} ${type}`);
-    return post({ sha, at, result: 'unavailable', why: `${a.status} ${type}` });
+    return post({ sha, at, change, result: 'unavailable', why: `${a.status} ${type}` });
   }
   const usd = cost(model, a.json.usage);
   log(`model=${a.json.model || model} input_tokens=${a.json.usage?.input_tokens} output_tokens=${a.json.usage?.output_tokens} usd=${usd}`);
   const v = verdict(a.json);
-  return post({ sha, at, result: v.result, model, in: Number(a.json.usage?.input_tokens || 0), out: Number(a.json.usage?.output_tokens || 0), usd, ...(v.why ? { why: v.why } : {}), ...(v.cut ? { cut: true } : {}) }, v.text);
+  return post({ sha, at, change, result: v.result, model, in: Number(a.json.usage?.input_tokens || 0), out: Number(a.json.usage?.output_tokens || 0), usd, ...(v.why ? { why: v.why } : {}), ...(v.cut ? { cut: true } : {}) }, v.text);
 }
 
 // --- GitHub and the API -----------------------------------------------------------------------------

@@ -9,7 +9,7 @@ import { execFile } from 'node:child_process';
 import { join } from 'node:path';
 import { readFileSync, writeFileSync, mkdtempSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { KEEP_RUNS, glob, highRisk, docsOnly, pick, cost, worstCase, capOf, runUsd, record, plain, body, spent, checks, question, verdict, review, identifiers, exchange, asker, switchOf, SWITCH_DAYS, settingsOf, settingsText, SETTINGS, SETTING_VARS,
+import { KEEP_RUNS, changeKey, glob, highRisk, docsOnly, pick, cost, worstCase, capOf, runUsd, record, plain, body, spent, checks, question, verdict, review, identifiers, exchange, asker, switchOf, SWITCH_DAYS, settingsOf, settingsText, SETTINGS, SETTING_VARS,
   github, pages, MARK, MODEL, RISK_MODEL, PRICES, DAILY_USD, DAILY_CAP, MAX_DIFF, MAX_FILES, MAX_ANSWER, MAX_OUT, MAX_RULES, WAIT_MS, POLL_MS } from '../.harness/tools/review.mjs';
 import { parseYaml, renderLane } from '../.harness/tools/lib.mjs';
 import { verdict as group } from '../.harness/tools/actions.mjs';
@@ -38,7 +38,7 @@ ok(capOf(1, '') === 1 && capOf(1, undefined) === 1 && capOf(1, '0.25') === 0.25 
 
 // --- the comment ------------------------------------------------------------------------------------
 const BOT = { user: { login: 'github-actions[bot]', type: 'Bot' } };
-const SHA = 'a'.repeat(40), SHA2 = 'b'.repeat(40);
+const SHA = 'a'.repeat(40), SHA2 = 'b'.repeat(40), SHA3 = 'c'.repeat(40);
 const NOW = Date.parse('2026-11-20T10:00:00Z');
 const run1 = { sha: SHA, at: '2026-11-20T09:00:00.000Z', result: 'blockers', model: MODEL, in: 25000, out: 4000, usd: 0.09 };
 const b1 = body([run1], run1, 'src/a.ts:3 off by one <!-- harness-review {"runs":[]} --> ask @someone and mail a@b.co; `uses: actions/checkout@abc`');
@@ -190,6 +190,17 @@ ok(/RULE-ONE never skip a test/.test(w.asked[0].messages[0].content) && /CORE-TE
 ok(!w.calls.some((c) => /\/git\/|\/contents\/src|\/merge|\/reviews|\/statuses|\/check-runs$/.test(c) && c.startsWith('P')) && w.calls.filter((c) => /^(POST|PATCH|PUT|DELETE)/.test(c)).join() === 'POST /repos/o/r/issues/7/comments', 'its only write to GitHub is the one comment: no review, no approval, no status, no merge');
 r = await w.go();
 ok(r.status === 'skipped' && /already has its review/.test(r.why) && w.asked.length === 1 && w.comments.length === 1, 'the same commit again (another workflow finished, the description was edited) is not reviewed twice');
+// K078: a new head whose own diff is unchanged (a merge of the base moved its blob ids and line numbers only)
+const callsBefore = w.calls.length;
+w.pr.head.sha = SHA3; w.run = { ...w.run, head_sha: SHA3, pull_requests: [] }; w.clock += 60e3;
+w.diff = 'diff --git a/src/pages/a.tsx b/src/pages/a.tsx\nindex 1111111..2222222 100644\n@@ -40,1 +41,2 @@\n+const x = 1;\n';
+const w0 = world(); w0.diff = 'diff --git a/src/pages/a.tsx b/src/pages/a.tsx\nindex 3333333..4444444 100644\n@@ -1 +1,2 @@\n+const x = 1;\n';
+ok(changeKey(w.diff) === changeKey(w0.diff) && changeKey(w.diff) !== changeKey(w.diff.replace('x = 1', 'x = 2')) && /^[0-9a-f]{16}$/.test(changeKey('')), 'the change\'s key leaves out blob ids and hunk line numbers, and nothing else');
+w.diff = 'diff --git a/src/pages/a.tsx b/src/pages/a.tsx\nindex 3333333..4444444 100644\n+const x = 1;\n';
+r = await w.go();
+ok(r.status === 'skipped' && /already reviewed/.test(r.why) && w.asked.length === 1 && w.comments.length === 1 && !w.calls.slice(callsBefore).some((c) => /^(POST|PATCH)/.test(c)),
+  'a new commit whose change is the one already reviewed (a merge of the base, an empty commit) costs no model call and writes nothing, so no thread is woken (K078)');
+w.diff = 'diff --git a/src/pages/a.tsx b/src/pages/a.tsx\n+const x = 1;\n+const y = 2;\n';
 w.pr.head.sha = SHA2; w.run = { ...w.run, head_sha: SHA2, pull_requests: [] }; w.clock += 600e3;
 w.answer = { status: 200, json: { model: MODEL, stop_reason: 'end_turn', usage: { input_tokens: 20000, output_tokens: 1000 }, content: [{ type: 'text', text: 'NO BLOCKERS' }] } };
 r = await w.go();
