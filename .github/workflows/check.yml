@@ -71,6 +71,8 @@ jobs:
         run: node tools/test-review.mjs
       - name: Full check of existing code (the reviewer's sweep)
         run: node tools/test-sweep.mjs
+      - name: Staff guide written from the code (the sweep's guide lens)
+        run: node tools/test-guide.mjs
       - name: Replay set and its grader
         run: node tools/test-replay.mjs
       - name: Owner steps (the plan's no-one designs and the Tried line)
