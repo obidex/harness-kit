@@ -28,7 +28,7 @@ unchanged), so there is no replay result.
   causes and asks for a prevention card when one is seen twice since its last fix.
 - Checks: `test-precheck` (new), `test-decisions` 34-45, `test-ci-repeats` 20-23, `test-papercut` 40-43, `test-replay` 17-20.
 
-Trial: 3 of 4 projects green; 1 red with the fix prepared at e3097cf4137d
+Trial: 3 of 4 projects green; 1 red with the fix prepared at a2eab87c0b87
 
 ## 0.67.3 · 2026-11-27 · the allowance measure reads list_thread_sessions and pages with control characters (K072 follow-up)
 
