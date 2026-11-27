@@ -334,4 +334,13 @@ ok(Number(job['timeout-minutes']) === 350 && String(wf.concurrency['cancel-in-pr
 ok(wf.on.workflow_dispatch.inputs.lens.type === 'choice' && wf.on.workflow_dispatch.inputs.lens.default === 'none' && wf.on.workflow_dispatch.inputs.lens.options === `[${['none', ...Object.keys(LENSES), ...Object.keys(LANGS).map((l) => `staff-guide-${l}`)].join(', ')}]` && step.env.SWEEP_LENS === '${{ inputs.lens }}',
   'the job\'s lens is a fixed choice (none or a known lens), passed to the tool as data (K068)');
 
+// 0.69.1: a spend limit's 400 stops the check with every batch left to read; before, each batch was marked read
+{
+  const x = world(); x.answer = { status: 400, json: { error: { type: 'invalid_request_error', message: 'You have reached your specified workspace API usage limits. You will regain access on 2026-12-01 at 00:00 UTC.' } } };
+  const y = await x.go();
+  ok(y.status === 'stopped' && /400 invalid_request_error: a monthly spend limit is reached/.test(y.why) && Object.keys(stateOf(x.record()).done).length === 0
+    && !/regain access|2026-12-01/.test(x.record().body) && y.usd === 0,
+    'a 400 for the credit or a spend limit stops the check with no batch marked done, so the next start reads them all (never the API\'s text)');
+}
+
 console.log(`test-sweep: OK · ${n} checks`);

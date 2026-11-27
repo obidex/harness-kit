@@ -54,7 +54,7 @@ import { appendFileSync, lstatSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { sha256 } from './lib.mjs';
-import { BOT, CACHE, DOCS, MODEL, RISK_MODEL, PRICES, REPO, MAX_OUT, SETTINGS, worstCase, cachedChars, count, usageOf, usdOf, rulebookBlock, capOf, highRisk, plain, switchOf, settingsOf, exchange, asker, github, pages } from './review.mjs';
+import { BOT, CACHE, DOCS, MODEL, RISK_MODEL, PRICES, REPO, MAX_OUT, SETTINGS, worstCase, cachedChars, count, usageOf, usdOf, rulebookBlock, capOf, highRisk, plain, switchOf, settingsOf, exchange, asker, github, pages, refusalOf } from './review.mjs';
 
 export const MARK = 'harness-sweep';
 export const TITLE = 'Second reviewer: full check of the existing code';
@@ -352,7 +352,7 @@ export async function sweep({ gh, ask, repo, sha, p, env = {}, now = () => Date.
     const answers = await Promise.all(group.map(one));
     for (const [i, batch] of group.entries()) {
       const a = answers[i];
-      const type = String(a.json?.error?.type || 'error').replace(/[^\w-]/g, '').slice(0, 40);
+      const no = refusalOf(a.status, a.json), type = no.type;
       if (a.status === 200) {
         const v = verdict(a.json);
         const d = { m: batch.model, ...usageOf(a.json.usage), r: v.result, f: v.count };
@@ -363,6 +363,10 @@ export async function sweep({ gh, ask, repo, sha, p, env = {}, now = () => Date.
         }
         state.done[batch.key] = d;
         log(`${batch.name}: ${v.result} ${v.count.join('/')} model=${batch.model} usd=${batchUsd(d)}`);
+      } else if (no.limit && [400, 402, 403, 413].includes(a.status)) {
+        // the credit or a spend limit, not this batch (a 400 can be either, 0.69.1): the check stops with the batch
+        // unread and not marked done, so the next start reads it
+        state.stopped = `the API refused the call (${no.why}); start it again once the credit or the limit allows`;
       } else if (a.status === 400 || a.status === 413) {
         state.done[batch.key] = { m: batch.model, in: 0, out: 0, r: 'unread', f: [0, 0, 0, 0] };   // this batch's request, not the credit
         log(`${batch.name}: the API refused this batch (${a.status} ${type})`);

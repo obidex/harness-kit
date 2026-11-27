@@ -3,6 +3,25 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.69.1 · 2026-11-27 · a refused API call says when the credit or a spend limit stopped it (K054 follow-up)
+
+The second reviewer answered `400 invalid_request_error` on every call in every project from 27 Nov 09:53 UTC. The
+cause was a workspace's own monthly spend limit, which the API reports as a 400, the same code as a bad request; the
+tools kept only the error's kind, so neither the pull request comment nor the job log said why. No always-loaded
+text changed, so there is no replay result.
+
+- **`review.mjs`**: `refusalOf` reads the API's message and names, in fixed words (never the message itself), a used-up
+  credit or a reached monthly spend limit; the pull request's one line and the job log say which. Such a run is no
+  review, so the change is asked again on the next finished workflow, as before.
+- **`sweep.mjs`**: a 400 for the credit or a spend limit stops the check with the batch left unread. Before, it was
+  taken as a refusal of that one batch: every remaining batch was marked done and unread, the check ended "finished",
+  and the next start read none of them again.
+- **`guide.mjs`**: a refused batch names the limit the same way.
+- Checks: `test-review` 112-114, `test-sweep` 64, `test-guide` 48, each failing without the change; `test-review` 76
+  now expects the credit named for a 402 whose message says so (still never the message's text).
+
+Trial: 3 of 4 projects green; 1 red with the fix prepared at e145f0482300
+
 ## 0.69.0 · 2026-11-27 · paid review calls cache what repeats, the answer has room, a project can say what is not a defect (K080)
 
 From the strategist's card on the owner's board (27 Nov 2026): what the API credit bought, why it costs what it does,

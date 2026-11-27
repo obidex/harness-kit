@@ -300,4 +300,12 @@ rmSync(tmp, { recursive: true, force: true });
 const wf = parseYaml(readFileSync(join(ROOT, '.harness/templates/workflows/harness-sweep.yml'), 'utf8'));
 ok(String(wf.on.workflow_dispatch.inputs.lens.options).includes('staff-guide-ar') && /K074/.test(readFileSync(join(ROOT, '.harness/templates/workflows/harness-sweep.yml'), 'utf8')), 'the sweep job offers the guide as a lens choice, by name');
 
+// 0.69.1: a spend limit's 400 on sending a batch says so in fixed words
+{
+  const x = world(); x.fail.send = { status: 400, json: { error: { type: 'invalid_request_error', message: 'You have reached your specified workspace API usage limits. You will regain access on 2026-12-01 at 00:00 UTC.' } } };
+  const y = await x.go();
+  ok(y.status === 'stopped' && /400 invalid_request_error: a monthly spend limit is reached/.test(y.why) && !/regain access/.test(y.why) && spentOf(stateOf(x.record())) === 0,
+    'a batch refused for a spend limit stops the guide and names the limit, never the API\'s text');
+}
+
 console.log(`test-guide: OK · ${n} checks`);
