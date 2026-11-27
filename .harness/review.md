@@ -133,8 +133,8 @@ owning thread, once every point has its end, for one line:
 with the commit as the comment names it. `node .harness/tools/review.mjs noise --repo <owner/name> [--since
 <YYYY-MM-DD>]` (30 days by default) gives, per model: reviews, reviews with points, the points they raised (lines
 of the answer that open with `path:line`, recorded per run), how many were FIXED, TRACKED and DISMISSED, the
-reviews with no tally line, `noise` (the share dismissed) and `led_to_fix` (the share fixed). Only a person's
-account's line counts, the newest for a commit, and only on the pull request the review is on. Runs recorded
+reviews with no tally line, `noise` (the share dismissed) and `led_to_fix` (the share fixed). Only a line by the
+repository's owner, a member or a collaborator counts, the newest for a commit, and only on the pull request the review is on. Runs recorded
 before K081 have no point count and count as zero points.
 
 ## Prompt caching (K080)

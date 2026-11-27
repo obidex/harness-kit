@@ -585,8 +585,9 @@ const failure = async (f) => { try { await f(); return null; } catch (e) { retur
   const filt = assembleChat(chat([{ choices: [{ delta: {}, finish_reason: 'content_filter' }], usage: U }, '[DONE]']));
   const noUse = assembleChat(chat([{ choices: [{ delta: { content: 'x.ts:1 bad' }, finish_reason: 'stop' }] }, '[DONE]']));
   const midErr = assembleChat(chat([{ choices: [{ delta: { content: 'x' } }] }, { error: { code: 502, message: 'upstream' }, choices: [{ delta: {}, finish_reason: 'error' }] }]));
+  const emptyUse = assembleChat(chat([{ choices: [{ delta: { content: 'x.ts:1 bad' }, finish_reason: 'stop' }], usage: {} }, '[DONE]']));
   const noDone = assembleChat(chat([{ choices: [{ delta: { content: 'NO BLOCKERS' }, finish_reason: 'stop' }], usage: U }]));
-  ok(longA.done && verdict(longA.message).why === 'the answer ran out of room' && filt.done && verdict(filt.message).result === 'refused' && !noUse.done && midErr.error === '502' && !noDone.done,
+  ok(longA.done && verdict(longA.message).why === 'the answer ran out of room' && filt.done && verdict(filt.message).result === 'refused' && !noUse.done && midErr.error === '502' && !noDone.done && !emptyUse.done,
     'K081: an answer out of room, a filtered one, one with no token count (it cannot be priced, so it is not taken), an error inside the stream and a stream that never finished are each told apart');
   // over HTTP: the key as a bearer, and OpenRouter's refusals named in fixed words
   const orSeen = []; let mode = 'ok';
@@ -595,6 +596,7 @@ const failure = async (f) => { try { await f(); return null; } catch (e) { retur
     qq.on('end', () => {
       orSeen.push({ path: qq.url, auth: qq.headers.authorization || '', body: data });
       const send = (code, j) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(j)); };
+      if (mode === 'plain') return send(200, { choices: [{ message: { content: 'NO BLOCKERS' }, finish_reason: 'stop' }] });
       if (mode === 'limit') return send(403, { error: { code: 403, message: 'Key limit exceeded (monthly limit). Manage it using https://openrouter.ai/settings/keys' } });
       if (mode === 'credits') return send(402, { error: { code: 402, message: 'Insufficient credits. Add more using https://openrouter.ai/credits' } });
       if (mode === 'policy') return send(404, { error: { code: 404, message: 'No endpoints found matching your data policy (Zero data retention). Configure: https://openrouter.ai/settings/privacy' } });
@@ -613,8 +615,9 @@ const failure = async (f) => { try { await f(); return null; } catch (e) { retur
   ok(refusalOf(l1.status, l1.json).limit === 'a monthly spend limit is reached' && refusalOf(l2.status, l2.json).limit === 'the credit is used up' && refusalOf(l3.status, l3.json).limit === 'no endpoint met the no-training rule and the price ceiling'
     && !/openrouter\.ai/.test(refusalOf(l3.status, l3.json).why),
     'K081: the key\'s monthly limit, too few credits and no endpoint that keeps nothing are named in fixed words, never OpenRouter\'s own text');
+  mode = 'plain'; const plainA = await openrouterAsker('k', obase)(oq);
   const dead = await openrouterAsker('k', 'http://127.0.0.1:1')(oq);
-  ok(dead.status === 0, 'K081: a call that cannot reach OpenRouter is lost (counted at its worst case), never thrown');
+  ok(dead.status === 0 && plainA.status === 0 && plainA.json.error.type === 'not_a_stream', 'K081: a call that cannot reach OpenRouter, or a 200 that is not a stream, is lost (counted at its worst case), never thrown');
   or.close();
   // the whole run on the openrouter provider
   const wo = world({ answer: { status: 200, json: { model: GLM, stop_reason: 'end_turn', usage: { input_tokens: 30000, output_tokens: 6000 }, content: [{ type: 'text', text: '1. src/pages/a.tsx:1 x is never used\n2. src/pages/a.tsx:2 y too\nsee above' }] } } });
@@ -637,7 +640,7 @@ const failure = async (f) => { try { await f(); return null; } catch (e) { retur
   const runC = { sha: SHA3, at: '2026-11-20T09:40:00.000Z', result: 'clear', model: MODEL, in: 1, out: 1 };
   const runD = { sha: SHA4, at: '2026-11-20T09:50:00.000Z', result: 'blockers', model: MODEL, in: 1, out: 1, points: 4 };
   const pr = (n) => `https://api.github.com/repos/o/r/issues/${n}`;
-  const OWN = { user: { login: 'o', type: 'User' } };
+  const OWN = { user: { login: 'o', type: 'User' }, author_association: 'OWNER' };
   const cs = [
     { ...BOT, issue_url: pr(1), created_at: '2026-11-20T09:00:00Z', body: body([runA, runB], runB, 'x') },
     { ...OWN, issue_url: pr(1), created_at: '2026-11-20T10:00:00Z', body: `Points done.\n${tallyLine(SHA, 1, 1, 1)}` },
@@ -646,14 +649,15 @@ const failure = async (f) => { try { await f(); return null; } catch (e) { retur
     { ...BOT, issue_url: pr(2), created_at: '2026-11-20T09:00:00Z', body: body([runC, runD], runD, 'x') },
     { ...OWN, issue_url: pr(2), created_at: '2026-11-20T10:00:00Z', body: tallyLine(SHA4, 0, 0, 4) },
     { ...OWN, issue_url: pr(3), created_at: '2026-11-20T10:00:00Z', body: tallyLine(SHA, 9, 9, 9) },
+    { user: { login: 'stranger', type: 'User' }, author_association: 'NONE', issue_url: pr(2), created_at: '2026-11-20T11:00:00Z', body: tallyLine(SHA4, 4, 0, 0) },
   ];
   const nz = noise(cs);
   const g = nz.models[GLM], c = nz.models[MODEL];
   ok(g.reviews === 2 && g.points === 5 && g.fixed === 2 && g.tracked === 0 && g.dismissed === 1 && g.answered === 3 && g.unanswered_reviews === 1 && g.noise === 0.333 && g.led_to_fix === 0.667
     && c.reviews === 2 && c.with_points === 1 && c.dismissed === 4 && c.noise === 1 && c.led_to_fix === 0,
-    'K081: per model, the points raised against the owning thread\'s tally: the newest line for a commit counts, a bot\'s line and another pull request\'s never do, a review with no line is unanswered');
+    'K081: per model, the points raised against the owning thread\'s tally: the newest line for a commit counts; a bot\'s, an outsider\'s and another pull request\'s never do; a review with no line is unanswered');
   ok(noise(cs, '2026-11-21').models[GLM] === undefined && Object.keys(noise([]).models).length === 0, 'K081: --since leaves out older reviews; nothing to count is an empty answer');
-  ok(pointsOf('1. a.ts:3 x\n- `b/c.js:10` y\n**d.sql:2** z\nprose with x.ts:4 inside\n10) e.mjs:1 w') === 4 && pointsOf('NO BLOCKERS') === 0, 'K081: the points of an answer are its lines that open with path:line');
+  ok(pointsOf('1. a.ts:3 x\n- `b/c.js:10` y\n**d.sql:2** z\nprose with x.ts:4 inside\n10) e.mjs:1 w\n12:30 lunch\n- Dockerfile:3 x') === 4 && pointsOf('NO BLOCKERS') === 0, 'K081: the points of an answer are its lines that open with path:line');
 }
 
 console.log(`test-review: OK · ${n} checks`);

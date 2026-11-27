@@ -278,7 +278,7 @@ const FOOT = '<sub>Advisory: never a required check and never an approval. It sa
 /** The line the owning thread ends a review with (K081), which `noise` counts: the commit as the comment names it. */
 export const tallyLine = (sha, fixed = 'N', tracked = 'N', dismissed = 'N') => `Second review of \`${short(sha)}\`: ${fixed} FIXED, ${tracked} TRACKED, ${dismissed} DISMISSED`;
 /** The findings an answer raised: its lines that start, after a list mark, with `path:line` (the form the question asks for). */
-export const pointsOf = (text) => String(text || '').split('\n').filter((l) => /^\s*(?:\d+[.)]\s+|[-*]\s+)?(?:\*\*)?`?[\w./@+-]+\.?[\w]*:\d+/.test(l)).length;
+export const pointsOf = (text) => String(text || '').split('\n').filter((l) => /^\s*(?:\d+[.)]\s+|[-*]\s+)?(?:\*\*)?`?[\w@+-]*[./][\w./@+-]*:\d+/.test(l)).length;
 /** The comment: the record of every run on this pull request (newest last), the headline, the answer. */
 export function body(runs, r, text = '') {
   const lines = [mark({ runs: runs.slice(-KEEP_RUNS) }), (HEADLINE[r.result] || HEADLINE.unavailable)(r)];
@@ -641,7 +641,8 @@ export function assembleChat(sse) {
     usage: usage ? { input_tokens: Math.max(0, n(usage.prompt_tokens) - cached - written), cache_creation_input_tokens: written, cache_read_input_tokens: cached, output_tokens: n(usage.completion_tokens) } : null,
   };
   // an answer without its token count cannot be priced: it is not taken as finished, so it counts at its worst case
-  return { message, error, done: done && !!usage && finish !== null };
+  const priced = usage && Number.isInteger(usage.prompt_tokens) && usage.prompt_tokens > 0 && Number.isInteger(usage.completion_tokens) && usage.completion_tokens >= 0;
+  return { message, error, done: done && !!priced && finish !== null };
 }
 /** One OpenRouter call, streamed, with the repository's key (K081). Never throws; the same answers as `asker`. */
 export const openrouterAsker = (key, api = OPENROUTER_API) => async (request) => {
@@ -649,10 +650,12 @@ export const openrouterAsker = (key, api = OPENROUTER_API) => async (request) =>
   try {
     const r = await fetch(`${api}/chat/completions`, { method: 'POST', signal: AbortSignal.timeout(ASK_MS),
       headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json', 'x-title': 'harness-review' }, body: JSON.stringify({ ...request, stream: true }) });
-    if (r.status !== 200 || !/^text\/event-stream/.test(r.headers.get('content-type') || '')) {
+    // a 200 that is not a stream may have been billed: lost, so it counts at its worst case
+    if (r.status === 200 && !/^text\/event-stream/.test(r.headers.get('content-type') || '')) return lost('not_a_stream');
+    if (r.status !== 200) {
       const j = await r.json().catch(() => null);
       // OpenRouter's error is { error: { code, message } }: its kind is named by the status, its words read for a limit
-      return { status: r.status === 200 ? 502 : r.status, json: j?.error ? { error: { type: j.error.type || `http_${r.status}`, message: j.error.message } } : j };
+      return { status: r.status, json: j?.error ? { error: { type: j.error.type || `http_${r.status}`, message: j.error.message } } : j };
     }
     const s = assembleChat(await r.text());
     if (s.error) return lost(s.error);
@@ -681,7 +684,8 @@ export function noise(comments, since = null) {
     const runs = list.map(record).find(Boolean)?.runs || [];
     const tallies = new Map();
     for (const c of [...list].sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)))) {
-      if (c?.user?.type === 'Bot' || record(c)) continue;
+      // a tally counts only from the repository's own people (its owner, a member or a collaborator), never a bot's
+      if (c?.user?.type === 'Bot' || record(c) || !['OWNER', 'MEMBER', 'COLLABORATOR'].includes(c?.author_association)) continue;
       for (const m of String(c.body || '').matchAll(TALLY)) tallies.set(m[1].toLowerCase(), [+m[2], +m[3], +m[4]]);
     }
     for (const r of runs) {
