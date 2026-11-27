@@ -86,7 +86,13 @@ async function main() {
   const statuses = (await api('GET', `/repos/${repo}/commits/${run.head_sha}/status?per_page=100`))?.statuses || [];
   const d = decide({ run, repo, required: requiredOf(rules, branch), jobs, states: checkStates(checkRuns, statuses) });
   if (!d.rerun) { console.log(`rerun: ${label} left as it is: ${d.why}`); return; }
-  await api('POST', `/repos/${repo}/actions/runs/${run.id}/rerun-failed-jobs`);
+  try { await api('POST', `/repos/${repo}/actions/runs/${run.id}/rerun-failed-jobs`); }
+  catch (e) {
+    // already started again (by scrub after it removed a footer, K044) or still running: GitHub refuses a second
+    // start, and that is not a failure of this job; any other refusal is reported the same way, once
+    console.log(`::warning::rerun: ${label} was not started again: ${e.message.slice(0, 200)}`);
+    return;
+  }
   console.log(`rerun: started ${label}'s failed jobs once more (K074): ${d.why}`);
 }
 

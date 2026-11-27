@@ -54,10 +54,11 @@ ok(!decide({ run: run(), repo: 'o/r', required: R, jobs: [{ name: 'scrub', concl
 // --- the run itself, as Actions starts it, against a stand-in API --------------------------------------
 {
   const posts = [];
+  let refuse = false;
   let state = { required: [{ context: 'ci-ok' }], jobs: scrubFailed, checks: [{ id: 5, name: 'ci-ok', status: 'completed', conclusion: 'success' }], pulls: [] };
   const s = createServer((q, res) => {
     const p = q.url.split('?')[0], json = (code, j) => { res.writeHead(code); res.end(JSON.stringify(j)); };
-    if (q.method === 'POST') { posts.push(p); return json(201, {}); }
+    if (q.method === 'POST') { if (refuse) return json(403, { message: 'This workflow is already running' }); posts.push(p); return json(201, {}); }
     if (p === '/repos/o/r/rules/branches/main') return json(200, [{ type: 'required_status_checks', parameters: { required_status_checks: state.required } }]);
     if (p === '/repos/o/r/branches/main') return json(200, { name: 'main', protected: false });
     if (p === '/repos/o/r/actions/runs/77/jobs') return json(200, { total_count: state.jobs.length, jobs: state.jobs });
@@ -90,6 +91,10 @@ ok(!decide({ run: run(), repo: 'o/r', required: R, jobs: [{ name: 'scrub', concl
   state = { ...state, jobs: scrubFailed, pulls: [{ number: 902, base: { ref: 'main' } }] };
   x = await go({ ...wr, pull_requests: [] });
   ok(x.code === 0 && posts.length === 1, 'when the event names no pull request, the open one for its branch is read');
+  refuse = true;
+  x = await go(wr);
+  ok(x.code === 0 && /::warning::rerun: harness-scrub run 77 was not started again: POST \/repos\/o\/r\/actions\/runs\/77\/rerun-failed-jobs answered 403/.test(x.out),
+    'a run GitHub will not start again (scrub already re-ran it, K044) is a warning, never a red rerun job');
   s.close();
   rmSync(dir, { recursive: true, force: true });
 }
