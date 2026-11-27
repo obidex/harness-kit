@@ -373,10 +373,11 @@ export async function review({ gh, ask, repo, run, env = {}, now = () => Date.no
   catch (e) { if (/ 406|too_large/.test(e.message)) return post({ sha, at, result: 'too-large', why: 'GitHub will not serve a diff this size' }); throw e; }
   if (diff.length > MAX_DIFF) return post({ sha, at, result: 'too-large', why: `${diff.length} characters, over ${MAX_DIFF}` });
   const change = changeKey(diff);
-  // only the newest review counts: a head that goes back to an older reviewed change (X, Y, then X again) is asked
-  // again, so the comment never shows Y's verdict for X's code
-  const latest = [...runs].reverse().find(reviewed);
-  if (latest && latest.change === change) return { status: 'skipped', pr: n, why: 'the change itself is the one already reviewed (only its commit or base moved): no model call, no new comment' };
+  // only the newest run the comment shows counts, and only when it is a review of this same change: a head that goes
+  // back to an older change (X, then Y reviewed, too large, out of room or capped, then X again) is asked again, so the
+  // comment never shows Y's line for X's code (0.67.2)
+  const latest = runs.at(-1);
+  if (latest && reviewed(latest) && latest.change === change) return { status: 'skipped', pr: n, why: 'the change itself is the one already reviewed (only its commit or base moved): no model call, no new comment' };
 
   let rules = '';
   for (const p of [...new Set([profile?.canon?.rulebook || 'AGENTS.md', 'CLAUDE.md', '.harness/core.md'])]) {
