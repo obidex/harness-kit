@@ -3,6 +3,17 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.67.2 · 2026-11-27 · the reviewer's skip reads the comment's newest run (K078 follow-up)
+
+The second reviewer's advisory comment on harness-kit#122 (two points, checked and real). No always-loaded text changed,
+so there is no replay result.
+
+- **`review.mjs`**: a new head is skipped only when the newest run the comment shows is a review of this same change.
+  0.67.1 passed over runs that were no review (too large, capped, out of room), so X, then Y too large, then X again
+  left Y's line showing for X's code. Check `tools/test-review.mjs` 48 fails without it.
+- **`tools/test-review.mjs`** 47: an empty answer is asked again on the next commit with the same change (the 0.67.1
+  behaviour had no check of its own; it fails with that case taken out).
+
 ## 0.67.1 · 2026-11-27 · the second reviewer compares only its newest review (K078 follow-up)
 
 The second reviewer's advisory comment on harness-kit#121 (two points, checked and real). No always-loaded text changed,

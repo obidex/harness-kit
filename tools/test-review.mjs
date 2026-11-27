@@ -220,6 +220,17 @@ ok(r.status === 'blockers' && w.asked.length === 3 && /would block the merge/.te
   const c = await y.go(); y.pr.head.sha = SHA3; y.run = { ...y.run, head_sha: SHA3, pull_requests: [] }; y.clock += 60e3; const d = await y.go();
   ok(a.status === 'refused' && x.asked.length === 2 && b.status !== 'skipped' && c.status === 'refused' && d.status === 'skipped' && y.asked.length === 1,
     'the same change after an answer that ran out of room is asked again; after a refusal it is not (C14) (0.67.1)'); }
+// 0.67.2: an empty answer is no review either; and X, then Y not reviewed (out of room), then X again is asked again
+{ const x = world(); x.answer = { status: 200, json: { model: MODEL, stop_reason: 'end_turn', usage: { input_tokens: 20000, output_tokens: 0 }, content: [] } };
+  const a = await x.go(); x.pr.head.sha = SHA3; x.run = { ...x.run, head_sha: SHA3, pull_requests: [] }; x.clock += 60e3; const b = await x.go();
+  ok(a.status === 'refused' && a.why === 'an empty answer' && b.status !== 'skipped' && x.asked.length === 2, 'the same change after an empty answer is asked again (0.67.2)'); }
+{ const x = world(); const X = x.diff; const a = await x.go();
+  x.diff = X + '+const z = 3;\n'; x.answer = { status: 200, json: { model: MODEL, stop_reason: 'max_tokens', usage: { input_tokens: 20000, output_tokens: 4000 }, content: [] } };
+  x.pr.head.sha = SHA2; x.run = { ...x.run, head_sha: SHA2, pull_requests: [] }; x.clock += 60e3; const b = await x.go();
+  x.diff = X; x.answer = { status: 200, json: { model: MODEL, stop_reason: 'end_turn', usage: { input_tokens: 20000, output_tokens: 1000 }, content: [{ type: 'text', text: 'NO BLOCKERS' }] } };
+  x.pr.head.sha = SHA3; x.run = { ...x.run, head_sha: SHA3, pull_requests: [] }; x.clock += 60e3; const c = await x.go();
+  ok(a.status === 'blockers' && b.status === 'refused' && c.status === 'clear' && x.asked.length === 3 && /no blockers found/.test(x.comments[0].body),
+    'a head back to a change reviewed before a run that was no review (out of room) is asked again: the comment never keeps the other head\'s line (0.67.2)'); }
 
 // who and what is skipped, with no model call and no comment
 const skipped = async (over, mut, re) => { const x = world(over); if (mut) mut(x); const o = await x.go(); return o.status === 'skipped' && re.test(o.why) && x.asked.length === 0 && x.comments.length === 0; };
