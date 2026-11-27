@@ -26,7 +26,7 @@ there is no replay result.
   guard, the Arabic lens reports what breaks Arabic data rather than a screen left in another language by decision.
 - Checks: `test-review` 6, 7, 16, 26, 27, 42, 52, 53, 79 (a broken call counted), 85-86 (streamed call), 103 (the job's twelve minutes); `test-sweep` 13, 14, 15, 17, 29; each fails without this change.
 
-Trial: 3 of 4 projects green; 1 red with the fix prepared at eb0577cef175
+Trial: 3 of 4 projects green; 1 red with the fix prepared at b2b097494627
 
 ## 0.68.0 · 2026-11-27 · caught where it is made, one plain failure line, every release tried on the projects first (K079)
 
