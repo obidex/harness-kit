@@ -9,7 +9,7 @@ import { execFile } from 'node:child_process';
 import { join } from 'node:path';
 import { readFileSync, writeFileSync, mkdtempSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { KEEP_RUNS, MAX_SCOPE, assemble, refusalOf, reviewed, cachedChars, changeKey, glob, highRisk, docsOnly, pick, cost, worstCase, capOf, runUsd, record, plain, body, spent, checks, question, verdict, review, identifiers, exchange, asker, switchOf, SWITCH_DAYS, settingsOf, settingsText, SETTINGS, SETTING_VARS,
+import { KEEP_RUNS, MAX_SCOPE, assemble, refusalOf, reviewed, cachedChars, changeKey, glob, highRisk, docsOnly, pick, cost, worstCase, capOf, runUsd, record, plain, body, spent, checks, question, verdict, review, identifiers, exchange, asker, switchOf, SWITCH_DAYS, settingsOf, PROVIDERS, providerOf, assembleChat, openrouterAsker, noise, pointsOf, tallyLine, settingsText, SETTINGS, SETTING_VARS,
   github, pages, MARK, MODEL, RISK_MODEL, PRICES, DAILY_USD, DAILY_CAP, MAX_DIFF, MAX_FILES, MAX_ANSWER, MAX_OUT, MAX_RULES, WAIT_MS, POLL_MS, ASK_MS } from '../.harness/tools/review.mjs';
 import { parseYaml, renderLane } from '../.harness/tools/lib.mjs';
 import { verdict as group } from '../.harness/tools/actions.mjs';
@@ -28,7 +28,8 @@ ok(glob('src/lib/auth/**').test('src/lib/auth/a/b.ts') && !glob('src/lib/auth/**
   && glob('**/migrations/**').test('migrations/1.sql') && glob('**/migrations/**').test('db/migrations/1.sql') && !glob('a.b').test('axb'), 'a path pattern: ** crosses folders, * stays in one, a dot is a dot');
 ok(pick(['src/pages/a.tsx'], profile) === MODEL && pick(['src/pages/a.tsx', 'src/lib/auth/x.ts'], profile) === RISK_MODEL && pick(['.github/workflows/ci.yml'], null) === RISK_MODEL && pick(['.harness/core.md'], null) === RISK_MODEL && pick(['AGENTS.md'], null) === RISK_MODEL,
   `the default model is ${MODEL}; a high-risk path of the profile, a workflow or agent configuration takes ${RISK_MODEL}`);
-ok(!/haiku/i.test(MODEL + RISK_MODEL) && Object.keys(PRICES).sort().join() === [MODEL, RISK_MODEL].sort().join() && throws(() => cost('claude-haiku-5-5', {}), /no price/), 'Haiku never reviews (O06): only the two priced models can be called');
+const named = [...new Set(Object.values(PROVIDERS).flatMap((p) => [p.model, p.risk]))];
+ok(!/haiku/i.test(named.join()) && Object.keys(PRICES).sort().join() === named.sort().join() && throws(() => cost('claude-haiku-5-5', {}), /no price/), 'Haiku never reviews (O06): only the models a provider names are priced, and only a priced model can be called');
 ok(docsOnly(['README.md', 'docs/a.md', 'docs/pic.png'], profile) && !docsOnly(['README.md', 'src/a.ts'], profile) && !docsOnly(['AGENTS.md'], profile) && !docsOnly(['.harness/core.md'], null) && !docsOnly([], null) && highRisk(['a.ts', '.claude/rules/x.md'], null).join() === '.claude/rules/x.md',
   'documents only means every path is a document and none is a rule file: a rule file is reviewed, on the high-risk model');
 
@@ -489,8 +490,15 @@ ok(starts({ REVIEW_FEDERATION_RULE: 'fdrl_x' }, true) === false && starts({}, tr
 }
 ok(wf.permissions.contents === 'read' && Object.keys(wf.permissions).length === 1 && job.permissions['id-token'] === 'write' && job.permissions['pull-requests'] === 'write' && Object.entries(job.permissions).every(([k, v]) => ['id-token', 'pull-requests'].includes(k) || v === 'read') && !('contents' in job.permissions && job.permissions.contents !== 'read') && !('actions' in job.permissions),
   'it may write only pull-request comments and ask for its identity token; everything else is read-only');
-ok(Number(job['timeout-minutes']) === 12 && ASK_MS === 480000 && WAIT_MS + ASK_MS < 12 * 60000 && String(wf.concurrency['cancel-in-progress']) === 'false' && /workflow_run\.head_repository\.full_name \}\}-\$\{\{ github\.event\.workflow_run\.head_branch/.test(wf.concurrency.group) && !/head_sha|head_branch|pull_requests/.test(JSON.stringify(job.steps)) && !/\$\{\{\s*secrets\./.test(text),
-  'twelve minutes a run (K080: room for the wait for checks and an eight-minute call), one at a time per branch, never cancelled mid-review; no secret is read and nothing of the pull request reaches a step\'s script');
+ok(Number(job['timeout-minutes']) === 12 && ASK_MS === 480000 && WAIT_MS + ASK_MS < 12 * 60000 && String(wf.concurrency['cancel-in-progress']) === 'false' && /workflow_run\.head_repository\.full_name \}\}-\$\{\{ github\.event\.workflow_run\.head_branch/.test(wf.concurrency.group) && !/head_sha|head_branch|pull_requests/.test(JSON.stringify(job.steps)),
+  'twelve minutes a run (K080: room for the wait for checks and an eight-minute call), one at a time per branch, never cancelled mid-review; nothing of the pull request reaches a step\'s script');
+{
+  // K081: one secret only, OpenRouter's key, and only in the review step's environment: never in a script, a with: or another step
+  const uses = [...text.matchAll(/\$\{\{\s*secrets\.([A-Za-z0-9_]+)\s*\}\}/g)].map((m) => m[1]);
+  const holders = job.steps.filter((st) => /secrets\./.test(JSON.stringify(st)));
+  ok(uses.join() === 'OPENROUTER_API_KEY' && holders.length === 1 && holders[0].env?.OPENROUTER_API_KEY === '${{ secrets.OPENROUTER_API_KEY }}' && !/secrets\./.test(String(holders[0].run || '')) && !holders[0].with && !/secrets\./.test(String(job.if) + String(wf.on && JSON.stringify(wf.on))),
+    'K081: the only secret it reads is OPENROUTER_API_KEY, once, in the review step\'s environment; never on a command line, in a with: or in another step');
+}
 const step = job.steps.at(-1);
 ok(step.run === 'node .harness/tools/review.mjs run' && Object.keys(IDS).every((k) => step.env[k] === `\${{ vars.${k} }}`) && step.env.GH_TOKEN === '${{ github.token }}' && job.steps.length === 3, 'the one step runs the tool with the four identifiers from Actions variables');
 ok(group(text).group === 'auto' && group(text).problem === null && /Cost \(O13\)/.test(text) && /never a required check/.test(text), 'the workflow names its action group (auto), its cost and that it is advisory');
@@ -548,6 +556,108 @@ const failure = async (f) => { try { await f(); return null; } catch (e) { retur
     && refusalOf(400, { error: { type: 'invalid_request_error', message: 'You have reached your specified API usage limits.' } }).limit === 'a monthly spend limit is reached'
     && refusalOf(402, { error: { type: 'billing_error' } }).why === '402 billing_error' && refusalOf(400, null).why === '400 error' && refusalOf(400, { error: { type: 'a b<c>' } }).type === 'abc',
     'refusalOf: the credit, a spend limit (organisation or workspace), or neither; the kind is sanitised and nothing else is kept');
+}
+
+// --- another family through OpenRouter (K081) ---------------------------------------------------------
+{
+  const GLM = PROVIDERS.openrouter.model;
+  ok(GLM === 'z-ai/glm-5.3' && pick(['src/pages/a.tsx'], profile, 'openrouter') === GLM && pick(['.github/workflows/ci.yml'], null, 'openrouter') === PROVIDERS.openrouter.risk && pick(['src/a.ts'], profile) === MODEL && throws(() => pick(['a'], null, 'gpt'), /no provider/),
+    'K081: the openrouter provider names its own models, a high-risk path takes its risk model; anthropic stays the default');
+  ok(providerOf({}) === 'anthropic' && providerOf({ REVIEW_PROVIDER: ' OpenRouter ' }) === 'openrouter' && providerOf({ REVIEW_PROVIDER: 'gpt' }) === null && providerOf({ REVIEW_PROVIDER: 'constructor' }) === null && providerOf({ REVIEW_PROVIDER: 'toString' }) === null,
+    'K081: the provider is anthropic when none is named; a name the kit does not know (an object key included) is none');
+  const sp = settingsOf(JSON.stringify({ until: UNTIL, command: 'c', provider: 'openrouter' }), { REVIEW_PROVIDER: 'anthropic' });
+  const bad = settingsOf(JSON.stringify({ until: UNTIL, command: 'c', provider: 'gemini' }), {});
+  ok(sp.problem === null && sp.env.REVIEW_PROVIDER === 'openrouter' && sp.from.provider === 'file' && SETTING_VARS.provider === 'REVIEW_PROVIDER' && bad.problem && /unknown provider/.test(bad.problem) && switchOf(bad.env, NOW).on === false,
+    'K081: provider lives in the settings file, which outranks its variable; an unknown provider switches the reviewer off');
+  const oq = question({ model: GLM, tag: 'abc123', rules: 'RULES', cutRules: false, pr: { title: 'T', body: 'B' }, files: ['a.ts'], diff: '+x', provider: 'openrouter' });
+  ok(oq.model === GLM && oq.provider.zdr === true && oq.provider.data_collection === 'deny' && oq.provider.max_price.prompt === PRICES[GLM][0] && oq.provider.max_price.completion === PRICES[GLM][1] && oq.max_tokens === MAX_OUT
+    && oq.reasoning.effort === 'medium' && oq.messages[0].role === 'system' && /second reviewer/.test(oq.messages[0].content) && /<rulebook-[0-9a-f]{12}>\nRULES/.test(oq.messages[1].content) && /<diff-abc123>\n\+x\n<\/diff-abc123>/.test(oq.messages[1].content)
+    && !/cache_control|output_config/.test(JSON.stringify(oq)) && cachedChars(oq) === 0,
+    'K081: an OpenRouter question asks only for endpoints that keep and train on nothing, under a price ceiling equal to the price counted, with the same words and tags');
+  ok(worstCase(GLM, 190000) < worstCase(MODEL, 190000) && worstCase(GLM, 75000) < 0.15 && cost(GLM, { input_tokens: 30000, output_tokens: 6000 }) === 0.0684,
+    'K081: a typical GLM review counts at most about 7 cents at the ceiling price, and its worst case stays under a Claude review\'s');
+  const chat = (chunks) => chunks.map((c) => `data: ${typeof c === 'string' ? c : JSON.stringify(c)}\n\n`).join('');
+  const U = { prompt_tokens: 30000, completion_tokens: 5000, prompt_tokens_details: { cached_tokens: 12000 } };
+  const good = assembleChat(': OPENROUTER PROCESSING\n\n' + chat([{ model: GLM, choices: [{ delta: { content: 'NO ' } }] }, { choices: [{ delta: { content: 'BLOCKERS' }, finish_reason: 'stop' }] }, { choices: [], usage: U }, '[DONE]']));
+  ok(good.done && verdict(good.message).result === 'clear' && good.message.usage.input_tokens === 18000 && good.message.usage.cache_read_input_tokens === 12000 && good.message.usage.output_tokens === 5000 && good.message.model === GLM,
+    'K081: a streamed Chat Completions answer reads as the Messages API\'s: its text, and its input split into fresh and read from the endpoint\'s cache');
+  const longA = assembleChat(chat([{ choices: [{ delta: { content: '' }, finish_reason: 'length' }], usage: U }, '[DONE]']));
+  const filt = assembleChat(chat([{ choices: [{ delta: {}, finish_reason: 'content_filter' }], usage: U }, '[DONE]']));
+  const noUse = assembleChat(chat([{ choices: [{ delta: { content: 'x.ts:1 bad' }, finish_reason: 'stop' }] }, '[DONE]']));
+  const midErr = assembleChat(chat([{ choices: [{ delta: { content: 'x' } }] }, { error: { code: 502, message: 'upstream' }, choices: [{ delta: {}, finish_reason: 'error' }] }]));
+  const emptyUse = assembleChat(chat([{ choices: [{ delta: { content: 'x.ts:1 bad' }, finish_reason: 'stop' }], usage: {} }, '[DONE]']));
+  const noDone = assembleChat(chat([{ choices: [{ delta: { content: 'NO BLOCKERS' }, finish_reason: 'stop' }], usage: U }]));
+  ok(longA.done && verdict(longA.message).why === 'the answer ran out of room' && filt.done && verdict(filt.message).result === 'refused' && !noUse.done && midErr.error === '502' && !noDone.done && !emptyUse.done,
+    'K081: an answer out of room, a filtered one, one with no token count (it cannot be priced, so it is not taken), an error inside the stream and a stream that never finished are each told apart');
+  // over HTTP: the key as a bearer, and OpenRouter's refusals named in fixed words
+  const orSeen = []; let mode = 'ok';
+  const or = createServer((qq, res) => {
+    let data = ''; qq.on('data', (c) => { data += c; });
+    qq.on('end', () => {
+      orSeen.push({ path: qq.url, auth: qq.headers.authorization || '', body: data });
+      const send = (code, j) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(j)); };
+      if (mode === 'plain') return send(200, { choices: [{ message: { content: 'NO BLOCKERS' }, finish_reason: 'stop' }] });
+      if (mode === 'limit') return send(403, { error: { code: 403, message: 'Key limit exceeded (monthly limit). Manage it using https://openrouter.ai/settings/keys' } });
+      if (mode === 'credits') return send(402, { error: { code: 402, message: 'Insufficient credits. Add more using https://openrouter.ai/credits' } });
+      if (mode === 'policy') return send(404, { error: { code: 404, message: 'No endpoints found matching your data policy (Zero data retention). Configure: https://openrouter.ai/settings/privacy' } });
+      res.writeHead(200, { 'content-type': 'text/event-stream' });
+      res.end(chat([{ model: GLM, choices: [{ delta: { content: '1. src/a.ts:3 off by one\n2. `src/b.ts:9` leaks the key' }, finish_reason: 'stop' }] }, { choices: [], usage: U }, '[DONE]']));
+    });
+  });
+  await new Promise((done) => or.listen(0, '127.0.0.1', done));
+  const obase = `http://127.0.0.1:${or.address().port}`;
+  const oa = await openrouterAsker('sk-or-TEST', obase)(oq);
+  ok(oa.status === 200 && orSeen[0].path === '/chat/completions' && orSeen[0].auth === 'Bearer sk-or-TEST' && JSON.parse(orSeen[0].body).stream === true && JSON.parse(orSeen[0].body).provider.zdr === true && verdict(oa.json).result === 'blockers' && pointsOf(verdict(oa.json).text) === 2,
+    'K081: the OpenRouter call carries the repository\'s key as a bearer, is streamed, and its answer reads as findings');
+  mode = 'limit'; const l1 = await openrouterAsker('k', obase)(oq);
+  mode = 'credits'; const l2 = await openrouterAsker('k', obase)(oq);
+  mode = 'policy'; const l3 = await openrouterAsker('k', obase)(oq);
+  ok(refusalOf(l1.status, l1.json).limit === 'a monthly spend limit is reached' && refusalOf(l2.status, l2.json).limit === 'the credit is used up' && refusalOf(l3.status, l3.json).limit === 'no endpoint met the no-training rule and the price ceiling'
+    && !/openrouter\.ai/.test(refusalOf(l3.status, l3.json).why),
+    'K081: the key\'s monthly limit, too few credits and no endpoint that keeps nothing are named in fixed words, never OpenRouter\'s own text');
+  mode = 'plain'; const plainA = await openrouterAsker('k', obase)(oq);
+  const dead = await openrouterAsker('k', 'http://127.0.0.1:1')(oq);
+  ok(dead.status === 0 && plainA.status === 0 && plainA.json.error.type === 'not_a_stream', 'K081: a call that cannot reach OpenRouter, or a 200 that is not a stream, is lost (counted at its worst case), never thrown');
+  or.close();
+  // the whole run on the openrouter provider
+  const wo = world({ answer: { status: 200, json: { model: GLM, stop_reason: 'end_turn', usage: { input_tokens: 30000, output_tokens: 6000 }, content: [{ type: 'text', text: '1. src/pages/a.tsx:1 x is never used\n2. src/pages/a.tsx:2 y too\nsee above' }] } } });
+  const ro = await wo.go({ env: { REVIEW_PROVIDER: 'openrouter' } });
+  const orec = record(wo.comments[0]).runs[0];
+  ok(ro.status === 'blockers' && wo.asked[0].model === GLM && wo.asked[0].provider.data_collection === 'deny' && orec.model === GLM && orec.usd === 0.0684 && orec.points === 2 && new RegExp(tallyLine(SHA).replace(/[`]/g, '.')).test(wo.comments[0].body),
+    'K081: on the openrouter provider the review asks GLM, records its model, cost and the points it raised, and tells the owning thread the tally line');
+  const wb = world();
+  const rb = await wb.go({ env: { REVIEW_PROVIDER: 'gemini' } });
+  ok(rb.status === 'skipped' && /names no provider/.test(rb.why) && wb.asked.length === 0 && wb.comments.length === 0, 'K081: an unknown provider in the variable asks nothing and writes nothing');
+  ok(spent([{ ...BOT, updated_at: '2026-11-20T09:30:00Z', body: body([orec, { ...orec, at: '2026-11-20T09:10:00.000Z', model: MODEL, in: 25000, out: 4000 }], orec, 'x') }], NOW).usd === 0.1584,
+    'K081: the day\'s cap counts each run at its own model\'s price, Claude and GLM side by side');
+}
+
+// --- the noise count (K081) ---------------------------------------------------------------------------
+{
+  const GLM = PROVIDERS.openrouter.model;
+  const runA = { sha: SHA, at: '2026-11-20T09:00:00.000Z', result: 'blockers', model: GLM, in: 1, out: 1, points: 3 };
+  const runB = { sha: SHA2, at: '2026-11-20T09:30:00.000Z', result: 'blockers', model: GLM, in: 1, out: 1, points: 2 };
+  const runC = { sha: SHA3, at: '2026-11-20T09:40:00.000Z', result: 'clear', model: MODEL, in: 1, out: 1 };
+  const runD = { sha: SHA4, at: '2026-11-20T09:50:00.000Z', result: 'blockers', model: MODEL, in: 1, out: 1, points: 4 };
+  const pr = (n) => `https://api.github.com/repos/o/r/issues/${n}`;
+  const OWN = { user: { login: 'o', type: 'User' }, author_association: 'OWNER' };
+  const cs = [
+    { ...BOT, issue_url: pr(1), created_at: '2026-11-20T09:00:00Z', body: body([runA, runB], runB, 'x') },
+    { ...OWN, issue_url: pr(1), created_at: '2026-11-20T10:00:00Z', body: `Points done.\n${tallyLine(SHA, 1, 1, 1)}` },
+    { ...OWN, issue_url: pr(1), created_at: '2026-11-20T11:00:00Z', body: `${tallyLine(SHA, 2, 0, 1)} (corrected)` },
+    { ...BOT, issue_url: pr(1), created_at: '2026-11-20T12:00:00Z', body: tallyLine(SHA2, 2, 0, 0) },
+    { ...BOT, issue_url: pr(2), created_at: '2026-11-20T09:00:00Z', body: body([runC, runD], runD, 'x') },
+    { ...OWN, issue_url: pr(2), created_at: '2026-11-20T10:00:00Z', body: tallyLine(SHA4, 0, 0, 4) },
+    { ...OWN, issue_url: pr(3), created_at: '2026-11-20T10:00:00Z', body: tallyLine(SHA, 9, 9, 9) },
+    { user: { login: 'stranger', type: 'User' }, author_association: 'NONE', issue_url: pr(2), created_at: '2026-11-20T11:00:00Z', body: tallyLine(SHA4, 4, 0, 0) },
+  ];
+  const nz = noise(cs);
+  const g = nz.models[GLM], c = nz.models[MODEL];
+  ok(g.reviews === 2 && g.points === 5 && g.fixed === 2 && g.tracked === 0 && g.dismissed === 1 && g.answered === 3 && g.unanswered_reviews === 1 && g.noise === 0.333 && g.led_to_fix === 0.667
+    && c.reviews === 2 && c.with_points === 1 && c.dismissed === 4 && c.noise === 1 && c.led_to_fix === 0,
+    'K081: per model, the points raised against the owning thread\'s tally: the newest line for a commit counts; a bot\'s, an outsider\'s and another pull request\'s never do; a review with no line is unanswered');
+  ok(noise(cs, '2026-11-21').models[GLM] === undefined && Object.keys(noise([]).models).length === 0, 'K081: --since leaves out older reviews; nothing to count is an empty answer');
+  ok(pointsOf('1. a.ts:3 x\n- `b/c.js:10` y\n**d.sql:2** z\nprose with x.ts:4 inside\n10) e.mjs:1 w\n12:30 lunch\n- Dockerfile:3 x') === 4 && pointsOf('NO BLOCKERS') === 0, 'K081: the points of an answer are its lines that open with path:line');
 }
 
 console.log(`test-review: OK · ${n} checks`);

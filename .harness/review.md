@@ -1,6 +1,6 @@
 # Second review · a model reads a pull request once its checks are green, while the owner has it switched on
 
-> Lookup only, never loaded. K054, K055, K060. The tool is `tools/review.mjs`; the workflow is
+> Lookup only, never loaded. K054, K055, K060, K081. The tool is `tools/review.mjs`; the workflow is
 > `templates/workflows/harness-review.yml`, installed as `.github/workflows/harness-review.yml`.
 > The full check of existing code is `tools/sweep.mjs` with `templates/workflows/harness-sweep.yml`; the staff guide is `tools/guide.mjs` on the same job.
 
@@ -34,6 +34,7 @@ default branch, never from the pull request, so a pull request cannot switch its
   "command": "The owner's command of <day>: on until <date>, <what it covers>.",
   "federation_rule": "fdrl_…", "organization": "<uuid>", "service_account": "svac_…", "workspace": "wrkspc_…",
   "sweep_rule": "fdrl_…",
+  "provider": "anthropic or openrouter (K081; anthropic when left out)",
   "note": "free text",
   "scope": "What this project has decided is not a defect, in a few plain lines (K080)"
 }
@@ -94,6 +95,47 @@ runner (no network) is counted the same way, the safe direction: an outage on th
 day's room in a few commits. A worst-case Opus
 review holds about $0.64 of the day's room, so a large high-risk change meets the cap sooner.
 The model ids and prices are constants in `review.mjs` and change only by a kit release.
+
+## Another family: OpenRouter (K081)
+
+`provider` in the settings file (or the variable `REVIEW_PROVIDER`) picks who answers. `anthropic`, the
+default, is the Claude reviewer above. `openrouter` asks a model of another family through OpenRouter, so the
+family that builds a change does not also review it; the end time, the caps, the one comment and everything
+else stay the same. An unknown name switches the reviewer off. The code checks (`sweep.mjs`) and the staff
+guide stay on Claude whatever the file says.
+
+- **Models.** GLM 5.3 (`z-ai/glm-5.3`) on every path, the ERP's reviewer since 2 Oct 2026 (9 real bugs on 12
+  pull requests in its trial). A stronger model on high-risk paths comes only when a trial on the projects' own
+  past bugs shows it catches more serious defects; changing either is a kit release.
+- **The key.** OpenRouter's keyless sign-in (workload identity federation) is on its paid Business plan only, so
+  this provider takes one key: the repository secret `OPENROUTER_API_KEY`, made for the reviewer alone with its
+  own monthly limit on OpenRouter's Keys page. That limit is the hard stop across repositories, as the reviews
+  workspace's limit is for Claude. The key reaches only the review step's environment; it is never printed,
+  written to disk or put on a command line, and a run without it fails with that sentence.
+- **Data.** Every call sets `provider.zdr: true` and `provider.data_collection: "deny"`: only endpoints that keep
+  nothing and train on nothing answer, whatever the account's privacy switches say. When none can, the pull
+  request gets one line ("no endpoint met the no-training rule and the price ceiling") and the change is asked
+  again on the next finished workflow.
+- **Price.** Every call also sets `provider.max_price` to the price `review.mjs` counts with (the model maker's own
+  endpoint: $1.40 a million tokens in, $4.40 out for GLM 5.3), so a cheaper endpoint may answer but none can cost
+  more than counted. Cached input is counted at the full input price. A typical review (30,000 tokens in, 6,000
+  out) counts at most about $0.07; the ERP's measured cost is about $0.05.
+- **Refusals.** The key's monthly limit, too few credits and no qualifying endpoint are each named in fixed words,
+  never OpenRouter's own text; merges go on.
+
+## Noise (K081)
+
+A reviewer whose points are mostly dismissed costs the owning thread more than it saves. The comment asks the
+owning thread, once every point has its end, for one line:
+
+    Second review of `<commit>`: 2 FIXED, 0 TRACKED, 1 DISMISSED
+
+with the commit as the comment names it. `node .harness/tools/review.mjs noise --repo <owner/name> [--since
+<YYYY-MM-DD>]` (30 days by default) gives, per model: reviews, reviews with points, the points they raised (lines
+of the answer that open with `path:line`, recorded per run), how many were FIXED, TRACKED and DISMISSED, the
+reviews with no tally line, `noise` (the share dismissed) and `led_to_fix` (the share fixed). Only a line by the
+repository's owner, a member or a collaborator counts, the newest for a commit, and only on the pull request the review is on. Runs recorded
+before K081 have no point count and count as zero points.
 
 ## Prompt caching (K080)
 

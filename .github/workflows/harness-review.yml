@@ -21,6 +21,10 @@
 # default branch's .harness/tools, never the pull request, and its only output is the comment. A
 # fork's pull request, a bot's and a draft are skipped. Safe on a self-hosted runner for that reason;
 # the access token stays in the job's memory.
+# Who answers (K081): `provider` in that file. anthropic (the default) uses the federation above; openrouter, a model
+# of another family, uses the repository secret OPENROUTER_API_KEY, a key of its own with a monthly limit (OpenRouter's
+# keyless sign-in needs a paid Business plan). The key reaches only this step's environment; every call asks for
+# endpoints that keep nothing and train on nothing, under a price ceiling. About $0.05 a review on GLM 5.3.
 # Caps, in review.mjs: $2.50 and 40 reviews a UTC day per repository (REVIEW_DAILY_USD and
 # REVIEW_DAILY_CAP may only lower them), one review per commit, 5 minutes a run.
 # Cost (O13): the API calls, about $0.10 a review on the default model and twice that on high-risk
@@ -81,4 +85,6 @@ jobs:
           REVIEW_WORKSPACE: ${{ vars.REVIEW_WORKSPACE }}
           REVIEW_DAILY_USD: ${{ vars.REVIEW_DAILY_USD }}
           REVIEW_DAILY_CAP: ${{ vars.REVIEW_DAILY_CAP }}
+          REVIEW_PROVIDER: ${{ vars.REVIEW_PROVIDER }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: node .harness/tools/review.mjs run

@@ -6,6 +6,9 @@
 //                                            today's reviews and their cost (or every day's from a date
 //                                            on), from the review comments (JSON); "partial": true
 //                                            names the pull requests whose oldest runs may be cut
+//   node .harness/tools/review.mjs noise --repo owner/name [--since YYYY-MM-DD]
+//                                            per model: reviews, points raised, and how many the owning threads
+//                                            FIXED, TRACKED or DISMISSED, from the pull requests' comments (JSON)
 //   node .harness/tools/review.mjs switch [--until 2026-11-30T23:59+03:00] [--file path]
 //                                            says whether the reviewer is on, until when, and where its
 //                                            end time lives (the settings file or the Actions variable);
@@ -61,6 +64,18 @@
 // characters a token), and two pull requests reviewed at the same moment each count without the
 // other, so a day can end slightly over; the reviews workspace's own spend limit is the hard stop.
 //
+// Providers (K081). `provider` in the settings file (or REVIEW_PROVIDER) picks who answers: `anthropic` (the default,
+// a Claude model through the federation above) or `openrouter` (a model of another family through OpenRouter, so the
+// builder's family does not review its own work). OpenRouter's keyless sign-in (workload identity) needs a Business
+// plan, so it takes one key, the repository secret OPENROUTER_API_KEY: a key of its own with a monthly limit, which is
+// the hard stop. Every call asks OpenRouter for endpoints that neither keep nor train on the request (`zdr`,
+// `data_collection: deny`), whatever the account's switches say, and sets a price ceiling at the price this file
+// counts with, so the caps hold whichever endpoint answers. The code checks and the staff guide stay on Claude.
+//
+// Noise (K081). `review.mjs noise` counts, per model, the points each review raised against what the owning thread
+// did with them: the thread ends with one line, "Second review of `<commit>`: N FIXED, N TRACKED, N DISMISSED", and
+// a model whose points are mostly dismissed shows it.
+//
 // Prompt caching (K080). What repeats from call to call goes first and is marked for the cache: the system
 // text (the same for every review) and the rulebook (the same for every pull request until the default
 // branch changes it), each a cache breakpoint with the default five-minute life. The pull request and its diff
@@ -74,9 +89,20 @@ import { ghClient, ghPages } from './lib.mjs';
 
 export const MARK = 'harness-review';
 export const MODEL = 'claude-sonnet-5-5', RISK_MODEL = 'claude-opus-5-5';
+/** Who answers (K081), and its models: the default one and the one for high-risk paths. */
+export const PROVIDERS = Object.freeze({
+  anthropic: Object.freeze({ model: MODEL, risk: RISK_MODEL }),
+  // GLM 5.3: the ERP's reviewer since 2 Oct (9 real bugs on 12 pull requests); a stronger model on risky paths only
+  // once a trial on the projects' own bugs shows it catches more (roadmap#221)
+  openrouter: Object.freeze({ model: 'z-ai/glm-5.3', risk: 'z-ai/glm-5.3' }),
+});
+export const OPENROUTER_API = 'https://openrouter.ai/api/v1';
 /** US dollars per million tokens: in, out, a five-minute cache write (1.25 times in), a one-hour cache write
  *  (twice in) and a cache read (a twentieth of in on these two models). A model missing here is never called. */
-export const PRICES = Object.freeze({ 'claude-sonnet-5-5': [2, 10, 2.5, 4, 0.1], 'claude-opus-5-5': [4, 20, 5, 8, 0.2] });
+export const PRICES = Object.freeze({ 'claude-sonnet-5-5': [2, 10, 2.5, 4, 0.1], 'claude-opus-5-5': [4, 20, 5, 8, 0.2],
+  // OpenRouter (K081): the price ceiling each call sends (max_price), the price of the model maker's own endpoint, so
+  // no cheaper endpoint can make a call cost more than counted; cached input is counted at the full input price
+  'z-ai/glm-5.3': [1.4, 4.4, 1.4, 1.4, 1.4] });
 /** The cache marker: the default five-minute life, which every read renews (K080). */
 export const CACHE = Object.freeze({ type: 'ephemeral' });
 export const DAILY_USD = 2.5, DAILY_CAP = 40;
@@ -106,7 +132,9 @@ const risky = (profile) => [...ALWAYS_RISKY, ...((profile?.risk?.tier3_paths || 
 export const highRisk = (files, profile) => { const r = risky(profile); return files.filter((f) => r.some((x) => x.test(f))); };
 /** Documents only: every changed path is a document and none is high-risk (a rule file is a rule). */
 export const docsOnly = (files, profile) => files.length > 0 && files.every((f) => DOCS.test(f)) && !highRisk(files, profile).length;
-export const pick = (files, profile) => (highRisk(files, profile).length ? RISK_MODEL : MODEL);
+export const pick = (files, profile, provider = 'anthropic') => { const p = PROVIDERS[provider]; if (!p) throw new Error(`no provider ${provider}`); return highRisk(files, profile).length ? p.risk : p.model; };
+/** The provider the settings name (K081): `anthropic` when none is named; null for a name this file does not know. */
+export const providerOf = (env) => { const v = String(env?.REVIEW_PROVIDER ?? '').trim().toLowerCase() || 'anthropic'; return Object.hasOwn(PROVIDERS, v) ? v : null; };
 
 // --- the switch -------------------------------------------------------------------------------------
 const WHEN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?(?:Z|[+-](\d{2}):(\d{2}))$/;
@@ -134,7 +162,7 @@ export const SETTINGS = '.github/harness-review.json';
 /** The file's keys and the Actions variable each one stands in for. `command` and `note` are text only. */
 export const SETTING_VARS = Object.freeze({ until: 'REVIEW_UNTIL', federation_rule: 'REVIEW_FEDERATION_RULE', organization: 'REVIEW_ORGANIZATION',
   service_account: 'REVIEW_SERVICE_ACCOUNT', workspace: 'REVIEW_WORKSPACE', sweep_rule: 'REVIEW_SWEEP_RULE',
-  daily_usd: 'REVIEW_DAILY_USD', daily_cap: 'REVIEW_DAILY_CAP', sweep_usd: 'REVIEW_SWEEP_USD' });
+  daily_usd: 'REVIEW_DAILY_USD', daily_cap: 'REVIEW_DAILY_CAP', sweep_usd: 'REVIEW_SWEEP_USD', provider: 'REVIEW_PROVIDER' });
 const CAP_KEYS = new Set(['daily_usd', 'daily_cap', 'sweep_usd']);
 // `scope` (K080): what the project has decided is not a defect, sent with the rulebook to the code checks (sweep.mjs)
 const TEXT_KEYS = new Set(['command', 'note', 'scope']);
@@ -160,6 +188,7 @@ export function settingsOf(text, env = {}) {
     if (!(k in SETTING_VARS) && !TEXT_KEYS.has(k)) return off(`names an unknown setting "${String(k).slice(0, 40)}"`);
     if (CAP_KEYS.has(k) ? !(typeof v === 'number' || typeof v === 'string') : typeof v !== 'string') return off(`gives "${k}" a value of the wrong kind`);
   }
+  if ('provider' in f && !Object.hasOwn(PROVIDERS, String(f.provider).trim().toLowerCase())) return off(`names an unknown provider "${String(f.provider).slice(0, 40)}"`);
   if ('until' in f && !String(f.command || '').trim()) return off('gives an end time without a command line naming the owner\'s command (K055)');
   for (const [k, v] of Object.entries(SETTING_VARS)) {
     if (!(k in f)) continue;
@@ -246,11 +275,16 @@ const HEADLINE = {
   unavailable: (r) => `**Second review (advisory)** of \`${short(r.sha)}\`: not reviewed, the API refused the call (${r.why}). Merges go on.`,
 };
 const FOOT = '<sub>Advisory: never a required check and never an approval. It saw only the diff and the rulebook. Each point ends FIXED, TRACKED or DISMISSED by whoever owns this pull request.</sub>';
+/** The line the owning thread ends a review with (K081), which `noise` counts: the commit as the comment names it. */
+export const tallyLine = (sha, fixed = 'N', tracked = 'N', dismissed = 'N') => `Second review of \`${short(sha)}\`: ${fixed} FIXED, ${tracked} TRACKED, ${dismissed} DISMISSED`;
+/** The findings an answer raised: its lines that start, after a list mark, with `path:line` (the form the question asks for). */
+export const pointsOf = (text) => String(text || '').split('\n').filter((l) => /^\s*(?:\d+[.)]\s+|[-*]\s+)?(?:\*\*)?`?[\w@+-]*[./][\w./@+-]*:\d+/.test(l)).length;
 /** The comment: the record of every run on this pull request (newest last), the headline, the answer. */
 export function body(runs, r, text = '') {
   const lines = [mark({ runs: runs.slice(-KEEP_RUNS) }), (HEADLINE[r.result] || HEADLINE.unavailable)(r)];
   if (r.result === 'blockers') lines.push('', plain(text));
   if (r.cut) lines.push('', 'The answer was cut at the output limit; the last point may be incomplete.');
+  if (r.result === 'blockers') lines.push('', `When every point has its end, the owning thread says so in one line, which the noise count reads: ${tallyLine(r.sha)}`);
   lines.push('', FOOT);
   return lines.join('\n');
 }
@@ -336,12 +370,20 @@ export function rulebookBlock(rules, cutRules, max = MAX_RULES, none = '(this re
 }
 /** The request for the Messages API: the cached system text and rulebook first, then the pull request and its
  *  diff inside tags ending in `tag`, a fresh random word per call. `effort` is medium, low after an answer ran out of room. */
-export function question({ model, tag, rules, cutRules, pr, files, diff, effort = 'medium' }) {
+export function question({ model, tag, rules, cutRules, pr, files, diff, effort = 'medium', provider = 'anthropic' }) {
   const rest = [
     `This call's random word is ${tag}: the pull request is inside <pull-request-${tag}> and the diff inside <diff-${tag}>.`, '',
     `<pull-request-${tag}>`, `Title: ${String(pr.title || '').slice(0, 300)}`, '', String(pr.body || '').slice(0, MAX_PR_TEXT), '', `Changed files (${files.length}):`, ...files, `</pull-request-${tag}>`, '',
     `<diff-${tag}>`, diff, `</diff-${tag}>`,
   ].join('\n');
+  if (provider === 'openrouter') {
+    // the Chat Completions form (K081): the same words, no cache marker (the endpoint caches a repeated prefix itself);
+    // only endpoints that keep nothing and train on nothing, at no more than the price counted here, and no other
+    const p = PRICES[model];
+    return { model, max_tokens: MAX_OUT, reasoning: { effort, exclude: true }, stream: true, usage: { include: true },
+      provider: { zdr: true, data_collection: 'deny', allow_fallbacks: true, max_price: { prompt: p[0], completion: p[1] } },
+      messages: [{ role: 'system', content: SYSTEM }, { role: 'user', content: `${rulebookBlock(rules, cutRules).text}\n\n${rest}` }] };
+  }
   return { model, max_tokens: MAX_OUT, output_config: { effort }, system: [{ type: 'text', text: SYSTEM, cache_control: CACHE }],
     messages: [{ role: 'user', content: [rulebookBlock(rules, cutRules), { type: 'text', text: rest }] }] };
 }
@@ -367,6 +409,8 @@ export async function review({ gh, ask, repo, run, env = {}, now = () => Date.no
   if (!REPO.test(String(repo || ''))) throw new Error('repo must be owner/name');
   const sw = switchOf(env, now());
   if (!sw.on) return { status: 'skipped', why: sw.why };
+  const provider = providerOf(env);
+  if (!provider) return { status: 'skipped', why: `the reviewer is switched off (REVIEW_PROVIDER names no provider this kit knows: ${Object.keys(PROVIDERS).join(' or ')})` };
   const sha = String(run?.head_sha || '');
   if (!/^[0-9a-f]{40}$/.test(sha)) throw new Error('the workflow run has no head commit');
   if (run.event !== 'pull_request') return { status: 'skipped', why: 'not a pull request run' };
@@ -440,9 +484,9 @@ export async function review({ gh, ask, repo, run, env = {}, now = () => Date.no
   const cutRules = rules.length > MAX_RULES;
   if (cutRules) rules = rules.slice(0, MAX_RULES);
 
-  const model = pick(files, profile);
+  const model = pick(files, profile, provider);
   const tag = randomBytes(6).toString('hex');
-  const request = question({ model, tag, rules, cutRules, pr, files, diff, effort });
+  const request = question({ model, tag, rules, cutRules, pr, files, diff, effort, provider });
 
   // the day's caps, from every review comment in this repository changed today
   const day = new Date(now()).toISOString().slice(0, 10);
@@ -468,14 +512,14 @@ export async function review({ gh, ask, repo, run, env = {}, now = () => Date.no
     // the credit, a spend limit or the request itself: said once on the pull request, in fixed words that name a
     // used-up credit or a reached spend limit (0.69.1). Anything else (an outage, a rate limit) fails the job with no
     // record, so the next finished workflow tries again
-    if (![400, 402, 403, 413].includes(a.status)) throw new Error(`the model call answered ${no.why}`);
+    if (![400, 402, 403, 404, 413].includes(a.status)) throw new Error(`the model call answered ${no.why}`);
     return post({ sha, at, change, result: 'unavailable', why: no.why });
   }
   const t = usageOf(a.json.usage);
   const usd = usdOf(model, t);
   log(`model=${a.json.model || model} effort=${effort} input_tokens=${t.in} cache_write=${t.cw} cache_read=${t.cr} output_tokens=${t.out} usd=${usd}`);
   const v = verdict(a.json);
-  return post({ sha, at, change, result: v.result, model, ...t, usd, ...(effort !== 'medium' ? { effort } : {}), ...(v.why ? { why: v.why } : {}), ...(v.cut ? { cut: true } : {}) }, v.text);
+  return post({ sha, at, change, result: v.result, model, ...t, usd, ...(v.result === 'blockers' ? { points: pointsOf(v.text) } : {}), ...(effort !== 'medium' ? { effort } : {}), ...(v.why ? { why: v.why } : {}), ...(v.cut ? { cut: true } : {}) }, v.text);
 }
 
 // --- GitHub and the API -----------------------------------------------------------------------------
@@ -488,8 +532,11 @@ export const github = ghClient('harness-review');
 export function refusalOf(status, json) {
   const type = String(json?.error?.type || 'error').replace(/[^\w-]/g, '').slice(0, 40);
   const m = String(json?.error?.message || '');
-  const limit = /credit balance/i.test(m) ? 'the credit is used up'
-    : /usage limit|spend(ing)? limit|regain access/i.test(m) ? 'a monthly spend limit is reached' : null;
+  // OpenRouter (K081): a key's own limit and too few credits are a 402 or 403; no endpoint that keeps nothing at the
+  // price ceiling is a 404
+  const limit = /credit balance|insufficient credits|more credits/i.test(m) ? 'the credit is used up'
+    : /usage limit|spend(ing)? limit|regain access|key limit/i.test(m) ? 'a monthly spend limit is reached'
+      : /no (allowed )?(endpoints|providers)/i.test(m) ? 'no endpoint met the no-training rule and the price ceiling' : null;
   return { type, limit, why: `${status} ${type}${limit ? `: ${limit}` : ''}` };
 }
 const ID = { rule: /^fdrl_[A-Za-z0-9]+$/, org: /^[0-9a-f-]{36}$/, account: /^svac_[A-Za-z0-9]+$/, workspace: /^wrkspc_[A-Za-z0-9]+$/ };
@@ -558,6 +605,109 @@ export const asker = (token, api) => async (request) => {
   }
 };
 
+// --- OpenRouter (K081) ------------------------------------------------------------------------------
+/** A streamed Chat Completions answer as the Messages API's would read (K081), so one verdict reads both:
+ *  `{ message, error, done }`. The text is the answer's content; `stop_reason` is max_tokens when the answer ran
+ *  out of room and refusal when the model or its endpoint declined; the usage is split as the record keeps it
+ *  (input the endpoint read from its cache apart). `done` only once the stream said it finished. */
+export function assembleChat(sse) {
+  let text = '', finish = null, refusal = '', usage = null, model = null, error = null, done = false, seen = false;
+  for (const part of String(sse || '').split(/\r?\n\r?\n/)) {
+    const data = part.split(/\r?\n/).filter((l) => l.startsWith('data:')).map((l) => l.slice(5).trimStart()).join('\n');
+    if (!data) continue;
+    if (data === '[DONE]') { done = true; continue; }
+    let e;
+    try { e = JSON.parse(data); } catch { e = null; }
+    if (!e || typeof e !== 'object') continue;
+    if (e.error) { error = String(e.error.code ?? e.error.type ?? 'error'); continue; }
+    seen = true;
+    model ||= e.model ? String(e.model) : null;
+    for (const c of Array.isArray(e.choices) ? e.choices : []) {
+      if (typeof c?.delta?.content === 'string') text += c.delta.content;
+      if (typeof c?.delta?.refusal === 'string') refusal += c.delta.refusal;
+      if (c?.finish_reason) finish = String(c.finish_reason);
+      if (c?.finish_reason === 'error') error ||= 'error';
+    }
+    if (e.usage && typeof e.usage === 'object') usage = e.usage;
+  }
+  if (!seen) return { message: null, error, done };
+  const n = (x) => Math.max(0, Number(x || 0));
+  const cached = Math.min(n(usage?.prompt_tokens), n(usage?.prompt_tokens_details?.cached_tokens));
+  const written = n(usage?.prompt_tokens_details?.cache_write_tokens);
+  const message = {
+    model, content: text.trim() ? [{ type: 'text', text }] : [],
+    stop_reason: refusal || finish === 'content_filter' ? 'refusal' : finish === 'length' ? 'max_tokens' : 'end_turn',
+    ...(refusal || finish === 'content_filter' ? { stop_details: { category: finish === 'content_filter' ? 'content_filter' : 'refusal' } } : {}),
+    usage: usage ? { input_tokens: Math.max(0, n(usage.prompt_tokens) - cached - written), cache_creation_input_tokens: written, cache_read_input_tokens: cached, output_tokens: n(usage.completion_tokens) } : null,
+  };
+  // an answer without its token count cannot be priced: it is not taken as finished, so it counts at its worst case
+  const priced = usage && Number.isInteger(usage.prompt_tokens) && usage.prompt_tokens > 0 && Number.isInteger(usage.completion_tokens) && usage.completion_tokens >= 0;
+  return { message, error, done: done && !!priced && finish !== null };
+}
+/** One OpenRouter call, streamed, with the repository's key (K081). Never throws; the same answers as `asker`. */
+export const openrouterAsker = (key, api = OPENROUTER_API) => async (request) => {
+  const lost = (type) => ({ status: 0, json: { error: { type: String(type || 'error').replace(/[^\w-]/g, '').slice(0, 40) } } });
+  try {
+    const r = await fetch(`${api}/chat/completions`, { method: 'POST', signal: AbortSignal.timeout(ASK_MS),
+      headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json', 'x-title': 'harness-review' }, body: JSON.stringify({ ...request, stream: true }) });
+    // a 200 that is not a stream may have been billed: lost, so it counts at its worst case
+    if (r.status === 200 && !/^text\/event-stream/.test(r.headers.get('content-type') || '')) return lost('not_a_stream');
+    if (r.status !== 200) {
+      const j = await r.json().catch(() => null);
+      // OpenRouter's error is { error: { code, message } }: its kind is named by the status, its words read for a limit
+      return { status: r.status, json: j?.error ? { error: { type: j.error.type || `http_${r.status}`, message: j.error.message } } : j };
+    }
+    const s = assembleChat(await r.text());
+    if (s.error) return lost(s.error);
+    return s.message && s.done ? { status: 200, json: s.message } : lost('stream_cut');
+  } catch (e) {
+    return lost(e?.cause?.code || e?.name);
+  }
+};
+
+// --- the noise count (K081) -------------------------------------------------------------------------
+const TALLY = /Second review of `?([0-9a-f]{7,40})`?\s*:\s*(\d+) FIXED, (\d+) TRACKED, (\d+) DISMISSED/gi;
+/** Per model, what its reviews raised and what became of it (K081): `comments` are a repository's pull request
+ *  comments. A review's points are counted from its record; the owning thread's tally line (`tallyLine`, written by
+ *  a person's account, never a bot's) says how many were FIXED, TRACKED or DISMISSED; the newest line for a commit
+ *  counts. `noise` is the share dismissed, `fixed` the share that led to a fix, of the points answered. */
+export function noise(comments, since = null) {
+  const byPull = new Map();
+  for (const c of comments) {
+    const k = pullOf(c);
+    if (!byPull.has(k)) byPull.set(k, []);
+    byPull.get(k).push(c);
+  }
+  const models = {};
+  const row = (m) => (models[m] ||= { reviews: 0, with_points: 0, points: 0, answered: 0, fixed: 0, tracked: 0, dismissed: 0, unanswered_reviews: 0 });
+  for (const list of byPull.values()) {
+    const runs = list.map(record).find(Boolean)?.runs || [];
+    const tallies = new Map();
+    for (const c of [...list].sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)))) {
+      // a tally counts only from the repository's own people (its owner, a member or a collaborator), never a bot's
+      if (c?.user?.type === 'Bot' || record(c) || !['OWNER', 'MEMBER', 'COLLABORATOR'].includes(c?.author_association)) continue;
+      for (const m of String(c.body || '').matchAll(TALLY)) tallies.set(m[1].toLowerCase(), [+m[2], +m[3], +m[4]]);
+    }
+    for (const r of runs) {
+      if (!r?.model || !['clear', 'blockers'].includes(r.result) || (since && String(r.at || '').slice(0, 10) < since)) continue;
+      const x = row(String(r.model).replace(/[^\w./-]/g, '').slice(0, 60));
+      x.reviews++;
+      if (r.result !== 'blockers') continue;
+      x.with_points++;
+      const pts = Number.isInteger(r.points) && r.points >= 0 && r.points < 100 ? r.points : 0;
+      x.points += pts;
+      const t = [...tallies].find(([k]) => String(r.sha || '').startsWith(k))?.[1];
+      if (!t) { x.unanswered_reviews++; continue; }
+      x.fixed += t[0]; x.tracked += t[1]; x.dismissed += t[2]; x.answered += t[0] + t[1] + t[2];
+    }
+  }
+  for (const x of Object.values(models)) {
+    x.noise = x.answered ? Math.round(x.dismissed / x.answered * 1000) / 1000 : null;
+    x.led_to_fix = x.answered ? Math.round(x.fixed / x.answered * 1000) / 1000 : null;
+  }
+  return { ...(since ? { since } : {}), models };
+}
+
 // --- command line -----------------------------------------------------------------------------------
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const [cmd, ...rest] = process.argv.slice(2);
@@ -573,9 +723,16 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
       // the settings come from the default branch, never from the pull request (K060)
       const s = settingsOf(await settingsText(github, repo, event.repository?.default_branch), process.env);
       if (s.problem) console.log(`review: ${s.env.REVIEW_OFF_WHY}`);
-      // the access token is fetched only when a review is about to be asked for
+      // the access token is fetched only when a review is about to be asked for; OpenRouter's key is the repository's
+      // secret, read only from this job's environment (K081)
       let token = null;
-      const ask = async (request) => { token ||= await exchange(s.env, api); return asker(token, api)(request); };
+      const ask = providerOf(s.env) === 'openrouter'
+        ? async (request) => {
+          const key = String(process.env.OPENROUTER_API_KEY || '').trim();
+          if (!key) throw new Error('the provider is openrouter but this repository has no OPENROUTER_API_KEY secret');
+          return openrouterAsker(key, (!inActions && process.env.REVIEW_OPENROUTER_URL) || OPENROUTER_API)(request);
+        }
+        : async (request) => { token ||= await exchange(s.env, api); return asker(token, api)(request); };
       const out = await review({ gh: github, ask, repo, run, env: s.env, log: (m) => console.log(`review: ${m}`) });
       console.log(`review: ${JSON.stringify(out)}`);
     } else if (cmd === 'spent') {
@@ -586,6 +743,14 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
       const l = await pages(github, `/repos/${repo}/issues/comments?since=${day}T00:00:00Z&sort=updated&direction=desc`, null, since ? 50 : 10);
       if (!l) throw new Error(`more than ${since ? 5000 : 1000} comments changed since ${day}; not counted in part`);
       console.log(JSON.stringify({ ...spent(l, Date.now(), since || null), caps: { usd: capOf(DAILY_USD, process.env.REVIEW_DAILY_USD), reviews: capOf(DAILY_CAP, process.env.REVIEW_DAILY_CAP) } }));
+    } else if (cmd === 'noise') {
+      const repo = arg('repo'), since = arg('since');
+      if (!REPO.test(String(repo || ''))) throw new Error('--repo must be owner/name');
+      if (since !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(String(since))) throw new Error('--since must be a day, YYYY-MM-DD');
+      const day = since || new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+      const l = await pages(github, `/repos/${repo}/issues/comments?since=${day}T00:00:00Z&sort=updated&direction=desc`, null, 50);
+      if (!l) throw new Error(`more than 5000 comments changed since ${day}; not counted in part`);
+      console.log(JSON.stringify(noise(l, day)));
     } else if (cmd === 'switch') {
       const v = arg('until');
       if (v !== undefined) {
@@ -600,6 +765,6 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
         const s = settingsOf(text, process.env);
         console.log(JSON.stringify({ file: text === null ? null : path, source: s.from.until, value: s.env.REVIEW_UNTIL || '', ...(s.problem ? { problem: s.problem } : {}), ...switchOf(s.env) }));
       }
-    } else { console.error('usage: review.mjs run | spent --repo owner/name [--since day] | switch [--until when] [--file path] (see the header)'); process.exit(2); }
+    } else { console.error('usage: review.mjs run | spent --repo owner/name [--since day] | noise --repo owner/name [--since day] | switch [--until when] [--file path] (see the header)'); process.exit(2); }
   } catch (e) { console.error(`review: ${e.message}`); process.exit(1); }
 }
