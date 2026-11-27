@@ -18,8 +18,8 @@ named agents; a cloud thread loads none (A15), so it passes the brief in the cal
 
 1. **The state note.** Start a worker with the brief "Read `<repo>` issue #`<n>` with
    `gh issue view <n> --repo <repo> --comments` (or the GitHub tools), the body and its last 10 comments.
-   Return at most 12 lines: each open item with who acts next and what wakes it; any line marked as
-   needing the owner; the time of the last run's receipt. Quote nothing else and add no advice."
+   Return at most 12 lines: each open item with who acts next and what wakes it; each item under
+   `OWNER ASKS` (K082; the rest of the note is context); the time of the last run's receipt. Quote nothing else and add no advice."
    Check: the reply is 12 lines or fewer and names the issue it read; an empty or longer reply is read
    again by the thread itself.
 2. **The queue.** No model: run `node .harness/tools/inbox.mjs pending --repo <repo>` for inbox requests

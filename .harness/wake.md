@@ -46,6 +46,19 @@ each run is short and fresh: it starts on an event, reads the state, acts, write
    stale-work job finds it: `stale.mjs report` adds one Ops board row (`state:<owner/name>`) when
    the issue was last written 48 hours or more ago while pull requests merged since, and turns it ✅
    once it is rewritten. Nothing goes to the owner.
+7. **What the note asks of the owner (K082).** A note carries its owner asks in one field, the heading
+   `OWNER ASKS`, each ask one item of three parts:
+   `- Do: <what he must do> · Why only you: <kind> — <why only he can> · Answer: <https link where he answers>`.
+   `<kind>` is one of what the owner keeps (O01): `money`, `design`, `decision`, `sign-in`, `secret`,
+   `account`, `his machine`, `setting`, `refused`. No item means none; the field then holds `- None.` or
+   nothing. Anything else for him to know (what was checked, what an agent holds, what may reach him later)
+   goes under the heading `REMARKS`, which no reader counts. An item is written only after the checks before
+   "needs you" (an agent may hold it, he may have approved it); a step that blocks no work is an item too
+   (C03's "Only you"). The older headings `NEEDS OWNER`, `NEEDS YOU`, `OWNER WAITS` and `WAITING FOR YOU`
+   are not used. Before writing the body, the run checks it:
+   `node .harness/tools/state-note.mjs check --file <the new body>` (`STATE-NOTE: OK <n> owner asks`; a
+   `FAIL` line names the line and why). A status page counts only these items
+   (`state-note.mjs asks` prints them as JSON); every other line of a note is context.
 
 ## Caps, and how everything ends (every timer capped)
 
