@@ -84,6 +84,19 @@ writeFileSync(join(d2, 'r.jsonl'), [
 ].join('\n') + '\n');
 ok(readRecords([d2]).pages.get('session_RRR')?.[0]?.events.length === w1.length + w2.length, 'a saved-file notice behind a tag the session added is still read from its file');
 
+// a session whose thread list tool is list_thread_sessions, and a page holding a raw control character
+const d3 = mkdtempSync(join(tmpdir(), 'usage-s-'));
+const ctl = page([user('2026-11-25T10:00:00Z', 'ctl', 'x')], 'c-1', false).replace('"x"', '"a\u0007b"');
+writeFileSync(join(d3, 's.jsonl'), [
+  line([{ type: 'tool_use', id: 'S1', name: 'mcp__hearthbot__list_thread_sessions', input: { since: '2026-11-25T00:00:00Z' } }]),
+  line([{ type: 'tool_result', tool_use_id: 'S1', content: [{ type: 'text', text: JSON.stringify({ sessions: [{ session_id: 'cse_SSS', title: 'Erp build', created_at: '2026-11-25T08:00:00Z', last_activity_at: '2026-11-25T11:00:00Z' }] }) }] }], 'user'),
+  line([{ type: 'tool_use', id: 'S2', name: 'mcp__claude-code-remote__list_events', input: { session_id: 'session_SSS', limit: 100 } }]),
+  line([{ type: 'tool_result', tool_use_id: 'S2', content: [{ type: 'text', text: ctl }] }], 'user'),
+].join('\n') + '\n');
+const r3 = readRecords([d3]);
+ok(r3.threads.get('session_SSS')?.title === 'Erp build', 'a list_thread_sessions result is read like list_threads');
+ok(/\u0007/.test(ctl) && r3.pages.get('session_SSS')?.[0]?.events.length === 1, 'a page holding a raw control character is still read');
+
 // 4-6: the paging plan
 let calls = plan(rec, { from: '2026-11-25T00:00:00Z' });
 ok(calls.some((c) => c.session_id === 'session_AAA' && c.before_id === 'cur-1'), 'next asks for the older page while the oldest page has more and starts after --from');
