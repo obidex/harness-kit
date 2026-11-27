@@ -3,6 +3,21 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.67.0 · 2026-11-27 · runner time by cause, and an unchanged revision wakes nobody (K078)
+
+From the strategist's card on the owner's board (27 Nov 2026), widened to every project. No always-loaded text
+changed (`core.md`, `owner-defaults.md` and the adapters unchanged), so there is no replay result.
+
+- **`ci-repeats.mjs`** (new, `metrics.md` §4): every job attempt counted once, as runner minutes, in one of seven
+  causes that add up to the total (same, retry, bot, base, main, change, other); "cancelled" is a flag; a job GitHub
+  dropped while it waited counts 0. Per repository: avoidable runner-hours a week, ready to green (median, p90), check
+  runs per merged change, merged a day. Reads GitHub under `--max-calls`, or takes a host's tab-separated records.
+- **review**: a new commit whose change the reviewer already answered (a merge of the base, an empty commit) gets no
+  model call and no comment, so its thread is not woken.
+- **`ci.md` §6**: an unchanged revision tested again wakes nobody; causes are read before a fix is copied; no
+  default-branch run cancelled half-way by the next merge; no merge of the base where the repository does not require it.
+- `test-ci-repeats` (new) and `test-review` gain the cases.
+
 ## 0.66.0 · 2026-11-27 · a bug sweep by the Agent SDK, paid from the API credit (K077)
 
 No always-loaded text changed, so there is no replay result.

@@ -89,3 +89,5 @@ jobs:
         run: node tools/test-steps.mjs
       - name: Where the allowance goes (session records to the price-weighted table)
         run: node tools/test-usage.mjs
+      - name: Repeated CI runs (runner time by cause, ready to green)
+        run: node tools/test-ci-repeats.mjs
