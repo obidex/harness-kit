@@ -34,7 +34,8 @@ default branch, never from the pull request, so a pull request cannot switch its
   "command": "The owner's command of <day>: on until <date>, <what it covers>.",
   "federation_rule": "fdrl_…", "organization": "<uuid>", "service_account": "svac_…", "workspace": "wrkspc_…",
   "sweep_rule": "fdrl_…",
-  "note": "free text"
+  "note": "free text",
+  "scope": "What this project has decided is not a defect, in a few plain lines (K080)"
 }
 ```
 
@@ -83,8 +84,31 @@ files gets a line saying it is too large; a cut diff is never read as if it were
 
 Sonnet by default; Opus when a changed path is high-risk: the profile's `risk.tier3_paths`, and
 workflows and agent configuration in every project. Haiku never reviews (O06). Both run at medium
-effort with a bounded answer. The model ids and prices are constants in `review.mjs` and change
-only by a kit release.
+effort with a bounded answer of 16,000 tokens (thinking included; 8,000 until K080, which a large diff
+used up before any answer). When an answer ran out of room, the same change is asked again at low effort.
+The model ids and prices are constants in `review.mjs` and change only by a kit release.
+
+## Prompt caching (K080)
+
+What repeats goes first and is marked for the cache: the system text, the same for every call, and the
+rulebook, the same until the default branch changes it (its tag ends in a word made from its own text, so
+the bytes repeat; the pull request's tags keep a fresh random word). Then the pull request and its diff,
+unmarked. The full check and the specialist passes do the same with the system text and the rulebook, and
+there every batch after the first few of a run reads them. A cache read costs a twentieth of fresh input
+on these models, a five-minute cache write a quarter more, and every read renews the five minutes.
+
+Each run records fresh input (`in`), cache writes (`cw`) and cache reads (`cr`) apart and is priced at those
+rates; `review.mjs spent` gives `per_review` and `cache.read_share`, and a check's record issue shows the
+share of its input read from the cache. What to expect: the reviewer's rulebook and system text are a
+fifth to a quarter of a typical review's input and reviews of one repository are often more than five
+minutes apart, so the saving there is a few percent; within one full check the rules are read from the cache
+by nearly every batch. The staff guide (K074) sends no cache marker: each section's request is its own code,
+and its check comes in a later batch, past any cache's life; it already runs at the Batch API's half price.
+
+**A project's scope note.** `scope` in the settings file is plain text, at most 3,000 characters, of what the
+project has decided is not a defect (an interface left in one language until launch, applied migrations
+on example data). The full check and the specialist passes send it first in the rulebook, and the model is
+told not to report it. It is a reviewed change on the default branch like the rest of the file.
 
 ## The pull request is data
 
