@@ -69,6 +69,8 @@ jobs:
         run: node tools/test-metrics.mjs
       - name: Decisions, one file each
         run: node tools/test-decisions.mjs
+      - name: Caught where it is made (precheck, the release trial, one plain failure line)
+        run: node tools/test-precheck.mjs
       - name: Second review (the advisory reviewer)
         run: node tools/test-review.mjs
       - name: Full check of existing code (the reviewer's sweep)

@@ -4,11 +4,11 @@
 //
 //   node tools/test-decisions.mjs        exit 0 = every case held
 
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, cpSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, cpSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
-import { problems, nextId, logIds, fileId, folderFor, load } from '../.harness/tools/decisions.mjs';
+import { problems, nextId, logIds, fileId, folderFor, load, verifiedMove, recordedEdit } from '../.harness/tools/decisions.mjs';
 
 let n = 0;
 const ok = (cond, what) => { n++; if (!cond) { console.log(`test-decisions: FAIL ${n}. ${what}`); process.exit(1); } console.log(`test-decisions: ok ${n}. ${what}`); };
@@ -96,10 +96,10 @@ rmSync(d, { recursive: true, force: true });
   ok(c17().result === 'PASS', 'nor is renaming it there when its number was taken');
   put(`${folder}/K002.md`, f('K002', 'rewritten')); g('add', '-A'); g('commit', '-qm', 'edit a written decision');
   r = c17();
-  ok(r.result === 'FAIL' && r.evidence.includes(`${folder}/K002.md changed after it was written`) && !r.evidence.includes('K004'), 'a branch that edits a decision already on the default branch still fails, naming that file only');
+  ok(r.result === 'FAIL' && r.evidence.includes(`Decision K002 (${folder}/K002.md`) && /was changed after it was written/.test(r.evidence) && !r.evidence.includes('K004'), 'a branch that edits a decision already on the default branch still fails, naming that file only');
   g('checkout', '-q', main); g('merge', '-q', '--squash', 'card'); g('commit', '-qm', 'squash');
   r = c17();
-  ok(r.result === 'FAIL' && r.evidence.includes(`${folder}/K002.md changed after it was written`), 'and once such an edit is on the default branch, its history fails the check');
+  ok(r.result === 'FAIL' && r.evidence.includes(`Decision K002 (${folder}/K002.md`), 'and once such an edit is on the default branch, its history fails the check');
   // K073: an edit the baseline lists for C17 by its SHA (a redaction on the owner's rule) is skipped; no other is
   const squash = g('rev-parse', 'HEAD').stdout.trim();
   const base = (id, commits) => writeFileSync(join(a, '.harness/audit-baseline.json'), JSON.stringify({ results: [{ id, commits, why: 'a name the owner keeps out of files, redacted' }] }));
@@ -110,11 +110,11 @@ rmSync(d, { recursive: true, force: true });
   ok(r.result === 'PASS' && /1 known edit\(s\) of a decision file in the baseline skipped/.test(r.evidence), `listed for C17 by its short SHA, that edit is skipped and C17 passes, saying so (fails without K073: ${r.evidence})`);
   put(`${folder}/K004.md`, f('K004', 'edited later')); g('add', '-A'); g('commit', '-qm', 'another edit, on the default branch');
   r = c17();
-  ok(r.result === 'FAIL' && r.evidence.includes(`${folder}/K004.md changed after it was written`) && !r.evidence.includes('K002.md'), 'a later edit still fails, naming only its file: the exception never accepts the rule');
+  ok(r.result === 'FAIL' && r.evidence.includes(`Decision K004 (${folder}/K004.md`) && !r.evidence.includes('K002.md'), 'a later edit still fails, naming only its file: the exception never accepts the rule');
   g('checkout', '-qb', 'card2'); g('reset', '-q', '--hard', squash);
   put(`${folder}/K002.md`, f('K002', 'edited again on a branch')); g('add', '-A'); g('commit', '-qm', 'branch edit');
   r = c17();
-  ok(r.result === 'FAIL' && r.evidence.includes(`${folder}/K002.md changed after it was written`), 'and a branch that edits the same file again fails: only the listed commit is skipped');
+  ok(r.result === 'FAIL' && r.evidence.includes(`Decision K002 (${folder}/K002.md`), 'and a branch that edits the same file again fails: only the listed commit is skipped');
   rmSync(a, { recursive: true, force: true }); rmSync(join(a, '..', 'decisions-audit-out.json'), { force: true });
 }
 
@@ -141,10 +141,11 @@ rmSync(d, { recursive: true, force: true });
     return { ...c, strictFail: r.status !== 0 && /FAIL C17 /.test(r.stdout) };
   };
   put(prof.canon.decisions, `${closed}\n## K003 · appended to the closed log\n\nthe entry\n`); commit('a thread on the older kit appends');
-  put(prof.canon.decisions, closed); put(`${folder}/K003.md`, '## K003 · appended to the closed log\n\nthe entry\n');
+  // a move that is not word for word (one word changed on the way): only the baseline can excuse it (K067)
+  put(prof.canon.decisions, closed); put(`${folder}/K003.md`, '## K003 · appended to the closed log\n\nthe entry, reworded\n');
   const moved = commit('the entry moved into its own file');
   let r = audit('--strict');
-  ok(r.result === 'FAIL' && r.evidence.includes(`lost lines in 1 of its recent commits (${moved.slice(0, 7)})`) && r.strictFail, 'the prescribed move removes lines from the closed log, and C17 fails on it under --strict');
+  ok(r.result === 'FAIL' && r.evidence.includes(`lost lines in 1 recent commit(s) (${moved.slice(0, 7)})`) && r.strictFail, 'a move out of the closed log that changed a word is no verified move, and C17 fails on it under --strict');
   const base = (commits, why = 'K003 moved word for word from the closed log to its own file') => writeFileSync(join(a, '.harness/audit-baseline.json'), JSON.stringify({ results: [{ id: 'C17', commits, why }] }));
   base([moved.slice(0, 7)]);
   r = audit('--strict');
@@ -158,14 +159,79 @@ rmSync(d, { recursive: true, force: true });
   put(prof.canon.decisions, '# d\n\n## K001 · first, rewritten\n\ntext\n');
   const edit = commit('an edit of the closed log');
   r = audit('--strict');
-  ok(r.result === 'FAIL' && r.evidence.includes(`lost lines in 1 of its recent commits (${edit.slice(0, 7)})`) && !r.evidence.includes(moved.slice(0, 7)) && r.strictFail,
+  ok(r.result === 'FAIL' && r.evidence.includes(`lost lines in 1 recent commit(s) (${edit.slice(0, 7)})`) && !r.evidence.includes(moved.slice(0, 7)) && r.strictFail,
     'a later commit that loses a line still fails C17, naming only that commit: the exception never accepts the rule');
+  ok(r.evidence.includes(`lost lines in 1 recent commit(s) (${edit.slice(0, 7)})`), 'and says so in plain words');
   put(prof.canon.decisions, closed); const undo = commit('the edit undone');
   base([moved.slice(0, 7), edit.slice(0, 7), undo.slice(0, 7)]);
   put('.harness/profile.json', JSON.stringify({ ...prof, canon: { ...prof.canon, caps: { 'CLAUDE.md': 1 }, generated: [] } })); commit('a cap');
   r = audit('--strict');
   ok(r.result === 'FAIL' && /CLAUDE\.md \d+ B > cap 1/.test(r.evidence) && !/lost lines/.test(r.evidence) && r.strictFail, 'a C17 commits entry never hides the rule\'s other checks: a cap over still fails under --strict');
   rmSync(a, { recursive: true, force: true }); rmSync(out, { force: true });
+}
+
+// K079: a word-for-word move out of the closed log is proved by the audit itself; a past edit of a written decision is
+// answered by a newer decision that names it and its commit; `new --supersedes` writes that decision
+{
+  const prof = JSON.parse(readFileSync(join(kit, 'examples/profile.example.json'), 'utf8'));
+  const main = prof.branches?.default || 'main';
+  const a = mkdtempSync(join(tmpdir(), 'decisions-k079-'));
+  const out = join(a, '..', `${a.split('/').pop()}.json`);
+  const put = (p, text) => { mkdirSync(join(a, p, '..'), { recursive: true }); writeFileSync(join(a, p), text); };
+  const g = (...x) => spawnSync('git', ['-C', a, ...x], { encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' } });
+  const commit = (m) => { g('add', '-A'); g('commit', '-qm', m); return g('rev-parse', 'HEAD').stdout.trim(); };
+  const folder = folderFor(prof.canon.decisions);
+  const closed = '# d\n\n## K001 · first\n\ntext\n';
+  put('CLAUDE.md', '# x\n'); put(prof.canon.decisions, closed);
+  put('.harness/profile.json', JSON.stringify({ ...prof, canon: { ...prof.canon, caps: {}, generated: [] } }));
+  put(`${folder}/K002.md`, f('K002'));
+  g('init', '-q', '-b', main); commit('fixture');
+  const c17 = () => {
+    spawnSync(process.execPath, [join(kit, '.harness/tools/audit.mjs'), a, '--json', out], { encoding: 'utf8' });
+    return JSON.parse(readFileSync(out, 'utf8')).results.find((y) => y.id === 'C17');
+  };
+  put(prof.canon.decisions, `${closed}\n## K003 · appended to the closed log\n\nthe entry\nsecond line\n`); commit('appended on an older kit');
+  put(prof.canon.decisions, closed); put(`${folder}/K003.md`, '## K003 · appended to the closed log\n\nthe entry\nsecond line\n');
+  const moved = commit('moved word for word');
+  let r = c17();
+  ok(r.result === 'PASS' && r.evidence.includes(`1 verified move(s) out of the closed log (${moved.slice(0, 7)})`), `a word-for-word move into its own file passes with no baseline line, and says so (fails without K079: ${r.evidence})`);
+  // a past edit of a written decision on the default branch
+  put(`${folder}/K002.md`, f('K002', 'a section added later')); const edit = commit('an edit of a written decision');
+  r = c17();
+  ok(r.result === 'FAIL' && r.evidence.includes(`Decision K002 (${folder}/K002.md, commit ${edit.slice(0, 7)})`) && r.evidence.includes(`decisions.mjs new --supersedes K002 --commits ${edit.slice(0, 7)}`),
+    'the edit fails in plain words, naming the decision, its commit and the command that writes the answer');
+  const tool = (...x) => spawnSync(process.execPath, [join(kit, '.harness/tools/decisions.mjs'), ...x, '--root', a], { encoding: 'utf8' });
+  let w = tool('new', '--supersedes', 'K002', '--commits', 'zz12345');
+  ok(w.status === 1 && /takes SHAs/.test(w.stderr), 'new refuses a commit that is no SHA');
+  ok(tool('new', '--supersedes', 'K777').status === 1 && tool('new', '--commits', edit.slice(0, 7)).status === 1, 'new refuses a decision the register does not hold, and commits without the decision they changed');
+  // a newer decision that names the decision but another commit does not answer this edit
+  g('checkout', '-qb', 'other');
+  put(`${folder}/K004.md`, '## K004 · 2026-11-27 · STANDING — x\n\nSupersedes K002, changed in 0123abc.\n'); commit('a record of another commit');
+  ok(c17().result === 'FAIL', 'a newer decision naming another commit does not answer the edit');
+  g('checkout', '-q', main); g('branch', '-qD', 'other');
+  w = tool('new', '--supersedes', 'K002', '--commits', edit.slice(0, 7), '--title', 'the section added to K002', '--date', '2026-11-27');
+  const text = readFileSync(join(a, folder, 'K004.md'), 'utf8');
+  ok(w.status === 0 && w.stdout.trim() === `${folder}/K004.md` && text.startsWith('## K004 · 2026-11-27 · STANDING — the section added to K002') && text.includes(`**Supersedes** K002`) && text.includes(edit.slice(0, 7)),
+    'new --supersedes writes the next free file in the register\'s shape, pointing to the decision and the commits that changed it');
+  ok(tool('new', '--supersedes', 'K002').stdout.trim() === `${folder}/K005.md` && existsSync(join(a, folder, 'K005.md')), 'a second one takes the next number; nothing is overwritten');
+  rmSync(join(a, folder, 'K005.md'));
+  g('checkout', '-qb', 'record'); commit('the record');
+  r = c17();
+  ok(r.result === 'PASS' && r.evidence.includes(`1 past edit(s) of a decision recorded by a newer decision (${edit.slice(0, 7)})`), `with that decision on the pull request, the past edit is answered and C17 passes (fails without K079: ${r.evidence})`);
+  put(`${folder}/K002.md`, f('K002', 'edited again here')); commit('an edit on the pull request itself');
+  r = c17();
+  ok(r.result === 'FAIL' && r.evidence.includes(`Decision K002 (${folder}/K002.md, this change)`) && r.evidence.includes('undo the edit here'), 'an edit on the pull request itself still fails, whatever a decision says');
+  ok(recordedEdit(edit, ['K002'], { 'K002.md': f('K002'), 'K001.md': `K002 ${edit.slice(0, 7)}` }) === false && recordedEdit(edit, ['K002'], { 'K003.md': `K002 ${edit.slice(0, 6)}` }) === false,
+    'only a newer decision of the series records an edit, and it names at least 7 characters of the SHA');
+  rmSync(a, { recursive: true, force: true }); rmSync(out, { force: true });
+}
+// verifiedMove on its own: word for word, in order, nothing added
+{
+  const diff = (removed, added) => `diff --git a/DECISIONS.md b/DECISIONS.md\n--- a/DECISIONS.md\n+++ b/DECISIONS.md\n@@ -1 +1 @@\n${removed.map((l) => `-${l}`).join('\n')}\ndiff --git a/decisions/K009.md b/decisions/K009.md\nnew file mode 100644\n--- /dev/null\n+++ b/decisions/K009.md\n@@ -0,0 +1 @@\n${added.map((l) => `+${l}`).join('\n')}\n`;
+  const e = ['## K009 · x', '', 'body line'];
+  ok(verifiedMove(diff(e, e), 'DECISIONS.md', 'decisions') && verifiedMove(diff([...e, ''], e), 'DECISIONS.md', 'decisions'), 'the same lines, blank lines aside, are a verified move');
+  ok(!verifiedMove(diff(e, [...e, 'one more']), 'DECISIONS.md', 'decisions') && !verifiedMove(diff(e, ['## K009 · x', 'body lines']), 'DECISIONS.md', 'decisions') && !verifiedMove(diff(['## K009 · x', 'body line', 'more'], e), 'DECISIONS.md', 'decisions'),
+    'a line added, changed or left behind is no verified move');
 }
 
 console.log(`test-decisions: OK · ${n} checks`);

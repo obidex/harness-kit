@@ -31,12 +31,24 @@
 // Avoidable = same + bot. "Cancelled" is a flag on any of them, never a cause of its own, so the causes add
 // up to the total exactly. Ready to green: per pull request merged in the window, from the first run on its
 // last own commit to the moment the newest run of each workflow on its merged head had finished green.
+//
+// First pass (K079, metrics.md §5): of the pull requests whose first run started in the window, the share whose first
+// head with finished runs passed every workflow on its first attempt. A failed first pass carries one of four causes,
+// taken in this order: infrastructure (no runner, timed out, could not start, a failure with no failed job), unreliable
+// test (a re-run of the same attempt, or a later run of the same workflow on the same tree, passed with nothing
+// changed), old finding under a new rule (a kit update branch, harness/kit-*, or a workflow that was already red on the
+// default branch before the pull request's first run), product defect (the rest: fixed by a new commit). A head whose
+// commit says it fails on purpose ("expected to fail", "deliberately failing", "[expect-fail]") is left out.
 
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const CAUSES = ['same', 'retry', 'bot', 'base', 'main', 'change', 'other'];
+export const FIRST_CAUSES = ['product', 'flaky', 'infrastructure', 'old_rule'];
+export const FIRST_CAUSE_NAMES = Object.freeze({ product: 'product defect', flaky: 'unreliable test', infrastructure: 'infrastructure', old_rule: 'old finding under a new rule' });
+const ON_PURPOSE = /\[expect-fail\]|\bexpected to fail\b|\bdeliberately fail|\bfails on purpose\b/i;
+const OK = new Set(['success', 'skipped', 'neutral']);
 export const AVOIDABLE = ['same', 'bot'];
 export const PR_EVENTS = new Set(['pull_request', 'pull_request_target']);
 export const MAX_CALLS = 1500;
@@ -191,6 +203,7 @@ export function analyse(runs, { start, end, base = null, check = null, pulls = [
   }
   const r1 = (x) => (x === null ? null : Math.round(x * 10) / 10);
   const days = (end - start) / DAY;
+  const fp = firstPass(all, { start, end, base });
   const week = (x) => r1((x * 7) / days / 60);
   return {
     base, check: pickCheck, days: r1(days), jobs: jobsCounted,
@@ -201,12 +214,56 @@ export function analyse(runs, { start, end, base = null, check = null, pulls = [
     repeatShare: ci > 0 ? r1((100 * (totals.same.minutes + totals.retry.minutes + totals.bot.minutes + totals.base.minutes)) / ci) : null,
     avoidableShare: ci > 0 ? r1((100 * avoidable) / ci) : null,
     merged, mergedPerDay: r1(merged / days),
+    firstPass: fp,
     readyToGreen: { measured: greens.length, medianMinutes: r1(median(greens)), p90Minutes: r1(pctl(greens, 0.9)) },
     checkRunsPerMerge: { measured: runsPer.length, median: r1(median(runsPer)), mean: runsPer.length ? r1(runsPer.reduce((a, b) => a + b, 0) / runsPer.length) : null },
     byWhere: Object.fromEntries(Object.entries(byWhere).map(([k, v]) => [k, Object.fromEntries(Object.entries(v).map(([c, x]) => [c, r1(x / 60)]))])),
     byWorkflow: Object.fromEntries([...byWorkflow].sort((a, b) => Object.values(b[1]).reduce((x, y) => x + y, 0) - Object.values(a[1]).reduce((x, y) => x + y, 0)).slice(0, 12)
       .map(([w, v]) => [w, Object.fromEntries(Object.entries(v).filter(([, x]) => x > 0).map(([k, x]) => [k, r1(x / 60)]))])),
   };
+}
+
+/** First pass with its causes (K079; header and metrics.md §5). `all`: the repository's runs (with jobs), sorted. */
+export function firstPass(all, { start, end, base }) {
+  const sorted = [...all].sort((a, b) => ms(a.created) - ms(b.created) || a.id - b.id);
+  const byPr = new Map();
+  for (const r of sorted) if (PR_EVENTS.has(r.event) && r.pr) { if (!byPr.has(r.pr)) byPr.set(r.pr, []); byPr.get(r.pr).push(r); }
+  // the first attempt of a run failed when a job of attempt 1 failed; a run with no jobs read is judged by its conclusion
+  const firstFailed = (r) => {
+    const j1 = (r.jobs || []).filter((j) => (j.attempt || 1) === 1);
+    if (j1.length) return j1.some((j) => j.conclusion === 'failure' || j.conclusion === 'timed_out' || j.conclusion === 'startup_failure');
+    return (r.attempt || 1) === 1 && r.conclusion !== null && !OK.has(r.conclusion) && r.conclusion !== 'cancelled';
+  };
+  const out = { ready: 0, green: 0, rate: null, leftOut: 0, causes: Object.fromEntries(FIRST_CAUSES.map((c) => [c, 0])) };
+  for (const [, runs] of byPr) {
+    if (!(ms(runs[0].created) >= start && ms(runs[0].created) < end)) continue;
+    // the first head whose runs all finished and were not cancelled (a head the next push cancelled is not judged)
+    const heads = [...new Map(runs.map((r) => [r.head_sha, true])).keys()];
+    let head = null, onHead = [];
+    for (const h of heads) {
+      const rs = runs.filter((r) => r.head_sha === h);
+      const first = [...new Map(rs.map((r) => [r.workflow, r])).values()].map((r) => rs.find((x) => x.workflow === r.workflow));
+      if (first.length && first.every((r) => r.conclusion !== null && r.conclusion !== 'cancelled')) { head = h; onHead = first; break; }
+    }
+    if (!head) continue;
+    if (ON_PURPOSE.test(onHead[0].message || '')) { out.leftOut++; continue; }
+    out.ready++;
+    const failed = onHead.filter(firstFailed);
+    if (!failed.length) { out.green++; continue; }
+    const r = failed[0];
+    const at = ms(runs[0].created);
+    const jobsFailed = (r.jobs || []).filter((j) => (j.attempt || 1) === 1 && (j.conclusion === 'failure' || j.conclusion === 'timed_out' || j.conclusion === 'startup_failure'));
+    const infra = ['timed_out', 'startup_failure'].includes(r.conclusion) || (r.jobs || []).length > 0 && (!jobsFailed.length || jobsFailed.some((j) => !j.runner || j.conclusion !== 'failure'));
+    const tree = r.tree || r.head_sha;
+    const rerunPassed = (r.jobs || []).some((j) => (j.attempt || 1) > 1 && j.conclusion === 'success') && (r.jobs || []).filter((j) => (j.attempt || 1) > 1).every((j) => OK.has(j.conclusion));
+    const laterSame = sorted.some((x) => x !== r && x.workflow === r.workflow && (x.tree || x.head_sha) === tree && ms(x.created) > ms(r.created) && OK.has(x.conclusion) && !firstFailed(x));
+    const mainBefore = sorted.filter((x) => x.event === 'push' && x.head_branch === base && x.workflow === r.workflow && ms(x.created) < at).pop();
+    const old = /^harness\/kit-/.test(r.head_branch || '') || (mainBefore && mainBefore.conclusion === 'failure');
+    const cause = infra ? 'infrastructure' : (rerunPassed || laterSame) ? 'flaky' : old ? 'old_rule' : 'product';
+    out.causes[cause]++;
+  }
+  out.rate = out.ready ? Math.round((1000 * out.green) / out.ready) / 10 : null;
+  return out;
 }
 
 // --- reading -----------------------------------------------------------------------------------------
@@ -292,9 +349,9 @@ const n1 = (x) => (x === null || x === undefined ? '?' : String(x));
 /** Markdown, counts only (safe for a public page): no titles, names or messages. */
 export function render(results, { days = 7 } = {}) {
   const lines = [
-    '| Repository | Avoidable runner-hours a week | Ready to green (median; p90) | Check runs per merged change | Merged a day | Runner-hours: same · retry · bot · base · main · change · other | Cancelled hours (flag) |',
-    '|---|---|---|---|---|---|---|',
-    ...results.map((m) => m.error ? `| ${m.repo} | ? | ? | ? | ? | ? | ? |` : `| ${m.repo} | ${n1(m.avoidablePerWeek)} (${n1(m.avoidableShare)}% of CI) | ${m.readyToGreen.measured ? `${n1(m.readyToGreen.medianMinutes)} min; ${n1(m.readyToGreen.p90Minutes)} min (${m.readyToGreen.measured})` : '-'} | ${n1(m.checkRunsPerMerge.median)} (${m.check || '?'}) | ${n1(m.mergedPerDay)} | ${CAUSES.map((c) => n1(m.hours[c])).join(' · ')} | ${n1(m.hours.cancelled)} |`),
+    '| Repository | Avoidable runner-hours a week | Ready to green (median; p90) | Check runs per merged change | Merged a day | Runner-hours: same · retry · bot · base · main · change · other | Cancelled hours (flag) | First pass (green of ready; the rest by cause: product · unreliable test · infrastructure · old finding) |',
+    '|---|---|---|---|---|---|---|---|',
+    ...results.map((m) => m.error ? `| ${m.repo} | ? | ? | ? | ? | ? | ? | ? |` : `| ${m.repo} | ${n1(m.avoidablePerWeek)} (${n1(m.avoidableShare)}% of CI) | ${m.readyToGreen.measured ? `${n1(m.readyToGreen.medianMinutes)} min; ${n1(m.readyToGreen.p90Minutes)} min (${m.readyToGreen.measured})` : '-'} | ${n1(m.checkRunsPerMerge.median)} (${m.check || '?'}) | ${n1(m.mergedPerDay)} | ${CAUSES.map((c) => n1(m.hours[c])).join(' · ')} | ${n1(m.hours.cancelled)} | ${m.firstPass?.ready ? `${n1(m.firstPass.rate)}% (${m.firstPass.green}/${m.firstPass.ready}); ${FIRST_CAUSES.map((c) => m.firstPass.causes[c]).join(' · ')}` : '-'} |`),
     '',
     `Last ${days} days. Causes and limits: the kit's \`.harness/metrics.md\` §4. Avoidable = same + bot. "?" means not read, never zero.`,
   ];
