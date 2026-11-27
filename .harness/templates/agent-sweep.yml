@@ -1,0 +1,85 @@
+# Action group: approval (started by hand, on the owner's command, inside his window; harness-kit .harness/tools/actions.mjs)
+# A trial, not installed by the kit (kit K077): copy this file to .github/workflows/agent-sweep.yml in ONE
+# private repository, replace KIT_COMMIT and KIT_VERSION with a released kit commit and its version, and add
+# .github/agent-sweep.json (until, command, the four federation identifiers; review.md "The agent sweep trial").
+# One bug sweep of one module by the Claude Agent SDK with read-only tools (Read, Grep, Glob; no Bash, no
+# edits, no web), paid from the API credit, never from a session's weekly allowance. Findings go to one
+# issue per run; one record issue keeps what every run cost. Advisory (O07): it gates nothing.
+# Started by hand only, from the default branch, with the module named. It runs only while `until` in
+# .github/agent-sweep.json is ahead (with the owner's command line), and only on a private repository.
+# No stored key (O04): GitHub's identity token for the run is swapped by Claude Code itself for an access
+# token that lasts minutes, through this file's own federation rule (tied to this file on the default
+# branch and to a run started by hand). The step that runs the agent holds no GitHub token; the agent's
+# process gets an environment built by the tool, and a hook refuses every path outside the checkout.
+# The repository is data: read, never run. Its settings, hooks, skills and CLAUDE.md are not loaded.
+# Caps, in agent-sweep.mjs: $30 for every run of the trial (`usd` in the settings file may only lower it),
+# $15 a run, 40 minutes a run. The workspace's spend limit in the Console is the stop above them.
+# Cost (O13): the API calls, at most the caps above, from the API credit. No GitHub-hosted minutes: it
+# asks only for the self-hosted runner, and holds it up to 60 minutes. Disk: the pinned SDK and its Linux
+# binary, about 530 MB in the job's temporary folder while it runs, removed at the end.
+name: agent-sweep
+
+on:
+  workflow_dispatch:
+    inputs:
+      paths:
+        description: "The module: folders or files, comma separated (at most 80 files)"
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-sweep
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    name: agent-sweep
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: self-hosted
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      issues: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: target
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: obidex/harness-kit
+          ref: KIT_COMMIT # vKIT_VERSION
+          sparse-checkout: .harness/tools
+          path: kit
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - name: Switch, money and the record (before anything is spent)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SWEEP_PATHS: ${{ inputs.paths }}
+        run: node kit/.harness/tools/agent-sweep.mjs prepare --root target
+      - name: Install the pinned Agent SDK
+        run: |
+          mkdir -p "$RUNNER_TEMP/agent-sdk"
+          cp kit/.harness/tools/agent-sdk/package.json kit/.harness/tools/agent-sdk/package-lock.json "$RUNNER_TEMP/agent-sdk/"
+          cd "$RUNNER_TEMP/agent-sdk"
+          npm ci --ignore-scripts --legacy-peer-deps --no-audit --no-fund --cache "$RUNNER_TEMP/agent-sdk-cache"
+      - name: The sweep (read-only tools; no GitHub token in this step)
+        timeout-minutes: 45
+        run: node kit/.harness/tools/agent-sweep.mjs agent --root target --sdk "$RUNNER_TEMP/agent-sdk"
+      - name: Findings and cost to issues
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node kit/.harness/tools/agent-sweep.mjs file --root target
+      - name: Remove the SDK and the run's files
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/agent-sdk" "$RUNNER_TEMP/agent-sdk-cache" "$RUNNER_TEMP/agent-sweep"
