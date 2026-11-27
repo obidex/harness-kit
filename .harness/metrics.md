@@ -85,5 +85,6 @@ was open (GitHub's run listing often leaves the number out), never by branch alo
 | Check runs per merged change | runs of the project's check (its biggest pull-request workflow, the kit's chores left out) on the pull request and its merge |
 | Merged a day | the guard beside every fix: it must not fall |
 
-Limits: a re-run started more than two days after its run is not seen by a host that closes days;
+Limits: a restart counts in full as same, though only the cancelled part was lost; a push to a tag counts as a
+change; a re-run started more than two days after its run is not seen by a host that closes days;
 commit statuses are not runs; a project whose squash commits drop "(#N)" has no ready-to-green.

@@ -150,7 +150,8 @@ export function analyse(runs, { start, end, base = null, check = null, pulls = [
       }
       // the same job on the same content already held a runner (whatever became of it): a later start is a restart,
       // such as an edited title cancelling a build. One that only waited and was dropped never ran: no restart.
-      if (own && m > 0) for (const k of covers) seen.add(key(k));
+      // only a passing job covers its tree for other runs; one that failed or was cancelled marks its own content only
+      if (own && m > 0) for (const k of (j.conclusion === 'success' ? covers : [own])) seen.add(key(k));
       const map = j.conclusion === 'success' ? passed : (j.conclusion === 'failure' || j.conclusion === 'timed_out') ? failed : null;
       if (map && Number.isFinite(c)) for (const k of (map === passed ? covers : [own])) if (!(map.get(key(k)) <= c)) map.set(key(k), c);
     }
