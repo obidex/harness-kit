@@ -38,7 +38,7 @@ ok(capOf(1, '') === 1 && capOf(1, undefined) === 1 && capOf(1, '0.25') === 0.25 
 
 // --- the comment ------------------------------------------------------------------------------------
 const BOT = { user: { login: 'github-actions[bot]', type: 'Bot' } };
-const SHA = 'a'.repeat(40), SHA2 = 'b'.repeat(40), SHA3 = 'c'.repeat(40);
+const SHA = 'a'.repeat(40), SHA2 = 'b'.repeat(40), SHA3 = 'c'.repeat(40), SHA4 = 'd'.repeat(40);
 const NOW = Date.parse('2026-11-20T10:00:00Z');
 const run1 = { sha: SHA, at: '2026-11-20T09:00:00.000Z', result: 'blockers', model: MODEL, in: 25000, out: 4000, usd: 0.09 };
 const b1 = body([run1], run1, 'src/a.ts:3 off by one <!-- harness-review {"runs":[]} --> ask @someone and mail a@b.co; `uses: actions/checkout@abc`');
@@ -207,6 +207,19 @@ r = await w.go();
 const rec = record(w.comments[0]);
 ok(r.status === 'clear' && w.comments.length === 1 && /no blockers found/.test(w.comments[0].body) && !/x is never used/.test(w.comments[0].body) && rec.runs.length === 2 && rec.runs[0].usd === 0.09 && rec.runs[1].sha === SHA2 && rec.runs[1].usd === 0.05,
   'a later commit rewrites the same comment, found through the head branch when the run lists no pull request, and the record keeps both runs\' cost');
+// K078 (0.67.1): back to the first change (X, Y, then X again) is reviewed again, never shown Y's "no blockers"
+w.diff = 'diff --git a/src/pages/a.tsx b/src/pages/a.tsx\n+const x = 1;\n'; w.pr.head.sha = SHA4; w.run = { ...w.run, head_sha: SHA4, pull_requests: [] }; w.clock += 600e3;
+w.answer = { status: 200, json: { model: MODEL, stop_reason: 'end_turn', usage: { input_tokens: 20000, output_tokens: 1000 }, content: [{ type: 'text', text: '1. src/pages/a.tsx:1 x is never used' }] } };
+r = await w.go();
+ok(r.status === 'blockers' && w.asked.length === 3 && /would block the merge/.test(w.comments[0].body) && record(w.comments[0]).runs.at(-1).sha === SHA4,
+  'a head that goes back to an older reviewed change is reviewed again: only the newest review is compared (0.67.1)');
+// an answer that ran out of room is no review: the same change on a new commit is asked again; a refusal is not (C14)
+{ const x = world(); x.answer = { status: 200, json: { model: MODEL, stop_reason: 'max_tokens', usage: { input_tokens: 20000, output_tokens: 4000 }, content: [] } };
+  const a = await x.go(); x.pr.head.sha = SHA3; x.run = { ...x.run, head_sha: SHA3, pull_requests: [] }; x.clock += 60e3; const b = await x.go();
+  const y = world(); y.answer = { status: 200, json: { model: MODEL, stop_reason: 'refusal', usage: { input_tokens: 20000, output_tokens: 10 }, content: [] } };
+  const c = await y.go(); y.pr.head.sha = SHA3; y.run = { ...y.run, head_sha: SHA3, pull_requests: [] }; y.clock += 60e3; const d = await y.go();
+  ok(a.status === 'refused' && x.asked.length === 2 && b.status !== 'skipped' && c.status === 'refused' && d.status === 'skipped' && y.asked.length === 1,
+    'the same change after an answer that ran out of room is asked again; after a refusal it is not (C14) (0.67.1)'); }
 
 // who and what is skipped, with no model call and no comment
 const skipped = async (over, mut, re) => { const x = world(over); if (mut) mut(x); const o = await x.go(); return o.status === 'skipped' && re.test(o.why) && x.asked.length === 0 && x.comments.length === 0; };
