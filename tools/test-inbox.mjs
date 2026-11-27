@@ -92,7 +92,7 @@ const srv = createServer((q, res) => {
 await new Promise((d) => srv.listen(0, '127.0.0.1', d));
 const base = `http://127.0.0.1:${srv.address().port}`;
 const tool = join(new URL('..', import.meta.url).pathname, '.harness/tools/inbox.mjs');
-const run = (args, env = {}) => new Promise((d) => execFile(process.execPath, [tool, ...args], { env: { ...process.env, GITHUB_API_URL: base, GH_TOKEN: 't', INBOX_FIRE_BASE: base, INBOX_RECHECK_MS: '0', INBOX_POLL_MS: '50', INBOX_WAIT_MS: '8000', INBOX_HANDS_REPO: '', INBOX_ROUTINE_URL: '', INBOX_ROUTINE_TOKEN: '', GITHUB_ACTIONS: 'true', ...env } }, (e, stdout, stderr) => d({ code: e ? e.code : 0, out: stdout + stderr })));
+const run = (args, env = {}) => new Promise((d) => execFile(process.execPath, [tool, ...args], { env: { ...process.env, GITHUB_API_URL: base, GH_TOKEN: 't', INBOX_FIRE_BASE: base, INBOX_RECHECK_MS: '0', INBOX_POLL_MS: '50', INBOX_WAIT_MS: '8000', INBOX_HANDS_REPO: '', INBOX_ROUTINE_URL: '', INBOX_ROUTINE_TOKEN: '', GITHUB_ACTIONS: 'true', HARNESS_GH_RETRY_MS: '0', ...env } }, (e, stdout, stderr) => d({ code: e ? e.code : 0, out: stdout + stderr })));
 const settle = async () => { while (jobs.length) await jobs.shift(); };
 const send = ['send', '--repo', 'o/r', '--id', req.id, '--title', 'Proof', '--outcome', req.outcome, '--source', req.source, '--coordinator', req.coordinator, '--covered-by', req.coveredBy];
 const wired = { INBOX_ROUTINE_URL: `${base}/v1/claude_code/routines/trig_01ABC/fire`, INBOX_ROUTINE_TOKEN: 'sk-test' };
@@ -225,7 +225,7 @@ ok(again.code === 0 && wakes.length === 2 && issues[0].comments.some((c) => c.st
     await settle();
     const rf = issues.find((i) => parse(i.body).id === 'kit/label-flaky');
     rf.comments = []; rf.labels = rf.labels.filter((l) => l.name !== 'wake');
-    stateDownOnce = 1;   // the receiver's own job: its first STATE lookup fails, the next one answers
+    stateDownOnce = 3;   // the receiver's own job: its first STATE lookup fails (all three tries, K075), the next one answers
     const oj = await run(['wake', '--repo', 'o/r', '--issue', String(rf.number)], own);
     ok(!rf.labels.some((l) => l.name === 'wake') && !rf.comments.some((c) => c.startsWith('<!-- inbox-woke -->')) && oj.code === 3, 'the receiver\'s own job never sets the label or writes "Woke", even when its first STATE lookup fails and the next one answers');
     stateDownOnce = 0;

@@ -5,6 +5,11 @@
 
 import { scrub, target, footerLines, rerunnable, sweepSince, sweep, SWEEP_MARGIN_MS, SWEEP_FALLBACK_MS } from '../.harness/tools/scrub.mjs';
 import { createServer } from 'node:http';
+import { spawn } from 'node:child_process';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 let n = 0;
 const eq = (got, want, what) => {
@@ -76,6 +81,8 @@ eq(sweepSince([r(5, '2026-11-21T17:00:00Z', 'success'), r(6, '2026-11-21T17:20:0
   'a cancelled (dropped), failed or skipped run covered nothing: the window reaches back to the last green one');
 eq(sweepSince([r(5, '2026-11-21T17:00:00Z', 'success'), r(7, '2026-11-21T17:30:00Z', 'success', { event: 'pull_request', head_repository: { full_name: 'fork/r' } }), r(8, '2026-11-21T17:40:00Z', 'success', { actor: { login: 'dependabot[bot]' } })], { repo: 'o/r', currentId: 9, now: NOW }), at('2026-11-21T17:00:00Z'),
   'a fork\'s or Dependabot\'s run (read-only, its own group) swept nothing and does not count');
+eq(sweepSince([r(5, '2026-11-21T17:00:00Z', 'success'), r(7, '2026-11-21T17:30:00Z', 'success', { event: 'pull_request', head_repository: { full_name: 'o/r' } }), r(8, '2026-11-21T17:40:00Z', 'success', { event: 'pull_request_review', head_repository: { full_name: 'o/r' } })], { repo: 'o/r', currentId: 9, now: NOW }), at('2026-11-21T17:00:00Z'),
+  'a pull request\'s own run passes even when its sweep did not finish (K075), so it never anchors the window: the last green issue or comment run does');
 eq(sweepSince([r(5, '2026-11-21T17:00:00Z', 'success'), r(7, '2026-11-21T17:30:00Z', 'success')], { repo: 'o/r', currentId: 9, now: NOW, notBefore: '2026-11-21T17:10:00Z' }), at('2026-11-21T17:30:00Z'),
   'a green run after the workflow file last changed anchors the window');
 eq(sweepSince([r(5, '2026-11-21T17:00:00Z', 'success'), r(7, '2026-11-21T17:30:00Z', 'success')], { repo: 'o/r', currentId: 9, now: NOW, notBefore: '2026-11-21T17:45:00Z' }), new Date(NOW - SWEEP_FALLBACK_MS).toISOString(),
@@ -156,8 +163,8 @@ eq(sweepSince([r(5, '2026-11-01T00:00:00Z', 'success')], { repo: 'o/r', currentI
     return json(200, []);
   }); });
   await new Promise((d) => s.listen(0, '127.0.0.1', d));
-  const was = { GITHUB_API_URL: process.env.GITHUB_API_URL, GH_TOKEN: process.env.GH_TOKEN, GITHUB_TOKEN: process.env.GITHUB_TOKEN };
-  Object.assign(process.env, { GITHUB_API_URL: `http://127.0.0.1:${s.address().port}`, GITHUB_TOKEN: 'GT', GH_TOKEN: 'other' });
+  const was = { GITHUB_API_URL: process.env.GITHUB_API_URL, GH_TOKEN: process.env.GH_TOKEN, GITHUB_TOKEN: process.env.GITHUB_TOKEN, HARNESS_GH_RETRY_MS: process.env.HARNESS_GH_RETRY_MS };
+  Object.assign(process.env, { GITHUB_API_URL: `http://127.0.0.1:${s.address().port}`, GITHUB_TOKEN: 'GT', GH_TOKEN: 'other', HARNESS_GH_RETRY_MS: '0' });
   const saved = await sweep('o/r', '2026-11-21T17:00:00Z');
   const reruns = seen.filter((c) => c.method === 'POST').map((c) => c.url);
   eq(JSON.stringify(saved), '["/repos/o/r/issues/2"]', 'its own GitHub client: the sweep reads, cleans and saves through it');
@@ -168,6 +175,50 @@ eq(sweepSince([r(5, '2026-11-01T00:00:00Z', 'success')], { repo: 'o/r', currentI
   eq(String(e?.status === 500 && e.message === 'GET /repos/o/r/issues answered 500: boom'), 'true', 'a refused call throws with its status, naming the method, the path without its query and the status, with the start of the answer');
   s.close();
   for (const [k, v] of Object.entries(was)) if (v === undefined) delete process.env[k]; else process.env[k] = v;
+}
+
+// --- a GitHub hiccup (K075): the run itself, as Actions starts it, against a stand-in API ---------------------
+{
+  let fail = {};            // path -> how many more times it answers 502
+  const hits = {};
+  const s = createServer((q, res) => {
+    const p = q.url.split('?')[0], json = (code, j) => { res.writeHead(code); res.end(JSON.stringify(j)); };
+    hits[p] = (hits[p] || 0) + 1;
+    if (fail[p] > 0) { fail[p]--; res.writeHead(502); return res.end('{"message":"Server Error"}'); }
+    if (p === '/repos/o/r/pulls/4') return json(200, { number: 4, body: 'Kit 0.60.0 to 0.62.1.', head: { sha: 'h' } });
+    if (p === '/repos/o/r/issues/comments/9') return json(200, { id: 9, body: 'fine' });
+    if (p.endsWith('/runs')) return json(200, { workflow_runs: [] });
+    return json(200, []);
+  });
+  await new Promise((d) => s.listen(0, '127.0.0.1', d));
+  const dir = mkdtempSync(join(tmpdir(), 'scrub-run-'));
+  const tool = join(dirname(fileURLToPath(import.meta.url)), '../.harness/tools/scrub.mjs');
+  const runScrub = (name, payload, f) => new Promise((done) => {
+    fail = { ...f }; for (const k of Object.keys(hits)) delete hits[k];
+    const ev = join(dir, `${name}.json`);
+    writeFileSync(ev, JSON.stringify({ repository: { full_name: 'o/r' }, ...payload }));
+    const env = { ...process.env, GITHUB_API_URL: `http://127.0.0.1:${s.address().port}`, GITHUB_TOKEN: 'GT', GITHUB_EVENT_NAME: name, GITHUB_EVENT_PATH: ev,
+      GITHUB_REPOSITORY: 'o/r', GITHUB_RUN_ID: '100', GITHUB_WORKFLOW_REF: 'o/r/.github/workflows/harness-scrub.yml@refs/heads/main', HARNESS_GH_RETRY_MS: '0', SCRUB_SWEEP: 'on' };
+    const c = spawn(process.execPath, [tool], { env });
+    let out = '', err = '';
+    c.stdout.on('data', (b) => { out += b; }); c.stderr.on('data', (b) => { err += b; });
+    c.on('close', (code) => done({ code, out, err }));
+  });
+  const PR = ['pull_request', { pull_request: { number: 4 } }];
+  const COMMENTS = '/repos/o/r/issues/comments';
+  let x = await runScrub(...PR, { [COMMENTS]: 1 });
+  eq(String(x.code === 0 && hits[COMMENTS] === 2 && /GET \/repos\/o\/r\/issues\/comments answered 502, a GitHub hiccup; trying again in 0 s \(try 2 of 3\)/.test(x.err) && /sweep since .*: 0 bodies cleaned/.test(x.out)),
+    'true', `GitHub answers 502 once: the read is tried again and the run passes (${x.code} ${x.err.trim().slice(0, 200)})`);
+  x = await runScrub(...PR, { [COMMENTS]: 3 });
+  eq(String(x.code === 0 && hits[COMMENTS] === 3 && /::warning::scrub: \/repos\/o\/r\/pulls\/4 is clean; the sweep of other bodies did not finish \(GET \/repos\/o\/r\/issues\/comments answered 502/.test(x.out)),
+    'true', `GitHub answers 502 three times on the sweep: the pull request's own check still passes, with a warning, and the sweep is left for the next run (${x.code} ${x.out.trim().slice(0, 200)})`);
+  x = await runScrub('issue_comment', { issue: { number: 4 }, comment: { id: 9 } }, { [COMMENTS]: 3 });
+  eq(String(x.code === 1 && /scrub: GET \/repos\/o\/r\/issues\/comments answered 502/.test(x.err)), 'true', 'the same failure on a run from a comment fails it, so no green run moves the window past the bodies it missed');
+  x = await runScrub(...PR, { '/repos/o/r/pulls/4': 3 });
+  eq(String(x.code === 1 && hits['/repos/o/r/pulls/4'] === 3 && !hits[COMMENTS]), 'true', 'a pull request whose own body cannot be read after three tries fails its check: it was not read clean');
+  x = await runScrub(...PR, { '/repos/o/r/pulls/4': 2 });
+  eq(String(x.code === 0 && hits['/repos/o/r/pulls/4'] === 3 && /pulls\/4: no attribution/.test(x.out)), 'true', 'two 502s on the pull request\'s own body, then an answer: the third try reads it and the run passes');
+  s.close();
 }
 
 console.log(`test-scrub: OK · ${n} checks`);
