@@ -13,7 +13,12 @@ an adapter changes. Adapter A23 is the only place the models are named, so a new
 and is replayed too. `tools/check-version.mjs` fails a kit PR that changes those files without
 `replay/results/<new version>.json`, and that file must pass `node tools/replay.mjs check`.
 
-**How (one thread, about 10 minutes, no money).**
+**Once per release, on the final text.** One run costs about $9 of the weekly allowance (31 fresh agents
+each reading the rules; roadmap#202 measured three runs, 11% of one project's use in a day). Replay after
+the independent review's blocks are fixed, never on a draft; tasks added to the set are graded in that
+same run, not in a run of their own. Rule text changed after the replay is the only reason to run again.
+
+**How (one thread, about 10 minutes, no money spent, allowance used).**
 
 1. For each task, start ONE fresh agent with no other context, on the model A23 names for the role you
    record (`builder` for the everyday builder), and give it exactly `node tools/replay.mjs prompt <id>`.
