@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { readFileSync, writeFileSync, mkdtempSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { KEEP_RUNS, MAX_SCOPE, cachedChars, changeKey, glob, highRisk, docsOnly, pick, cost, worstCase, capOf, runUsd, record, plain, body, spent, checks, question, verdict, review, identifiers, exchange, asker, switchOf, SWITCH_DAYS, settingsOf, settingsText, SETTINGS, SETTING_VARS,
-  github, pages, MARK, MODEL, RISK_MODEL, PRICES, DAILY_USD, DAILY_CAP, MAX_DIFF, MAX_FILES, MAX_ANSWER, MAX_OUT, MAX_RULES, WAIT_MS, POLL_MS } from '../.harness/tools/review.mjs';
+  github, pages, MARK, MODEL, RISK_MODEL, PRICES, DAILY_USD, DAILY_CAP, MAX_DIFF, MAX_FILES, MAX_ANSWER, MAX_OUT, MAX_RULES, WAIT_MS, POLL_MS, ASK_MS } from '../.harness/tools/review.mjs';
 import { parseYaml, renderLane } from '../.harness/tools/lib.mjs';
 import { verdict as group } from '../.harness/tools/actions.mjs';
 
@@ -453,8 +453,8 @@ ok(starts({ REVIEW_FEDERATION_RULE: 'fdrl_x' }, true) === false && starts({}, tr
 }
 ok(wf.permissions.contents === 'read' && Object.keys(wf.permissions).length === 1 && job.permissions['id-token'] === 'write' && job.permissions['pull-requests'] === 'write' && Object.entries(job.permissions).every(([k, v]) => ['id-token', 'pull-requests'].includes(k) || v === 'read') && !('contents' in job.permissions && job.permissions.contents !== 'read') && !('actions' in job.permissions),
   'it may write only pull-request comments and ask for its identity token; everything else is read-only');
-ok(Number(job['timeout-minutes']) === 5 && String(wf.concurrency['cancel-in-progress']) === 'false' && /workflow_run\.head_repository\.full_name \}\}-\$\{\{ github\.event\.workflow_run\.head_branch/.test(wf.concurrency.group) && !/head_sha|head_branch|pull_requests/.test(JSON.stringify(job.steps)) && !/\$\{\{\s*secrets\./.test(text),
-  'five minutes a run, one at a time per branch, never cancelled mid-review; no secret is read and nothing of the pull request reaches a step\'s script');
+ok(Number(job['timeout-minutes']) === 12 && ASK_MS === 480000 && WAIT_MS + ASK_MS < 12 * 60000 && String(wf.concurrency['cancel-in-progress']) === 'false' && /workflow_run\.head_repository\.full_name \}\}-\$\{\{ github\.event\.workflow_run\.head_branch/.test(wf.concurrency.group) && !/head_sha|head_branch|pull_requests/.test(JSON.stringify(job.steps)) && !/\$\{\{\s*secrets\./.test(text),
+  'twelve minutes a run (K080: room for the wait for checks and an eight-minute call), one at a time per branch, never cancelled mid-review; no secret is read and nothing of the pull request reaches a step\'s script');
 const step = job.steps.at(-1);
 ok(step.run === 'node .harness/tools/review.mjs run' && Object.keys(IDS).every((k) => step.env[k] === `\${{ vars.${k} }}`) && step.env.GH_TOKEN === '${{ github.token }}' && job.steps.length === 3, 'the one step runs the tool with the four identifiers from Actions variables');
 ok(group(text).group === 'auto' && group(text).problem === null && /Cost \(O13\)/.test(text) && /never a required check/.test(text), 'the workflow names its action group (auto), its cost and that it is advisory');
