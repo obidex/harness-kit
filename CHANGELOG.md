@@ -5,7 +5,7 @@ Each version is the tag `v<version>` on this repository, never moved (K003). Pro
 
 ## 0.65.0 · 2026-11-27 · every open request says its state in its own State line (K076)
 
-From the strategist's line for Platform on the owner's board (27 Nov 2026). No always-loaded text changed,
+From a strategist's line on the owner's board (27 Nov 2026). No always-loaded text changed,
 so there is no replay result.
 
 - **`inbox.mjs state`** moves a request filed by hand (the `inbox` label, no inbox-id): it adds the State

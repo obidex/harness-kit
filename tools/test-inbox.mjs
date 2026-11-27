@@ -328,8 +328,8 @@ ok(JSON.parse((await run(['pending', '--repo', 'o/r'])).out).length === 0 && /al
   const CARD = '**From the strategist.** Do X for us.';
   issues.push({ number: issues.length + 1, state: 'open', author_association: 'OWNER', user: { login: 'owner', type: 'User' }, html_url: 'https://gh.test/o/r/issues/h', body: CARD, labels: [{ name: 'inbox' }], comments: [] });
   const h = issues.at(-1), hn = String(h.number);
-  const b = await run(['state', '--repo', 'o/r', '--issue', hn, '--to', 'blocked', '--note', 'waits on the ERP\'s reply\non its card']);
-  ok(b.code === 0 && h.body === `${CARD}\n\n- **State:** blocked: waits on the ERP's reply on its card\n` && h.state === 'open', `a hand-filed request gets a State line, and blocked carries what it waits on in one line (${b.out.trim()})`);
+  const b = await run(['state', '--repo', 'o/r', '--issue', hn, '--to', 'blocked', '--note', 'waits on the other project\'s reply\non its card']);
+  ok(b.code === 0 && h.body === `${CARD}\n\n- **State:** blocked: waits on the other project's reply on its card\n` && h.state === 'open', `a hand-filed request gets a State line, and blocked carries what it waits on in one line (${b.out.trim()})`);
   const w = await run(['state', '--repo', 'o/r', '--issue', hn, '--to', 'working']);
   ok(w.code === 0 && /- \*\*State:\*\* working$/m.test(h.body) && (h.body.match(/State:/g) || []).length === 1, 'the next move replaces the line, never adds a second');
   const dl = await run(['state', '--repo', 'o/r', '--issue', hn, '--to', 'blocked', '--note', "the owner's OK for $100 a month, $' and $&"]);
@@ -339,6 +339,10 @@ ok(JSON.parse((await run(['pending', '--repo', 'o/r'])).out).length === 0 && /al
   issues.push({ number: issues.length + 1, state: 'open', author_association: 'OWNER', user: { login: 'owner', type: 'User' }, html_url: 'https://gh.test/o/r/issues/p', body: 'plain issue', labels: [{ name: 'bug' }], comments: [] });
   const p = await run(['state', '--repo', 'o/r', '--issue', String(issues.length), '--to', 'working']);
   ok(p.code === 1 && /is not an inbox request/.test(p.out) && issues.at(-1).body === 'plain issue', 'an issue without the inbox label is no request: nothing is written');
+  issues.push({ number: issues.length + 1, state: 'open', author_association: 'NONE', user: { login: 'stranger', type: 'User' }, html_url: 'https://gh.test/o/r/issues/u', body: CARD, labels: [{ name: 'inbox' }], comments: [] });
+  const u = await run(['state', '--repo', 'o/r', '--issue', String(issues.length), '--to', 'done', '--note', 'closed by a stranger\'s card']);
+  ok(u.code === 1 && /is not an inbox request/.test(u.out) && issues.at(-1).body === CARD && issues.at(-1).state === 'open' && !issues.at(-1).comments.length,
+    'an inbox-labelled issue filed by hand by an author without write access is refused: nothing is written, nothing is closed');
 }
 const locked = await run(['pending', '--repo', 'o/locked']);
 ok(locked.code === 1 && /answered 401/.test(locked.out) && /attach it first \(add_repo o\/locked with access "push"\)/.test(locked.out), 'a refused token names the fix: attach the repository to the session (cloud) or give GH_TOKEN access');
