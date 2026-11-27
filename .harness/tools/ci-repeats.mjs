@@ -27,6 +27,7 @@
 //   main       the default branch on content no run had tested: a new combination
 //   change     a pull request's own new content
 //   other      everything a change did not start (schedules, issues, comments, dispatches, workflow_run)
+// A push to another branch is a change (or a repeat of one, by its tree); a merge queue's run is main.
 // Avoidable = same + bot. "Cancelled" is a flag on any of them, never a cause of its own, so the causes add
 // up to the total exactly. Ready to green: per pull request merged in the window, from the first run on its
 // last own commit to the moment the newest run of each workflow on its merged head had finished green.
@@ -119,14 +120,20 @@ export function analyse(runs, { start, end, base = null, check = null, pulls = [
       if (!treesSeen.has(tk)) treesSeen.set(tk, new Set());
       treesSeen.get(tk).add(baseAt(ms(r.created)));
     } else if (push) kind = 'main';
+    else if (r.event === 'merge_group') kind = 'main';            // a merge queue tests the combination main will hold
+    else if (r.event === 'push') kind = 'change';                 // a push to a branch: the change, or a repeat of it
     const tree = r.tree || r.head_sha;
     // what this run tests: a pull request run its head on the base of that moment; the default branch its tree
-    const own = pr ? `pr:${tree}:${baseAt(ms(r.created))}` : push ? `tree:${tree}` : null;
+    const branchPush = r.event === 'push' && !push, queue = r.event === 'merge_group';
+    const own = pr ? `pr:${tree}:${baseAt(ms(r.created))}` : (push || branchPush || queue) ? `tree:${tree}` : null;
     // what a passing attempt covers: a pull request run also covers its head tree for the default branch (sound: the
     // default branch only reaches the head's exact tree when the head already held the base it was tested on)
-    const covers = pr ? [own, `tree:${tree}`] : push ? [own, `pr:${tree}:${baseAt(ms(r.created))}`] : [];
+    const covers = pr ? [own, `tree:${tree}`] : (push || branchPush || queue) ? [own, `pr:${tree}:${baseAt(ms(r.created))}`] : [];
     const counted = inWindow(ms(r.created));
-    for (const j of [...(r.jobs || [])].sort((a, b) => ms(a.started) - ms(b.started))) {
+    // a job that a later attempt lists again with its first attempt's times (a re-run of the failed jobs only) ran once
+    const once = new Set();
+    const jobs = [...(r.jobs || [])].filter((j) => { const k = `${j.name}|${j.started}|${j.completed}`; if (once.has(k)) return false; once.add(k); return true; });
+    for (const j of jobs.sort((a, b) => ms(a.started) - ms(b.started))) {
       const m = minutes(j), s = ms(j.started), c = ms(j.completed);
       const key = (k) => `${r.workflow}|${j.name}|${k}`;
       let cause = kind;
@@ -143,7 +150,7 @@ export function analyse(runs, { start, end, base = null, check = null, pulls = [
       }
       // the same job on the same content already held a runner (whatever became of it): a later start is a restart,
       // such as an edited title cancelling a build. One that only waited and was dropped never ran: no restart.
-      if (own && m > 0) seen.add(key(own));
+      if (own && m > 0) for (const k of covers) seen.add(key(k));
       const map = j.conclusion === 'success' ? passed : (j.conclusion === 'failure' || j.conclusion === 'timed_out') ? failed : null;
       if (map && Number.isFinite(c)) for (const k of (map === passed ? covers : [own])) if (!(map.get(key(k)) <= c)) map.set(key(k), c);
     }
@@ -239,8 +246,12 @@ export async function readRepo(repo, { start, end, history = 2, budget = { left:
     for (const r of runs) {
       if (r.conclusion === null) continue;   // not finished: no job of it is counted yet
       if (ms(r.created) < start - DAY && r.event !== 'push') continue;   // older history: only the default branch's
-      const j = await get(`/repos/${repo}/actions/runs/${r.id}/jobs?filter=all&per_page=100`, budget);
-      r.jobs = (j.jobs || []).map(jobOf);
+      for (let p = 1; p <= 5; p++) {
+        const j = await get(`/repos/${repo}/actions/runs/${r.id}/jobs?filter=all&per_page=100&page=${p}`, budget);
+        r.jobs.push(...(j.jobs || []).map(jobOf));
+        if ((j.jobs || []).length < 100) break;
+        if (p === 5) partial.push(`jobs of run ${r.id} (cut at 500)`);
+      }
     }
   } catch (e) { partial.push(e.budget ? 'call budget spent: later runs are not counted' : e.message); }
   return { runs, base, pulls, partial };

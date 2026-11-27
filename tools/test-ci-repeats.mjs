@@ -26,7 +26,7 @@ const W = { start: T0, end: T0 + 7 * 86400000 };
 ok(isBaseMerge("Merge branch 'main' into feat", 'main') && isBaseMerge("Merge remote-tracking branch 'origin/main' into feat", 'main') && isBaseMerge("Merge branch 'master' of https://x into feat", 'master')
   && !isBaseMerge("Merge branch 'main' into feat", 'master') && !isBaseMerge('Merge pull request #4 from a/b', 'main') && !isBaseMerge('fix: merge two lists', 'main'),
   'a merge of the default branch into a pull request is told from other merges, by git\'s own message');
-ok(mergedPr('Add a thing (#123)') === 123 && mergedPr('Add a thing (#123)\n\nbody') === 123 && mergedPr('Fix #12 crash') === null && isBot('github-actions[bot]') && isBot('obidex-hands[bot]') && !isBot('Obada'),
+ok(mergedPr('Add a thing (#123)') === 123 && mergedPr('Add a thing (#123)\n\nbody') === 123 && mergedPr('Fix #12 crash') === null && isBot('github-actions[bot]') && isBot('obidex-hands[bot]') && !isBot('Person'),
   'a squash merge names its pull request by "(#N)" at the end of its first line; a bot\'s name ends in [bot]');
 ok(minutes({ runner: 'box', started: at(0), completed: at(7) }) === 7 && minutes({ runner: null, started: at(0), completed: at(30) }) === 0 && minutes({ runner: 'box', started: at(5), completed: at(5) }) === 0,
   'a job that GitHub cancelled while it waited (a start time, no runner) held no machine: 0 minutes, however long it waited');
@@ -84,6 +84,18 @@ ok(botPr.minutes.change === 20 && botPr.hours.bot === 0, 'a bot\'s own pull requ
 ok(defaultBranch([{ event: 'push', head_branch: 'master' }, { event: 'push', head_branch: 'master' }, { event: 'push', head_branch: 'x' }]) === 'master'
   && mainCheck([{ event: 'pull_request', workflow: 'harness-guard', jobs: [{ runner: 'b', started: at(0), completed: at(60) }] }, { event: 'pull_request', workflow: 'CI', jobs: [{ runner: 'b', started: at(0), completed: at(5) }] }]) === 'CI',
   'the default branch is where most push runs went; the project\'s check is its biggest pull-request workflow, the kit\'s chores left out');
+
+id = 400;
+const carried = analyse([{ ...run({ t: 0, sha: 'z' }), jobs: [
+  { name: 'build', attempt: 1, runner: 'b', started: at(0), completed: at(20), conclusion: 'success' },
+  { name: 'test', attempt: 1, runner: 'b', started: at(20), completed: at(25), conclusion: 'failure' },
+  { name: 'build', attempt: 2, runner: 'b', started: at(0), completed: at(20), conclusion: 'success' },
+  { name: 'test', attempt: 2, runner: 'b', started: at(30), completed: at(35), conclusion: 'success' }] }], W);
+ok(carried.minutes.total === 30 && carried.minutes.retry === 5 && carried.minutes.same === 0, 'a job a re-run lists again with its first times ran once: counted once, never as a repeat');
+id = 500;
+const branchPush = analyse([run({ t: 0, sha: 'p' }), run({ t: 0, sha: 'p', r: { event: 'push', head_branch: 'feat' } }), run({ t: 30, sha: 'g', tree: 'tg', r: { event: 'merge_group', head_branch: 'gh-readonly-queue/main/x' } })], W);
+ok(branchPush.minutes.change === 10 && branchPush.minutes.same === 10 && branchPush.minutes.main === 10 && branchPush.minutes.other === 0,
+  'a push to a branch beside its pull request run is the same content tested twice; a merge queue run is main; neither is "other"');
 
 // --- the host's records -----------------------------------------------------------------------------
 const tsvRuns = [
