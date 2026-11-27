@@ -9,7 +9,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync, lstatSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { settingsOf, scope, inside, refusal, hookFor, childEnv, federated, task, answerOf, safe, stateOf, spentOf, recordBody, findingsIssue, prepare, file,
+import { settingsOf, scope, inside, refusal, hookFor, childEnv, federated, task, answerOf, safe, stateOf, spentOf, recordBody, findingsIssue, prepare, file, agent,
   MARK, TITLE, TRIAL_USD, RUN_USD, OVERSHOOT, MIN_RUN, TOOLS, MAX_FILES, SDK_VERSION, MODEL, EFFORT } from '../.harness/tools/agent-sweep.mjs';
 import { parseYaml } from '../.harness/tools/lib.mjs';
 
@@ -49,6 +49,11 @@ const m = scope({ paths: tracked, only: ['tools'], stat });
 ok(m.files.join() === 'tools/README.md,tools/a.mjs,tools/b.mjs' && m.skipped.some(([p, w]) => p === 'tools/.env' && /secret/.test(w)) && m.skipped.some(([p]) => p === 'tools/link.js'),
   'the module is the tracked files under its paths: a file that may hold a secret and a symbolic link are left out, a document is kept (it may hold the rules)');
 ok(throws(() => scope({ paths: tracked, only: [], stat }), /name the module/) && throws(() => scope({ paths: tracked, only: ['nothing'], stat }), /no tracked file/), 'no module named, or one with no file: refused');
+// the review of 0.64.0: a name goes into the prompt, where Claude Code reads an @mention itself, past the guard
+const odd = scope({ paths: [...tracked, 'tools/x @/tmp/run/id/token', 'tools/y z.mjs', 'tools/@w.mjs'], only: ['tools'], stat });
+ok(odd.files.join() === m.files.join() && ['tools/x @/tmp/run/id/token', 'tools/y z.mjs', 'tools/@w.mjs'].every((p) => odd.skipped.some(([q, w]) => q === p && /character/.test(w))),
+  'a tracked name with @, a space or another sign outside the plain set is left out of the module');
+ok(throws(() => scope({ paths: tracked, only: ['tools @/etc'], stat }), /character/) && throws(() => task(['tools/a.mjs', 'tools/x @/etc/passwd']), /plain set/), 'such a name never reaches the prompt, from the paths given or from the files');
 ok(throws(() => scope({ paths: Array.from({ length: MAX_FILES + 1 }, (_, i) => `tools/a.mjs#${i}`).map(() => 'tools/a.mjs'), only: ['tools'], stat }), /smaller module/), 'more than one module\'s worth of files: refused');
 
 // --- the guard ------------------------------------------------------------------------------------
@@ -63,9 +68,19 @@ ok(['Bash', 'Write', 'Edit', 'WebFetch', 'WebSearch', 'Task', 'Agent', 'Notebook
 ok(/inside this repository/.test(refusal(repo, 'Read', { file_path: join(outside, 'token') })) && /inside this repository/.test(refusal(repo, 'Grep', { pattern: 'x', path: '/' })) && /inside this repository/.test(refusal(repo, 'Glob', { pattern: '*', path: '..' })),
   'Read, Grep or Glob pointed outside the checkout are refused');
 ok(/file_path/.test(refusal(repo, 'Read', {})) && /file_path/.test(refusal(repo, 'Read', null)), 'Read without a path is refused');
-ok(/search pattern/.test(refusal(repo, 'Glob', { pattern: '/etc/**' })) && /search pattern/.test(refusal(repo, 'Glob', { pattern: '../**' })) && /search pattern/.test(refusal(repo, 'Glob', { pattern: '~/**' })) && /search pattern/.test(refusal(repo, 'Grep', { pattern: 'x', glob: '../../**' })),
-  'a search pattern that is absolute, steps up or names the home folder is refused');
+ok(/search pattern/.test(refusal(repo, 'Glob', { pattern: '/etc/**' })) && /search pattern/.test(refusal(repo, 'Glob', { pattern: '../**' })) && /search pattern|home folder/.test(refusal(repo, 'Glob', { pattern: '~/**' })) && /search pattern/.test(refusal(repo, 'Grep', { pattern: 'x', glob: '../../**' }))
+  && ['{../,}secret*', '{/etc,x}/*', 'a/{x,/etc}/*', '{~,x}/*', 'tools/..'].every((g) => /search pattern/.test(refusal(repo, 'Glob', { pattern: g })) && /search pattern/.test(refusal(repo, 'Grep', { pattern: 'x', glob: g }))),
+  'a search pattern that is absolute, steps up or names the home folder is refused, also inside braces');
 ok(/git's own folder/.test(refusal(repo, 'Read', { file_path: '.git/config' })) && /git's own folder/.test(refusal(repo, 'Grep', { pattern: 'x', path: '.git' })), 'git\'s own folder is not read');
+// the review of 0.64.0: Claude Code trims and expands a path after the hook, so a path with space around it was judged as a name inside
+const padded = [' /', ' ..', '\t/x', '/ ', `${outside} `, ` ${join(outside, 'token')}`, '\n..', ' /'];
+ok(padded.every((p) => refusal(repo, 'Grep', { pattern: 'SECRET', path: p }) !== null && refusal(repo, 'Glob', { pattern: '*', path: p }) !== null && refusal(repo, 'Read', { file_path: p }) !== null),
+  'a path with space or a control character around it is refused for Grep, Glob and Read');
+ok([' tools/**', 'tools/** ', '\t*', '$HOME/**'].every((g) => refusal(repo, 'Glob', { pattern: g }) !== null && refusal(repo, 'Grep', { pattern: 'x', glob: g }) !== null) && refusal(repo, 'Grep', { pattern: '$HOME' }) === null && refusal(repo, 'Grep', { pattern: '  two spaces ' }) === null,
+  'a search pattern with space around it or a variable is refused; Grep\'s own regex is not a path and may hold either');
+ok(['.git/**', '**/.git/*', '.git'].every((g) => /git's own folder/.test(refusal(repo, 'Glob', { pattern: g }))) && refusal(repo, 'Glob', { pattern: '.github/**' }) === null && refusal(repo, 'Glob', { pattern: '.gitignore' }) === null,
+  'a pattern into git\'s own folder is refused; .github and .gitignore are not that folder');
+ok(refusal(repo, 'Read', { file_path: '~/x' }) !== null && refusal(repo, 'Grep', { pattern: 'x', path: '$RUNNER_TEMP' }) !== null, 'a path naming the home folder or a variable is refused');
 const deny = await hookFor(repo)({ tool_name: 'Bash', tool_input: { command: 'env' } });
 const allow = await hookFor(repo)({ tool_name: 'Read', tool_input: { file_path: 'tools/a.mjs' } });
 ok(deny.hookSpecificOutput?.permissionDecision === 'deny' && deny.hookSpecificOutput.hookEventName === 'PreToolUse' && JSON.stringify(allow) === '{}', 'the hook answers deny with its reason, and nothing for an allowed call');
@@ -147,12 +162,26 @@ f = await file({ gh: h.gh, repo: 'o/r', runId: '7-1', result: null, sha: 'abcdef
 ok(f.issue === null && spentOf(stateOf(h.issues[0])) === RUN_USD + OVERSHOOT, 'a run that left no result keeps its whole reserve counted');
 h = hub();
 await prepare({ gh: h.gh, repo: 'o/r', settingsText: FILE(), paths: ['tools/a.mjs'], runId: '7-1', now: NOW });
+f = await file({ gh: h.gh, repo: 'o/r', runId: '7-1', result: null, started: false, sha: 'abcdef1234', settingsText: FILE(), now: NOW });
+ok(f.usd === 0 && spentOf(stateOf(h.issues[0])) === 0, 'a run whose agent step never asked a question (a failed install) frees its reserve');
+h = hub();
+await prepare({ gh: h.gh, repo: 'o/r', settingsText: FILE(), paths: ['tools/a.mjs'], runId: '7-1', now: NOW });
 f = await file({ gh: h.gh, repo: 'o/r', runId: '7-1', result: { ...result, usd: 0, costKnown: false, answer: null, text: 'sk-ant-api03-abcdefghijkl cut off' }, sha: 'abcdef1234', settingsText: FILE(), now: NOW });
 ok(f.usd === null && spentOf(stateOf(h.issues.find((i) => i.title === TITLE))) === RUN_USD + OVERSHOOT && !/sk-ant-api03/.test(h.issues.find((i) => i.number === f.issue).body), 'a run whose cost is unknown keeps its reserve; its raw text reaches the issue without anything token-shaped');
 h = hub();
 await prepare({ gh: h.gh, repo: 'o/r', settingsText: FILE(), paths: ['tools/a.mjs'], runId: '7-1', now: NOW });
 f = await file({ gh: h.gh, repo: 'o/r', runId: '7-1', result: { paths: ['tools/a.mjs'], status: 'not started: no identity token', turns: 0, usd: 0, costKnown: true, answer: null, text: '' }, sha: 'abcdef1234', settingsText: FILE(), now: NOW });
 ok(f.usd === 0 && spentOf(stateOf(h.issues.find((i) => i.title === TITLE))) === 0, 'a run stopped before its first question records $0, so a set-up fault does not eat the trial');
+
+// the review of 0.64.0: the end time holds inside the run, not only when it is cleared
+const sdkDir = join(tmp, 'sdk');
+mkdirSync(join(sdkDir, 'node_modules/@anthropic-ai/claude-agent-sdk-linux-x64'), { recursive: true }); mkdirSync(join(sdkDir, 'node_modules/@anthropic-ai/claude-agent-sdk'), { recursive: true });
+writeFileSync(join(sdkDir, 'node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude'), ''); writeFileSync(join(sdkDir, 'node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs'), 'throw new Error("not to be loaded")');
+writeFileSync(join(sdkDir, 'node_modules/@anthropic-ai/claude-agent-sdk/package.json'), JSON.stringify({ version: SDK_VERSION }));
+const until = Date.parse('2026-12-22T23:59+03:00');
+let began = false;
+const late = await agent({ root: repo, sdkDir, dir: join(tmp, 'run'), prep: { ids: on.ids, budget: 5, until: new Date(until).toISOString() }, paths: ['tools/a.mjs'], log: () => {}, now: () => until - 30000, started: () => { began = true; } });
+ok(/not started: .*end time/.test(late.status) && late.usd === 0 && late.costKnown && !began, 'a run cleared just before the end time asks nothing once the end has come');
 
 // --- the command line's plan, on a real git checkout ----------------------------------------------
 const git = (...a2) => execFileSync('git', ['-C', repo, ...a2], { encoding: 'utf8' });

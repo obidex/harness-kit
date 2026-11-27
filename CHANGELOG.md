@@ -12,7 +12,9 @@ No always-loaded text changed, so there is no replay result.
   other tool or path. Paid from the API credit through Claude Code's own identity federation (no stored
   key; `claude auth status` must name it before anything is asked). One issue per run, findings graded and
   marked reproduced or suspected; one record issue with what each run cost. $30 for the whole trial, $15 a
-  run; `until` and the identifiers in `.github/agent-sweep.json`.
+  run; `until` and the identifiers in `.github/agent-sweep.json`. The end time also stops a run under way.
+  A path with space around it, `~` or `$`, and a file name outside a plain set are refused, since Claude
+  Code trims paths after the hook and reads an `@` mention in the prompt itself.
 - **`templates/agent-sweep.yml`**: the job, copied by hand into one project; the kit does not install it.
 - `review.md` "The agent sweep trial"; CI runs `test-agent-sweep`.
 
