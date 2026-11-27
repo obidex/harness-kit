@@ -3,6 +3,19 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.64.0 · 2026-11-27 · a bug sweep by the Agent SDK, paid from the API credit (K075)
+
+No always-loaded text changed, so there is no replay result.
+
+- **`agent-sweep.mjs`**: a trial. One bug sweep of one module by the Claude Agent SDK (pinned 0.3.326, in
+  `tools/agent-sdk/` with its lock) with Read, Grep and Glob only, inside the checkout; a hook refuses any
+  other tool or path. Paid from the API credit through Claude Code's own identity federation (no stored
+  key; `claude auth status` must name it before anything is asked). One issue per run, findings graded and
+  marked reproduced or suspected; one record issue with what each run cost. $30 for the whole trial, $15 a
+  run; `until` and the identifiers in `.github/agent-sweep.json`.
+- **`templates/agent-sweep.yml`**: the job, copied by hand into one project; the kit does not install it.
+- `review.md` "The agent sweep trial"; CI runs `test-agent-sweep`.
+
 ## 0.63.0 · 2026-11-27 · a staff guide written from the code (K074)
 
 No always-loaded text changed, so there is no replay result.

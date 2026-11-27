@@ -73,6 +73,8 @@ jobs:
         run: node tools/test-sweep.mjs
       - name: Staff guide written from the code (the sweep's guide lens)
         run: node tools/test-guide.mjs
+      - name: Agent sweep trial (the Agent SDK, read-only, paid from the credit)
+        run: node tools/test-agent-sweep.mjs
       - name: Replay set and its grader
         run: node tools/test-replay.mjs
       - name: Owner steps (the plan's no-one designs and the Tried line)

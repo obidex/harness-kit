@@ -198,6 +198,34 @@ first. It reads code it cannot run, so a page can still be wrong: someone reads 
 Like the reviewer it cannot run code and sees one batch at a time, so a finding that depends on
 another folder says so, and "no findings" is not evidence that the code works (C07).
 
+## The agent sweep trial (K075)
+
+A trial of one more way to hunt bugs in existing code: the method of a thread's bug sweep (one module,
+high effort, a reader who did not write it, a bug counts only with an exact reproduction), run by the
+Claude Agent SDK in a job, so it is paid from the API credit and not from the weekly allowance.
+`tools/agent-sweep.mjs` with `templates/agent-sweep.yml`; not installed by the kit: a project copies the
+template into `.github/workflows/agent-sweep.yml` by an ordinary reviewed change.
+
+- **Read-only.** The agent has Read, Grep and Glob, inside the checkout only: a hook in the job refuses
+  every other tool and every path outside (symbolic links resolved, `.git` too). No Bash, no edits, no
+  web, no subagents, no MCP; the repository's settings, hooks, skills and CLAUDE.md are not loaded.
+  Running tests is a later step, only after its own review.
+- **No stored key.** Claude Code's own workload identity federation: GitHub's identity token for the run
+  sits in a 0600 file of the job's temporary folder, rewritten every 4 minutes and removed at the end;
+  Claude Code swaps it for an access token that lasts minutes, again on expiry. Its own federation rule,
+  pinned to `agent-sweep.yml` on the default branch and `workflow_dispatch`. Before anything is asked,
+  `claude auth status` must name that federation, so no other credential on the runner can pay. The
+  agent's step holds no GitHub token; `prepare` and `file` write the issues.
+- **Settings.** `.github/agent-sweep.json`: `until` and `command` (the switch, as K055), the four
+  identifiers (`federation_rule`, `organization`, `service_account`, `workspace`; not secrets), and
+  optionally `usd`, which may only lower the cap. Anything unexpected is off.
+- **Money.** $30 for every run of the trial and $15 a run, in code. Before a run starts its budget plus
+  $3 (the one call that may pass the SDK's budget) is written in the record issue ("Agent sweep trial:
+  the record"); it counts until the run's own cost replaces it, and a run that dies keeps it counted. A
+  run stopped before its first question records $0. Closing the record opens no new money.
+- **Output.** One issue per run: findings graded blocker, major or minor, each marked reproduced or
+  suspected; the coordinator sorts them (FIXED, TRACKED or DISMISSED). Private repositories only.
+
 ## Reading a result
 
 | The comment says | Meaning | What the owning thread does |
