@@ -168,8 +168,9 @@ ok(await settingsText(g1, 'o/r') === null && g1.calls.join() === '/repos/o/r,/re
   && await rejects(settingsText(g3, 'o/r', 'main'), /answered 500/) && await rejects(settingsText(g2, 'o/r; x', 'main'), /owner\/name/),
   'the file is read from the default branch: none is no file, any other failure stops the run rather than fall back to a variable');
 const own = JSON.parse(readFileSync(join(ROOT, SETTINGS), 'utf8')), ownS = settingsOf(JSON.stringify(own), {});
-ok(ownS.problem === null && ownS.from.until === 'file' && switchOf({ REVIEW_UNTIL: own.until }, Date.parse(own.until) - 1000).on === true && Object.keys(own).every((k) => ['until', 'command', 'note'].includes(k)),
-  'the kit\'s own settings file is read whole, names an end time with the owner\'s command, and holds no identifier (a public repository keeps those in its variables)');
+ok(ownS.problem === null && ownS.from.until === 'file' && switchOf({ REVIEW_UNTIL: own.until }, Date.parse(own.until) - 1000).on === true && Object.keys(own).every((k) => ['until', 'command', 'provider', 'note'].includes(k))
+  && (own.provider === undefined || Object.hasOwn(PROVIDERS, own.provider)) && ownS.env.REVIEW_PROVIDER === (own.provider ?? undefined),
+  'the kit\'s own settings file is read whole, names an end time with the owner\'s command, holds no identifier (a public repository keeps those in its variables), and its provider, if any, is a known one (K081)');
 
 const sc = settingsOf(JSON.stringify({ ...FILE_ON, scope: `  The interface is English-only until launch. ${'x'.repeat(5000)}` }), {});
 ok(sc.problem === null && sc.scope.startsWith('The interface is English-only until launch.') && sc.scope.length === MAX_SCOPE && settingsOf(JSON.stringify(FILE_ON), {}).scope === '' && settingsOf(null, {}).scope === ''
