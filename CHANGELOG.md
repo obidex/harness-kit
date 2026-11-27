@@ -3,6 +3,31 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.70.0 · 2026-11-27 · the second reviewer may ask another family through OpenRouter, and its noise is counted (K081)
+
+From the strategist's card on the owner's board (27 Nov 2026): every project gets a reviewer that is not of the
+builder's family before the Claude reviewer ends, on OpenRouter, only on endpoints that do not train on requests; and
+each reviewer's dismissed points are counted against the ones that led to a fix. No always-loaded text changed
+(`core.md`, `owner-defaults.md` and the adapters unchanged), so there is no replay result.
+
+- **`review.mjs` provider**: `provider` in `.github/harness-review.json` (or `REVIEW_PROVIDER`), `anthropic` by default
+  or `openrouter`; an unknown name switches the reviewer off. On `openrouter` it asks GLM 5.3 (`z-ai/glm-5.3`) through
+  the Chat Completions API, streamed, with `provider.zdr`, `data_collection: "deny"` and `max_price` at the price
+  counted ($1.40 in, $4.40 out a million tokens). A typical review counts at most about $0.07. The key's monthly
+  limit, too few credits and no qualifying endpoint are named in fixed words; a stream with no token count, or a 200
+  that is not a stream, is lost and counted at its worst case. The switch, settings file, caps and comment are as
+  before; the code checks and the staff guide stay on Claude.
+- **The key**: OpenRouter's keyless sign-in is on its paid Business plan only, so the workflow now reads one secret,
+  `OPENROUTER_API_KEY`, in the review step's environment alone (a test holds that it is the only one).
+- **`review.mjs noise`**: per model, reviews, points raised (recorded per run as `points`) and the FIXED, TRACKED and
+  DISMISSED counts from the owning thread's tally line, which the comment now asks for
+  ("Second review of `<commit>`: N FIXED, N TRACKED, N DISMISSED"), with `noise` and `led_to_fix` shares.
+- Checks: `test-review` 116-131, each failing without the change; test 103's "no secret is read" became the narrower
+  "only OPENROUTER_API_KEY, once, in the review step's environment" (K081); test 3 now names the models every
+  provider may call.
+
+Trial: 3 of 4 projects green; 1 red with the fix prepared at 42a4b0883d07
+
 ## 0.69.1 · 2026-11-27 · a refused API call says when the credit or a spend limit stopped it (K054 follow-up)
 
 The second reviewer answered `400 invalid_request_error` on every call in every project from 27 Nov 09:53 UTC. The
