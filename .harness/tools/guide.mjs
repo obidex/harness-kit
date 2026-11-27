@@ -23,10 +23,12 @@
 // Started by hand only, inside the owner's window: it runs only while the reviewer's switch is open
 // (the end time in .github/harness-review.json, or REVIEW_UNTIL; review.mjs, K060), through the full
 // check's own federation rule (sweep_rule), so it needs no new rule and no stored key. A batch is never
-// sent once the switch is off; one still running at Anthropic when it ends is cancelled.
+// sent once the switch is off; one still running when it ends is cancelled by the run waiting for it
+// (a batch with no run waiting finishes within its worst case, which is already counted).
 //
-// Caps, in code: GUIDE_USD dollars for one guide, priced at the Batch API's half price (sweep_usd in
-// the settings file, or REVIEW_SWEEP_USD, may only lower it). Before a batch is sent its worst case is
+// Caps, in code: GUIDE_USD dollars for every guide of one window (one end time), in any language, open
+// or closed, priced at the Batch API's half price (sweep_usd in the settings file, or REVIEW_SWEEP_USD,
+// may only lower it). Before a batch is sent its worst case is
 // written down and counted; a batch whose worst case does not fit is cut to the sections that do. The
 // record issue is the state: a run that stops (the cap, the window, the job's time, a batch still
 // running) says so there, and starting it again continues. Closing the record issue ends that guide.
@@ -63,8 +65,17 @@ export function langOf(lens) {
 export const titleOf = (lang) => `Staff guide (${LANGS[lang].name}): one page per screen, from the code`;
 /** Half the Messages API price: the Batch API's. */
 export const batchCost = (model, usage) => Math.round(cost(model, usage) / 2 * 1e4) / 1e4;
-/** The most a request could cost at batch price: every 2.5 characters a token, full output. */
-export const worstOf = (chars) => batchCost(MODEL, { input_tokens: Math.ceil(chars / 2.5), output_tokens: MAX_OUT });
+/** At most how many tokens a text is: 2.5 characters a token for ASCII (as the sweep counts code), and
+ *  two tokens for every other character, so Arabic is never counted low. A number is ASCII characters. */
+export function tokensOf(text) {
+  if (typeof text === 'number') return Math.ceil(text / 2.5);
+  let ascii = 0, other = 0;
+  for (const ch of String(text)) { if (ch.charCodeAt(0) < 128) ascii++; else other++; }
+  return Math.ceil(ascii / 2.5) + other * 2;
+}
+/** The most a request could cost at batch price: its input at tokensOf, full output. */
+export const worstOf = (text) => batchCost(MODEL, { input_tokens: tokensOf(text), output_tokens: MAX_OUT });
+const worstTok = (n) => batchCost(MODEL, { input_tokens: n, output_tokens: MAX_OUT });
 
 // --- which screens ------------------------------------------------------------------------------------
 const PAGE = /^(?:.*\/)?app\/((?:[^/]+\/)*)page\.(?:tsx|jsx|ts|js)$/;
@@ -114,7 +125,7 @@ export function sections(files) {
     parts.filter((p) => p.length).forEach((p, i, all) => {
       const fl = [...labels, ...p];
       out.push({ name: all.length > 1 ? `${name} (part ${i + 1} of ${all.length})` : name, section: name, screens: p.filter((f) => PAGE.test(f.path)).map((f) => f.path),
-        files: fl, chars: fl.reduce((x, f) => x + f.text.length + f.path.length + 40, 0), key: sha256(JSON.stringify(fl.map((f) => [f.path, sha256(f.text)]))).slice(0, 16) });
+        files: fl, chars: fl.reduce((x, f) => x + f.text.length + f.path.length + 40, 0), tok: fl.reduce((x, f) => x + tokensOf(f.text) + tokensOf(f.path.length + 40), 0), key: sha256(JSON.stringify(fl.map((f) => [f.path, sha256(f.text)]))).slice(0, 16) });
     });
   }
   return { list: out, left };
@@ -167,7 +178,8 @@ export function checked(msg) {
 export function plan({ gathered: g, lang }) {
   if (!Object.hasOwn(LANGS, lang)) throw new Error('a guide needs a language');
   const s = sections(g.files);
-  const list = s.list.map((x) => ({ ...x, worst: worstOf(x.chars + WRITE('x'.repeat(12), lang).length) + worstOf(x.chars + MAX_OUT * 4 + CHECK('x'.repeat(12), lang).length) }));
+  // the check carries the page back: at most MAX_OUT tokens, since the write could give no more
+  const list = s.list.map((x) => ({ ...x, worst: worstTok(x.tok + tokensOf(WRITE('x'.repeat(12), lang)) + 200) + worstTok(x.tok + MAX_OUT + tokensOf(CHECK('x'.repeat(12), lang)) + 200) }));
   return { lang, sections: list, left: s.left, tooLarge: g.tooLarge, worst: Math.round(list.reduce((n, x) => n + x.worst, 0) * 100) / 100 };
 }
 export const brief = (p, cap) => ({
@@ -195,7 +207,7 @@ export function spentOf(state) {
   return Math.round(usd * 1e4) / 1e4;
 }
 const FOOT = '<sub>Written from the code by a model and checked against the same code by a second pass. It ran no code and saw one section at a time, so a page can still be wrong: read it against the screen before staff rely on it. This project\'s coordinator copies the pages where staff read them.</sub>';
-export function recordBody(state, p, cap) {
+export function recordBody(state, p, cap, others = 0) {
   const posted = p.sections.filter((s) => state.posted[s.key]);
   const left = p.sections.length - posted.length;
   const status = state.stopped ? `**Stopped:** ${state.stopped}. ${left} of ${p.sections.length} sections have no page yet; starting it again continues.`
@@ -203,12 +215,12 @@ export function recordBody(state, p, cap) {
   return [
     mark(state), `A staff guide in ${LANGS[p.lang].name}, written from the code at \`${String(state.sha).slice(0, 7)}\`: one page per screen section, each checked against the same code. Started ${state.started}.`, '', status, '',
     '| | |', '|---|---|',
-    `| Spent | $${spentOf(state).toFixed(2)} of $${cap.toFixed(2)} for this guide (Batch API) |`,
+    `| Spent | $${spentOf(state).toFixed(2)} (Batch API)${others ? `, and $${others.toFixed(2)} by earlier guides in the same window` : ''}, of $${cap.toFixed(2)} for the window |`,
     `| Read | ${p.sections.reduce((n, s) => n + s.screens.length, 0)} screens in ${p.sections.length} sections |`,
     `| Left out for size | ${p.left.length ? p.left.slice(0, 30).map((x) => `\`${label(x)}\``).join(', ') : 'nothing'} |`,
     ...(posted.length ? ['', 'Pages, one comment each:', ...posted.map((s) => `- ${label(s.name)}: ${String(state.posted[s.key]).startsWith('http') ? state.posted[s.key] : `comment ${Number(state.posted[s.key])}`}`)] : []),
     ...(Object.keys(state.failed || {}).length ? ['', `No page for: ${p.sections.filter((s) => state.failed[s.key]).map((s) => label(s.name)).slice(0, 40).join(', ')}.`] : []),
-    '', 'Closing this issue ends this guide: the next start is a new one.', '', FOOT,
+    '', 'Closing this issue ends this guide: the next start is a new one, within what is left of the window\'s cap.', '', FOOT,
   ].join('\n');
 }
 /** One page's comment. */
@@ -229,19 +241,25 @@ export async function guide({ gh, api, repo, sha, p, env = {}, now = () => Date.
   if (p.sections.length > MAX_SECTIONS) return { status: 'too-large', why: `${p.sections.length} sections, over ${MAX_SECTIONS} for one guide: name folders instead` };
   const cap = capOf(GUIDE_USD, env.REVIEW_SWEEP_USD);
   const began = now();
-  const open = await pages(gh, `/repos/${repo}/issues?state=open&sort=created&direction=desc`, null, 10);
-  if (!open) return { status: 'too-large', why: 'more than 1000 open issues; the record is not looked for in part' };
+  // every guide record the job ever filed, open or closed, in any language: the cap is for the window
+  const all = await pages(gh, `/repos/${repo}/issues?state=all&creator=${encodeURIComponent(BOT)}&sort=created&direction=desc`, null, 10);
+  if (!all) return { status: 'too-large', why: 'more than 1000 issues by the job; the records are not counted in part' };
+  const guides = all.filter((i) => Object.keys(LANGS).some((l) => i.title === titleOf(l)) && stateOf(i));
   const title = titleOf(p.lang);
-  let issue = open.find((i) => i.title === title && stateOf(i));
-  const state = issue ? stateOf(issue) : { v: 1, lang: p.lang, started: new Date(now()).toISOString(), sha, cost: {}, posted: {}, failed: {}, lost: 0, write: null, check: null, stopped: null };
+  let issue = guides.find((i) => i.state === 'open' && i.title === title);
+  // a closed record, or another language's, still counts against this window's cap (one with no window
+  // written counts too); only a record of an earlier end time does not
+  const others = Math.round(guides.filter((i) => i !== issue).map(stateOf).filter((x) => !x.until || x.until === sw.until).reduce((n, x) => n + spentOf(x), 0) * 1e4) / 1e4;
+  const state = issue ? stateOf(issue) : { v: 1, lang: p.lang, until: sw.until, started: new Date(now()).toISOString(), sha, cost: {}, posted: {}, failed: {}, lost: 0, write: null, check: null, stopped: null };
   state.failed ||= {};
   state.stopped = null;
-  const save = async () => { const b = recordBody(state, p, cap); issue = issue ? await gh('PATCH', `/repos/${repo}/issues/${issue.number}`, { body: b }) : await gh('POST', `/repos/${repo}/issues`, { title, body: b }); };
+  const roomLeft = () => cap - others - spentOf(state);
+  const save = async () => { const b = recordBody(state, p, cap, others); issue = issue ? await gh('PATCH', `/repos/${repo}/issues/${issue.number}`, { body: b }) : await gh('POST', `/repos/${repo}/issues`, { title, body: b }); };
   if (!issue) await save();
   const byKey = new Map(p.sections.map((s) => [s.key, s]));
   const tag = () => randomBytes(6).toString('hex');
   const timeUp = () => now() - began > RUN_MINUTES * 60000;
-  const finish = async (stopped) => { if (stopped) state.stopped = stopped; await save(); return { status: state.stopped ? 'stopped' : 'finished', why: state.stopped || undefined, issue: issue?.number, posted: Object.keys(state.posted).length, of: p.sections.length, usd: spentOf(state), cap }; };
+  const finish = async (stopped) => { if (stopped) state.stopped = stopped; await save(); return { status: state.stopped ? 'stopped' : 'finished', why: state.stopped || undefined, issue: issue?.number, posted: Object.keys(state.posted).length, of: p.sections.length, usd: spentOf(state), window_usd: Math.round((others + spentOf(state)) * 1e4) / 1e4, cap }; };
 
   // send a batch: its worst case is written down first, so a run that dies before the id is saved still counts it
   const send = async (kind, reqs, worst) => {
@@ -263,10 +281,14 @@ export async function guide({ gh, api, repo, sha, p, env = {}, now = () => Date.
   // wait for a batch; its results by section key, or a reason to stop
   const results = async (kind) => {
     const id = state[kind].id;
-    let cancelled = false;
+    let cancelled = false, misses = 0;
     for (;;) {
       const r = await api('GET', `/v1/messages/batches/${id}`);
-      if (r.status !== 200) return { why: `the ${kind} batch could not be read (${r.status})` };
+      if (r.status !== 200) {
+        if (++misses >= 3) return { why: `the ${kind} batch could not be read (${r.status}, 3 times); starting again continues with it` };
+        await sleep(POLL_MS); continue;
+      }
+      misses = 0;
       if (r.json?.processing_status === 'ended') break;
       if (!cancelled && !switchOf(env, now()).on) { cancelled = true; await api('POST', `/v1/messages/batches/${id}/cancel`); log(`${kind}: the switch ended; batch cancelled`); }
       if (timeUp()) return { why: `the ${kind} batch is still running at Anthropic; starting again continues with it` };
@@ -278,7 +300,8 @@ export async function guide({ gh, api, repo, sha, p, env = {}, now = () => Date.
     for (const line of String(r.text || '').split('\n')) {
       let x; try { x = line.trim() ? JSON.parse(line) : null; } catch { x = null; }
       const key = String(x?.custom_id || '').slice(2);
-      if (!x || !byKey.has(key) || !state[kind].keys.includes(key)) continue;
+      // every answer of this batch is counted, also for a section the plan no longer has (its files changed)
+      if (!x || !state[kind].keys.includes(key)) continue;
       out.set(key, x.result?.type === 'succeeded' ? { msg: x.result.message } : { err: String(x.result?.type || 'errored').replace(/[^\w-]/g, '').slice(0, 20) });
     }
     return { out };
@@ -296,12 +319,12 @@ export async function guide({ gh, api, repo, sha, p, env = {}, now = () => Date.
     const todo = p.sections.filter((s) => !state.posted[s.key] && !state.failed[s.key]);
     if (!todo.length) return finish(null);
     const pick = [];
-    let room = cap - spentOf(state);
+    let room = roomLeft();
     for (const s of todo) if (s.worst <= room) { room -= s.worst; pick.push(s); }
-    if (!pick.length) return finish(`the cap for one guide is reached ($${spentOf(state).toFixed(2)} of $${cap.toFixed(2)} spent)`);
+    if (!pick.length) return finish(`the cap for the window is reached ($${(others + spentOf(state)).toFixed(2)} of $${cap.toFixed(2)} spent by guides)`);
     if (!switchOf(env, now()).on) return finish('the reviewer\'s time ended');
     const reqs = pick.map((s) => ({ key: s.key, params: writeRequest(s, tag(), p.lang) }));
-    const worst = Math.round(reqs.reduce((n, x) => n + worstOf(JSON.stringify(x.params).length), 0) * 1e4) / 1e4;
+    const worst = Math.round(reqs.reduce((n, x) => n + worstOf(JSON.stringify(x.params)), 0) * 1e4) / 1e4;
     const why = await send('write', reqs, worst);
     if (why) return finish(why);
   }
@@ -311,21 +334,22 @@ export async function guide({ gh, api, repo, sha, p, env = {}, now = () => Date.
   const drafts = new Map();
   if (!state.check) {
     for (const [key, a] of w.out) {
-      if (a.err) { state.failed[key] = `write ${a.err}`; continue; }
+      // cancelled or expired is not billed and is written again by a later start; an error is for good
+      if (a.err) { if (!['canceled', 'expired'].includes(a.err)) state.failed[key] = `write ${a.err}`; continue; }
       charge(key, 'w', a.msg);
+      if (!byKey.has(key)) continue;
       const t = textOf(a.msg);
       if (t && a.msg.stop_reason !== 'refusal') drafts.set(key, t); else state.failed[key] = 'write gave no page';
     }
-    for (const key of state.write.keys) if (!w.out.has(key) && !state.failed[key]) state.failed[key] = 'write had no result';
     state.write.worst = 0;
-  } else for (const [key, a] of w.out) if (a.msg) drafts.set(key, textOf(a.msg));
+  } else for (const [key, a] of w.out) if (a.msg && byKey.has(key)) drafts.set(key, textOf(a.msg));
   // 3. the check batch: every draft, as far as the room allows (a page that cannot be checked is posted as a draft)
   if (!state.check) {
-    let room = cap - spentOf(state);
+    let room = roomLeft();
     const reqs = [];
     for (const [key, d] of drafts) {
       const params = checkRequest(byKey.get(key), d, tag(), p.lang);
-      const worst = worstOf(JSON.stringify(params).length);
+      const worst = worstOf(JSON.stringify(params));
       if (worst <= room) { room -= worst; reqs.push({ key, params, worst }); }
     }
     if (reqs.length) {
@@ -347,6 +371,7 @@ export async function guide({ gh, api, repo, sha, p, env = {}, now = () => Date.
     const body = ck?.page ? pageComment(s, ck.page, ck.fixes, sha) : pageComment(s, d, null, sha).replace('The second pass gave no list of corrections.', `Not checked: ${a?.err ? `the second pass answered ${a.err}` : 'the cap left no room for the second pass'}.`);
     const made = await gh('POST', `/repos/${repo}/issues/${issue.number}/comments`, { body });
     state.posted[key] = String(made?.html_url || made?.id || 'posted').slice(0, 200);
+    await save();   // a later failure never posts this page twice
     log(`page posted: ${s.name}`);
   }
   state.write = null; state.check = null;
@@ -359,7 +384,7 @@ export async function guide({ gh, api, repo, sha, p, env = {}, now = () => Date.
  *  the API's own host are called, so the token never leaves for another host. */
 export function apiCaller(env, base) {
   let token = null, at = 0;
-  return async (method, path, body) => {
+  const call = async (method, path, body) => {
     if (!/^\/v1\/messages\/batches(\/msgbatch_[A-Za-z0-9]+(\/(results|cancel))?)?$/.test(path)) throw new Error('not a Batch API path');
     if (!token || Date.now() - at > 240000) { at = Date.now(); token = exchange(env, base); token.catch(() => { token = null; }); }
     try {
@@ -369,6 +394,9 @@ export function apiCaller(env, base) {
       return { status: r.status, json, text };
     } catch (e) { return { status: 0, json: { error: { type: String(e?.name || 'error') } }, text: '' }; }
   };
+  // a set-up fault (a missing or refused rule) fails here, before any batch could count against the cap
+  call.ready = async () => { at = Date.now(); token = exchange(env, base); token.catch(() => { token = null; }); await token; };
+  return call;
 }
 /** sweep.mjs hands a `staff-guide-<lang>` lens here, with its checkout and settings. */
 export async function main({ cmd, root, only, lang, estimate, inActions, base, gather }) {
@@ -390,6 +418,7 @@ export async function main({ cmd, root, only, lang, estimate, inActions, base, g
   const repo = process.env.GITHUB_REPOSITORY;
   const sha = execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
   const api = apiCaller({ ...set.env, REVIEW_FEDERATION_RULE: set.env.REVIEW_SWEEP_RULE }, base);
+  if (switchOf(set.env).on && p.sections.length) await api.ready();
   const out = await guide({ gh: github, api, repo, sha, p, env: set.env, log: (m) => console.log(`guide: ${m}`) });
   console.log(`guide: ${JSON.stringify(out)}`);
   if (['off', 'too-large'].includes(out.status)) { console.error(`guide: ${out.why}`); process.exit(1); }

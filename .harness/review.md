@@ -192,7 +192,7 @@ route part and writes one page of a staff guide per group from its code and its 
 Batch API at half price; a second batch checks each page against the same code and corrects what the
 code does not support. The pages go on one record issue ("Staff guide (<language>): one page per screen,
 from the code"), a comment each; the coordinator copies them where staff read them. Same switch, same
-federation rule (`sweep_rule`), $15 for one guide; `estimate` prints the sections and the worst case
+federation rule (`sweep_rule`), $15 for all guides of one window, in any language; `estimate` prints the sections and the worst case
 first. It reads code it cannot run, so a page can still be wrong: someone reads it against the screen.
 
 Like the reviewer it cannot run code and sees one batch at a time, so a finding that depends on

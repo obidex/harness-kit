@@ -9,7 +9,7 @@ import { execFile, execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { langOf, sectionOf, sections, writeRequest, checkRequest, checked, plan, brief, stateOf, spentOf, recordBody, pageComment, guide, apiCaller, titleOf, batchCost, worstOf,
+import { langOf, sectionOf, sections, writeRequest, checkRequest, checked, plan, brief, stateOf, spentOf, recordBody, pageComment, guide, apiCaller, titleOf, batchCost, worstOf, tokensOf,
   MARK, GUIDE_USD, MODEL, SECTION, MAX_OUT, LANGS, RUN_MINUTES } from '../.harness/tools/guide.mjs';
 import { gather } from '../.harness/tools/sweep.mjs';
 import { RISK_MODEL, cost } from '../.harness/tools/review.mjs';
@@ -81,7 +81,11 @@ function world(over = {}) {
     w.calls.push(`${method} ${path.split('?')[0]}`);
     const u = new URL(path, 'http://x'), page = Number(u.searchParams.get('page') || 1);
     let m;
-    if (u.pathname === '/repos/o/r/issues' && method === 'GET') return w.issues.filter((i) => i.state === 'open').slice((page - 1) * 100, page * 100);
+    if (u.pathname === '/repos/o/r/issues' && method === 'GET') {
+      if (w.fail.list) return w.fail.list;
+      const st = u.searchParams.get('state') || 'open', by = u.searchParams.get('creator');
+      return w.issues.filter((i) => (st === 'all' || i.state === st) && (!by || i.user.login === by)).slice((page - 1) * 100, page * 100);
+    }
     if (u.pathname === '/repos/o/r/issues' && method === 'POST') { const i = { number: w.nextNo++, state: 'open', title: data.title, body: data.body, ...BOT }; w.issues.unshift(i); return i; }
     if ((m = u.pathname.match(/^\/repos\/o\/r\/issues\/(\d+)$/)) && method === 'PATCH') { const i = w.issues.find((x) => x.number === Number(m[1])); i.body = data.body; return i; }
     if ((m = u.pathname.match(/^\/repos\/o\/r\/issues\/(\d+)\/comments$/)) && method === 'POST') { const cm = { id: 900 + w.comments.length, html_url: `https://github.test/o/r/issues/${m[1]}#c${w.comments.length}`, body: data.body }; w.comments.push(cm); return cm; }
@@ -142,7 +146,27 @@ r = await wd.go({ env: { REVIEW_SWEEP_USD: String(p.sections[0].worst + 0.0001) 
 ok(r.status === 'stopped' && [...wd.batches.values()][0].reqs.length === 1 && wd.comments.length === 1 && /left for the next start/.test(r.why), 'a cap lowered in the settings sends only the sections whose write and check fit it');
 wd = world();
 r = await wd.go({ env: { REVIEW_SWEEP_USD: '0' } });
-ok(r.status === 'stopped' && /cap for one guide is reached/.test(r.why) && wd.sent() === 0, 'with no room under the cap nothing is sent');
+ok(r.status === 'stopped' && /cap for the window is reached/.test(r.why) && wd.sent() === 0, 'with no room under the cap nothing is sent');
+// the cap is for the window: a closed record and another language's guide count against it (second reviewer, PR 117)
+wd = world();
+r = await wd.go();
+const first = r.usd;
+wd.record().state = 'closed';
+r = await wd.go({ env: { REVIEW_SWEEP_USD: String(first + p.sections[0].worst / 2) } });
+ok(r.status === 'stopped' && /cap for the window is reached/.test(r.why) && wd.sent() === 2 && Math.abs(r.window_usd - first) < 0.001 && /by earlier guides in the same window/.test(wd.issues[0].body),
+  'closing the record does not open a new cap: what a closed guide spent in the same window counts, and nothing more is sent');
+const pEn = { ...p, lang: 'en' };
+r = await wd.go({ p: pEn, env: { REVIEW_SWEEP_USD: String(first + p.sections[0].worst / 2) } });
+ok(r.status === 'stopped' && wd.sent() === 2, 'a guide in another language shares the same window\'s cap');
+wd.issues.forEach((i) => { const x = stateOf(i); if (x) { x.until = '2026-11-30T20:59:00.000Z'; i.body = i.body.replace(/^<!-- harness-guide \{[^\n]*\} -->/, `<!-- ${MARK} ${JSON.stringify(x)} -->`); } });
+r = await wd.go({ p: pEn });
+ok(r.status === 'finished' && wd.sent() === 4, 'a guide of an earlier window (another end time) does not count against this one');
+wd = world(); wd.fail.list = Array.from({ length: 100 }, (_, i) => ({ number: i, state: 'open', title: 'x', body: '', ...BOT }));
+r = await wd.go();
+ok(r.status === 'too-large' && wd.sent() === 0, 'when the job\'s records cannot all be read, nothing is sent rather than counting in part');
+// Arabic is never counted low
+ok(tokensOf('abcde') === 2 && tokensOf('مرحبا') === 10 && tokensOf(5) === 2 && worstOf('م'.repeat(1000)) === batchCost(MODEL, { input_tokens: 2000, output_tokens: MAX_OUT }),
+  'the worst case counts two tokens for every non-ASCII character, so an Arabic page or labels file is never counted low');
 ok(p.sections.every((x) => x.worst * 3 > 0) && GUIDE_USD === 15, 'one guide is capped at $15 in code (the owner\'s part 5 of the credit plan)');
 
 // the switch
@@ -163,6 +187,29 @@ ok(r.status === 'stopped' && /still running at Anthropic/.test(r.why) && mid.wri
 wd.endAfter = 0; wd.clock = NOW;
 r = await wd.go();
 ok(r.status === 'finished' && wd.sent() === 2 && wd.comments.length === 3, 'the next start reads that same batch (nothing sent twice), then checks and posts');
+// a resume after the code changed still counts what the first batch cost (independent review, PR 117)
+wd = world({ endAfter: 1e9 });
+await wd.go();
+const changed = plan({ gathered: gather({ paths: files.map((f) => f.path), stat: () => ({ isFile: () => true, isSymbolicLink: () => false, size: 200 }), read: (x) => (x.endsWith('common.ts') ? 'changed' : files.find((f) => f.path === x).text) }), lang: 'ar' });
+ok(changed.sections.every((x) => !p.sections.some((y) => y.key === x.key)), 'a changed common labels file changes every section\'s key');
+wd.endAfter = 0; wd.clock = NOW;
+r = await wd.go({ p: changed });
+const paid = 3 * batchCost(MODEL, { input_tokens: 1000, output_tokens: 500 });
+ok(spentOf(stateOf(wd.record())) >= paid - 1e-9 && Object.keys(stateOf(wd.record()).cost).length >= 3, 'the answers of a batch read back after the code changed are still counted, though the plan no longer has their sections');
+// a poll that fails once is tried again; a page posted is never posted twice
+wd = world(); let bad = 1;
+const api0 = wd.api; wd.api = async (m, path, body) => (m === 'GET' && /msgbatch_\w+$/.test(path) && bad-- > 0 ? { status: 503, json: null, text: '' } : api0(m, path, body));
+r = await wd.go();
+ok(r.status === 'finished' && wd.comments.length === 3, 'a batch that cannot be read once is read again on the next poll');
+wd = world(); let nth = 0;
+const gh0 = wd.gh; wd.gh = async (m, path, data) => { if (m === 'POST' && /comments$/.test(path) && ++nth === 2) throw new Error('POST comments answered 502'); return gh0(m, path, data); };
+await wd.go().catch(() => null);
+wd.gh = gh0;
+r = await wd.go();
+ok(wd.comments.length === 3 && new Set(wd.comments.map((x) => x.body.split('\n')[0])).size === 3, 'when posting a page fails midway, the next start posts only the pages not yet posted');
+wd = world(); wd.fail['w-result'] = 'canceled';
+r = await wd.go();
+ok(Object.keys(stateOf(wd.record()).failed).length === 0 && wd.comments.length === 0, 'a cancelled or expired answer is not marked failed for good: a later start writes it again');
 
 // refusals and failures
 wd = world(); wd.fail.send = { status: 402, json: { error: { type: 'billing_error' } } };
