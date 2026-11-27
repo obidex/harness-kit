@@ -50,8 +50,8 @@ each run is short and fresh: it starts on an event, reads the state, acts, write
    `OWNER ASKS`, each ask one item of three parts:
    `- Do: <what he must do> · Why only you: <kind> — <why only he can> · Answer: <https link where he answers>`.
    `<kind>` is one of what the owner keeps (O01): `money`, `design`, `decision`, `sign-in`, `secret`,
-   `account`, `his machine`, `setting`, `refused`. No item means none; the field then holds `- None.` or
-   nothing. Anything else for him to know (what was checked, what an agent holds, what may reach him later)
+   `account`, `his machine`, `setting`, `refused`. No item means none; the field then holds `- None.`
+   (an empty field is refused). A line shaped like an ask anywhere else is refused too. Anything else for him to know (what was checked, what an agent holds, what may reach him later)
    goes under the heading `REMARKS`, which no reader counts. An item is written only after the checks before
    "needs you" (an agent may hold it, he may have approved it); a step that blocks no work is an item too
    (C03's "Only you"). The older headings `NEEDS OWNER`, `NEEDS YOU`, `OWNER WAITS` and `WAITING FOR YOU`

@@ -25,7 +25,7 @@ ok(two.asks[0].do === 'tap A or B for the new look' && two.asks[0].kind === 'des
 const none = read(note(NONE));
 ok(none.problems.length === 0 && none.asks.length === 0 && none.found, '"- None." is a well-formed note with no ask');
 const empty = read(note(''));
-ok(empty.problems.length === 0 && empty.asks.length === 0, 'no item means none');
+ok(empty.asks.length === 0 && empty.problems.some((p) => /is empty/.test(p.why) && p.line === 7), 'no item means none, and an empty field is refused: "- None." says it on purpose');
 // The case of 27 Nov 2026 (roadmap#213): "None from this run." followed by remarks was counted as one ask.
 ok(asksOf(note(NONE)).length === 0 && asksOf(note('')).length === 0, 'remarks under REMARKS are never an ask');
 const remarkInAsks = read(note('- None from this run. #219\'s picks will reach him later, which is not an ask yet.'));
@@ -49,6 +49,16 @@ ok(read(note(`${A1}\n${A1}`)).problems.some((p) => /the same ask twice/.test(p.w
 ok(read(`## ${HEADING}\n${A1}\n## ${REMARKS}\n- x`).asks.length === 1 && read(`**${HEADING}:**\n${A1}\n`).asks.length === 1, 'the heading may be a Markdown heading or bold');
 ok(read(`${HEADING}\n${A1}\nLATER / IDEAS\n- not an ask`).asks.length === 1 && read(`${HEADING}\n${A1}\nLATER / IDEAS\n- not an ask`).problems.length === 0, 'the next heading ends the section');
 
+// --- an ask is never dropped silently (the independent review of K082) ------------------------------------
+const I = '- Do: Pay · Why only you: money — x · Answer: https://x.test/1';
+ok(read(`## ${HEADING}\n\n### ERP\n${I}\n\n## ${REMARKS}\nx`).problems.some((p) => p.line === 4 && /outside/.test(p.why)), 'an ask below a sub-heading inside the field is refused, not dropped');
+ok(read(`${HEADING}\n**Platform**\n${I}`).problems.length >= 1 && read(`${HEADING}\nPLATFORM:\n${I}`).problems.length >= 1, 'a bold or capital project name under the field does not hide the asks below it');
+ok(read(`${HEADING}\n**Do:** Pay · **Why only you:** money — x · **Answer:** https://x.test/1`).problems.some((p) => p.line === 2 && /not an item/.test(p.why)), 'an ask with bold labels is refused, never taken for a heading');
+ok(read(`${HEADING}\nPAY THE INVOICE NOW\n\n${REMARKS}`).problems.some((p) => /is empty/.test(p.why)), 'a heading straight after the field leaves it empty, which is refused');
+ok(read(`${HEADING}\n${NONE}\n\n${REMARKS}\n${I}`).problems.some((p) => p.line === 5 && /outside/.test(p.why)), 'an ask written under REMARKS is refused, not passed uncounted');
+ok(/names nothing/.test(parseItem('- Do: No action; remark only · Why only you: decision — fyi · Answer: https://x.test/1').problem), 'a remark dressed as an ask is refused');
+ok(/starts with one of/.test(parseItem('- Do: x · Why only you: money-x · Answer: https://x.test/1').problem), 'a kind glued to its reason is refused');
+
 // --- writing one item --------------------------------------------------------------------------------
 const made = item({ do: 'Sign in to the provider  once', kind: 'Sign-in', why: 'his password', answer: 'https://x.test/9' });
 ok(made === '- Do: Sign in to the provider once · Why only you: sign-in — his password · Answer: https://x.test/9' && parseItem(made).item, 'item writes one well-formed line');
@@ -68,6 +78,8 @@ r = await run(['check', '--file', join(dir, 'bad.md')]);
 ok(r.code === 1 && /STATE-NOTE: FAIL line 8: not an item/.test(r.out), 'check fails a note with a remark under OWNER ASKS, naming the line');
 r = await run(['asks', '--file', join(dir, 'good.md')]);
 ok(r.code === 0 && JSON.parse(r.out).length === 2, 'asks prints the items as JSON');
+r = await run(['asks', '--file', join(dir, 'bad.md')]);
+ok(r.code === 1 && JSON.parse(r.out).length === 0 && /STATE-NOTE: FAIL line 8/.test(r.err), 'asks on a broken note exits 1 and says why, so a short count is never taken as whole');
 
 const srv = createServer((req, res) => {
   if (req.url === '/repos/o/r/issues/54' && req.headers.authorization === 'Bearer t0k') { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ number: 54, body: note(NONE) })); return; }

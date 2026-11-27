@@ -5,7 +5,8 @@
 //        the note's OWNER ASKS section is well formed: exit 0 and `STATE-NOTE: OK <n> owner ask(s)`, else
 //        one `STATE-NOTE: FAIL <line>: <why>` per problem and exit 1. Run it on the body before the run writes it.
 //   node .harness/tools/state-note.mjs asks (--file <path> | --issue <n> --repo <owner/name>)
-//        the owner asks as JSON, `[{ do, kind, why, answer }]`; `[]` means none. What a status page counts.
+//        the owner asks as JSON, `[{ do, kind, why, answer }]`; `[]` means none. What a status page counts. Exit 1
+//        (the problems on stderr) when the note would fail `check`: what it printed may be short.
 //   node .harness/tools/state-note.mjs item --do "<what he must do>" --kind <kind> --why "<why only he can>" --answer <url>
 //        prints one well-formed item line, or refuses with why.
 //
@@ -15,7 +16,8 @@
 //
 //   - Do: <what he must do> · Why only you: <kind> — <why only he can> · Answer: <https link where he answers>
 //
-// or the one line `- None.`. No item means none. <kind> is one of KINDS: the only things the owner keeps
+// or the one line `- None.`, which an empty field must hold. No item means none. A line shaped like an ask
+// ("Do: … Why only you: …") never ends the field, and one outside it is refused. <kind> is one of KINDS: the only things the owner keeps
 // (O01; project instructions): money, a design pick, a business decision, a sign-in or a code, a secret only he
 // holds, a new account, a step on his own machine or a physical one, a paid or owner-only setting, an action
 // refused to every agent. Anything else for him to know goes under the heading `REMARKS`, which no reader
@@ -42,8 +44,10 @@ const OLD_HEAD = /^\s*(?:#+\s*)?(?:\*\*)?\s*(?:NEEDS (?:THE )?(?:OWNER|YOU)|OWNE
 const NEXT_HEAD = /^\s*(#+\s|[A-Z][A-Z ,()'/-]{3,}:?\s*$|\*\*[A-Z])/;
 const ITEM = /^\s*[-*]\s+Do:\s+(\S.*?)\s+·\s+Why only you:\s+(\S.*?)\s+·\s+Answer:\s+(\S+)\s*$/;
 const NONE_LINE = /^\s*[-*]\s+None\.?\s*$/i;
-const KIND = new RegExp(`^(${KINDS.map((k) => k.replace('-', '\\-')).join('|')})\\s*[—–:,-]\\s*(\\S.*)$`, 'i');
-const EMPTY_DO = /^(?:none|nothing|no one|nobody|n\/a|[-—–])\b/i;
+// Shaped like an ask, written well or not (bold labels, no dash): never a heading, and never outside the field.
+const LOOSE_ITEM = /\bDo\b\W{0,4}\s.*\bWhy only you\b/i;
+const KIND = new RegExp(`^(${KINDS.map((k) => k.replace('-', '\\-')).join('|')})(?:\\s+[—–-]|\\s*[:,])\\s+(\\S.*)$`, 'i');
+const EMPTY_DO = /^(?:none|nothing|no one|nobody|n\/a|fyi|remark|no (?:new |owner )?(?:action|ask|step|request|decision)s?|[-—–])(?:\b|\s|$)/i;
 const LINK = /^https:\/\/[^\s<>"']+$/;
 const MAX = 300;
 
@@ -69,19 +73,26 @@ export function read(body) {
   lines.forEach((l, i) => { if (OLD_HEAD.test(l)) problems.push({ line: i + 1, why: `an older heading that readers count as owner steps; asks go under ${HEADING}, the rest under ${REMARKS}` }); });
   if (!heads.length) problems.push({ line: 0, why: `no ${HEADING} heading: every note carries it, with "${NONE}" when nothing is asked` });
   if (heads.length > 1) problems.push({ line: heads[1] + 1, why: `${HEADING} appears ${heads.length} times; keep one` });
+  let end = lines.length;
   if (heads.length) {
     let none = 0;
-    for (let i = heads[0] + 1; i < lines.length; i++) {
+    end = heads[0] + 1;
+    for (let i = heads[0] + 1; i < lines.length; i++, end = i) {
       const l = lines[i];
-      if (NEXT_HEAD.test(l) && !ITEM.test(l)) break;
+      // A heading ends the field; a line shaped like an ask never does (K082 review: "**Do:** …" or a project
+      // name in bold would otherwise hide every ask below it).
+      if (NEXT_HEAD.test(l) && !ITEM.test(l) && !LOOSE_ITEM.test(l)) break;
       if (!l.trim()) continue;
       if (NONE_LINE.test(l)) { none++; continue; }
       const r = parseItem(l);
       if (r.item) asks.push(r.item); else problems.push({ line: i + 1, why: r.problem });
     }
+    if (!none && !asks.length && !problems.some((p) => p.line > heads[0] && p.line <= end)) problems.push({ line: heads[0] + 1, why: `${HEADING} is empty: write "${NONE}" when nothing is asked, so a heading or a slip under it is never read as none` });
     if (none && asks.length) problems.push({ line: heads[0] + 1, why: `"${NONE}" beside ${asks.length} item(s): drop it` });
     if (none > 1) problems.push({ line: heads[0] + 1, why: `"${NONE}" written ${none} times` });
   }
+  // An ask written anywhere else in the note is never counted, so it is refused, not passed (K082 review).
+  lines.forEach((l, i) => { if (LOOSE_ITEM.test(l) && !(heads.length && i > heads[0] && i < end)) problems.push({ line: i + 1, why: `an owner ask outside ${HEADING}: move it there, or reword it under ${REMARKS}` }); });
   const seen = new Set();
   for (const a of asks) { const key = `${a.do.toLowerCase()}|${a.answer}`; if (seen.has(key)) problems.push({ line: 0, why: `the same ask twice: "${a.do.slice(0, 60)}"` }); seen.add(key); }
   return { found: heads.length > 0, asks, problems };
@@ -121,7 +132,7 @@ async function main(argv) {
   if (cmd === 'item') { console.log(item({ do: o.do, kind: o.kind, why: o.why, answer: o.answer })); return 0; }
   if (cmd !== 'check' && cmd !== 'asks') throw new Error('usage: state-note.mjs check|asks (--file <path> | --issue <n> --repo <owner/name>) · item --do --kind --why --answer');
   const r = read(await bodyOf(o));
-  if (cmd === 'asks') { console.log(JSON.stringify(r.asks, null, 2)); return 0; }
+  if (cmd === 'asks') { console.log(JSON.stringify(r.asks, null, 2)); for (const p of r.problems) console.error(`STATE-NOTE: FAIL ${p.line ? `line ${p.line}` : 'note'}: ${p.why}`); return r.problems.length ? 1 : 0; }
   for (const p of r.problems) console.log(`STATE-NOTE: FAIL ${p.line ? `line ${p.line}` : 'note'}: ${p.why}`);
   if (r.problems.length) return 1;
   console.log(`STATE-NOTE: OK ${r.asks.length} owner ask${r.asks.length === 1 ? '' : 's'}`);
