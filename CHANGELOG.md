@@ -3,6 +3,28 @@
 Each version is the tag `v<version>` on this repository, never moved (K003). Projects pin one in
 `.harness/VERSION` and move with `harness-update` pull requests.
 
+## 0.71.0 · 2026-11-27 · a coordinator's state note carries each owner ask as a separate item (K082)
+
+From the strategist's note on the owner's board (27 Nov 2026), on the owner's words: what sits in "Needs you" is only
+what needs his own input. A status page read "Needs you" from a note's free text, and "None from this run." followed by
+remarks counted as one ask. No always-loaded text changed (`core.md`, `owner-defaults.md` and the adapters unchanged),
+so there is no replay result.
+
+- **The field** (`wake.md` "The STATE issue", point 7): one heading `OWNER ASKS`; each ask one line,
+  `- Do: <what he must do> · Why only you: <kind> — <why only he can> · Answer: <https link>`, with `<kind>` one of
+  `money`, `design`, `decision`, `sign-in`, `secret`, `account`, `his machine`, `setting`, `refused`; `- None.` when
+  nothing is asked (an empty field is refused). Remarks go under `REMARKS`, which no reader counts. The older headings (`NEEDS OWNER`,
+  `NEEDS YOU`, `OWNER WAITS`, `WAITING FOR YOU`) are not used.
+- **`state-note.mjs`**: `check` (a file or a state issue) refuses a missing field, a line in it that is not an item, an
+  item missing a part, a kind outside the list, an answer that is not a link, the field twice, "None." beside an item,
+  an older heading, and a line shaped like an ask outside the field, each with its line; `asks` prints the items as JSON for a status page (exit 1 on a note that fails `check`); `item` writes one
+  well-formed line.
+- C03's "Only you" list is this field (catalogue); the state-note lookup brief returns its items.
+- Checks: `test-state-note` 1-36, each failing without the change; 26-32 and 35 from the independent review (an ask
+  under a sub-heading, a bold label, under REMARKS, an empty field, a remark dressed as an ask: each was dropped or passed).
+
+Trial: 3 of 4 projects green; 1 red with the fix prepared at c43d36b32ebb
+
 ## 0.70.0 · 2026-11-27 · the second reviewer may ask another family through OpenRouter, and its noise is counted (K081)
 
 From the strategist's card on the owner's board (27 Nov 2026): every project gets a reviewer that is not of the
