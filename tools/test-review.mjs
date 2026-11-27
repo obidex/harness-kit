@@ -9,7 +9,7 @@ import { execFile } from 'node:child_process';
 import { join } from 'node:path';
 import { readFileSync, writeFileSync, mkdtempSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { KEEP_RUNS, MAX_SCOPE, assemble, cachedChars, changeKey, glob, highRisk, docsOnly, pick, cost, worstCase, capOf, runUsd, record, plain, body, spent, checks, question, verdict, review, identifiers, exchange, asker, switchOf, SWITCH_DAYS, settingsOf, settingsText, SETTINGS, SETTING_VARS,
+import { KEEP_RUNS, MAX_SCOPE, assemble, refusalOf, reviewed, cachedChars, changeKey, glob, highRisk, docsOnly, pick, cost, worstCase, capOf, runUsd, record, plain, body, spent, checks, question, verdict, review, identifiers, exchange, asker, switchOf, SWITCH_DAYS, settingsOf, settingsText, SETTINGS, SETTING_VARS,
   github, pages, MARK, MODEL, RISK_MODEL, PRICES, DAILY_USD, DAILY_CAP, MAX_DIFF, MAX_FILES, MAX_ANSWER, MAX_OUT, MAX_RULES, WAIT_MS, POLL_MS, ASK_MS } from '../.harness/tools/review.mjs';
 import { parseYaml, renderLane } from '../.harness/tools/lib.mjs';
 import { verdict as group } from '../.harness/tools/actions.mjs';
@@ -333,7 +333,7 @@ ok(r.status === 'blockers' && w.comments.length === 2 && w.comments[0].user.logi
 
 // the API says no
 w = world(); w.answer = { status: 402, json: { type: 'error', error: { type: 'billing_error', message: 'credit balance <!-- x --> too low' } } }; r = await w.go();
-ok(r.status === 'unavailable' && /the API refused the call \(402 billing_error\)\. Merges go on/.test(w.comments[0].body) && !/credit balance/.test(w.comments[0].body) && !record(w.comments[0]).runs[0].model, 'credit used up: one line with the error\'s kind (never its text), nothing counted as spent, the job does not fail');
+ok(r.status === 'unavailable' && /the API refused the call \(402 billing_error: the credit is used up\)\. Merges go on/.test(w.comments[0].body) && !/credit balance/.test(w.comments[0].body) && !record(w.comments[0]).runs[0].model, 'credit used up: one line with the error\'s kind (never its text), nothing counted as spent, the job does not fail');
 w = world(); w.answer = { status: 529, json: { error: { type: 'overloaded_error' } } };
 const w429 = world(); w429.answer = { status: 429, json: { error: { type: 'rate_limit_error' } } };
 ok(await rejects(w.go(), /529 overloaded_error/) && w.comments.length === 0 && await rejects(w429.go(), /429 rate_limit_error/) && w429.comments.length === 0, 'an outage or a rate limit fails the job with no comment and no record, so the next finished workflow tries the same commit again');
@@ -530,6 +530,24 @@ const failure = async (f) => { try { await f(); return null; } catch (e) { retur
     'its pager reads every page up to the cap, and answers null rather than a list cut at the cap');
   let asked = 0; const counted = async () => { asked++; return { list: [] }; };
   ok((await pages(counted, '/l', 'list')) === null && asked === 0, 'with no cap given it reads nothing and answers null, as before the shared pager');
+}
+
+// 0.69.1: a 400 is either the credit or a spend limit (every later call refused too) or this one request; the
+// comment says which in fixed words, never the API's text, and the change is asked again on the next finished workflow
+{
+  const x = world(); x.answer = { status: 400, json: { type: 'error', error: { type: 'invalid_request_error', message: 'You have reached your specified workspace API usage limits. You will regain access on 2026-12-01 at 00:00 UTC. <!-- x -->' } } };
+  const y = await x.go();
+  ok(y.status === 'unavailable' && /the API refused the call \(400 invalid_request_error: a monthly spend limit is reached\)\. Merges go on/.test(x.comments[0].body)
+    && !/regain access|2026-12-01|<!-- x/.test(x.comments[0].body) && !record(x.comments[0]).runs[0].model && !reviewed(record(x.comments[0]).runs[0]),
+    'a spend limit\'s 400 is named in fixed words on the pull request (never the API\'s text), counts nothing, and is no review, so the change is asked again');
+  const z = world(); z.answer = { status: 400, json: { error: { type: 'invalid_request_error', message: 'prompt is too long: 250000 tokens' } } };
+  await z.go();
+  ok(/the API refused the call \(400 invalid_request_error\)\. Merges go on/.test(z.comments[0].body) && !/prompt is too long/.test(z.comments[0].body),
+    'a 400 about the request itself names no limit');
+  ok(refusalOf(400, { error: { type: 'invalid_request_error', message: 'Your credit balance is too low to access the API.' } }).limit === 'the credit is used up'
+    && refusalOf(400, { error: { type: 'invalid_request_error', message: 'You have reached your specified API usage limits.' } }).limit === 'a monthly spend limit is reached'
+    && refusalOf(402, { error: { type: 'billing_error' } }).why === '402 billing_error' && refusalOf(400, null).why === '400 error' && refusalOf(400, { error: { type: 'a b<c>' } }).type === 'abc',
+    'refusalOf: the credit, a spend limit (organisation or workspace), or neither; the kind is sanitised and nothing else is kept');
 }
 
 console.log(`test-review: OK · ${n} checks`);

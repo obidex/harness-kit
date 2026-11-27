@@ -463,12 +463,13 @@ export async function review({ gh, ask, repo, run, env = {}, now = () => Date.no
     return post({ sha, at, change, result: 'lost', model, why: type });
   }
   if (a.status !== 200) {
-    const type = String(a.json?.error?.type || 'error').replace(/[^\w-]/g, '').slice(0, 40);
-    log(`the model call answered ${a.status} ${type}`);
-    // the credit, a spend limit or the request itself: said once on the pull request. Anything else (an
-    // outage, a rate limit) fails the job with no record, so the next finished workflow tries again
-    if (![400, 402, 403, 413].includes(a.status)) throw new Error(`the model call answered ${a.status} ${type}`);
-    return post({ sha, at, change, result: 'unavailable', why: `${a.status} ${type}` });
+    const no = refusalOf(a.status, a.json);
+    log(`the model call answered ${no.why}`);
+    // the credit, a spend limit or the request itself: said once on the pull request, in fixed words that name a
+    // used-up credit or a reached spend limit (0.69.1). Anything else (an outage, a rate limit) fails the job with no
+    // record, so the next finished workflow tries again
+    if (![400, 402, 403, 413].includes(a.status)) throw new Error(`the model call answered ${no.why}`);
+    return post({ sha, at, change, result: 'unavailable', why: no.why });
   }
   const t = usageOf(a.json.usage);
   const usd = usdOf(model, t);
@@ -480,6 +481,17 @@ export async function review({ gh, ask, repo, run, env = {}, now = () => Date.no
 // --- GitHub and the API -----------------------------------------------------------------------------
 /** GitHub with GH_TOKEN: `(method, path, data, { accept, raw })`, throws on any answer but 2xx. */
 export const github = ghClient('harness-review');
+/** An API refusal in fixed words, never the API's own text (0.69.1). `limit` names a used-up credit or a reached monthly
+ *  spend limit (the organisation's or the workspace's: the Console's Spend limits page says which): every later call
+ *  is refused the same way until the credit or the limit changes. Otherwise `limit` is null and the refusal is about
+ *  this one request. A 400 carries both kinds, so only the message tells them apart. */
+export function refusalOf(status, json) {
+  const type = String(json?.error?.type || 'error').replace(/[^\w-]/g, '').slice(0, 40);
+  const m = String(json?.error?.message || '');
+  const limit = /credit balance/i.test(m) ? 'the credit is used up'
+    : /usage limit|spend(ing)? limit|regain access/i.test(m) ? 'a monthly spend limit is reached' : null;
+  return { type, limit, why: `${status} ${type}${limit ? `: ${limit}` : ''}` };
+}
 const ID = { rule: /^fdrl_[A-Za-z0-9]+$/, org: /^[0-9a-f-]{36}$/, account: /^svac_[A-Za-z0-9]+$/, workspace: /^wrkspc_[A-Za-z0-9]+$/ };
 /** The four identifiers, checked for shape (they travel in a request body, never in a URL). */
 export function identifiers(env) {
