@@ -323,6 +323,23 @@ const d = await run(['state', '--repo', 'o/r', '--issue', '1', '--to', 'done', '
 ok(d.code === 0 && issues[0].state === 'closed' && parse(issues[0].body).Evidence === 'PR #9 merged, ci green' && issues[0].comments.at(-1).includes('PR #9'), 'done records the evidence on the issue and closes it');
 ok(/wake\.mjs handoff --repo o\/src --issue 12 --from o\/r$/m.test(d.out), 'done ends by naming the hand-off to the project that asked, read from the Source line (K056)');
 ok(JSON.parse((await run(['pending', '--repo', 'o/r'])).out).length === 0 && /already .*closed, done/.test((await run(send)).out), 'after done nothing is pending, and a resend points at the finished issue');
+// K076: a request filed by hand (the label, no inbox-id) gets its State line from `state`; blocked carries its reason
+{
+  const CARD = '**From the strategist.** Do X for us.';
+  issues.push({ number: issues.length + 1, state: 'open', author_association: 'OWNER', user: { login: 'owner', type: 'User' }, html_url: 'https://gh.test/o/r/issues/h', body: CARD, labels: [{ name: 'inbox' }], comments: [] });
+  const h = issues.at(-1), hn = String(h.number);
+  const b = await run(['state', '--repo', 'o/r', '--issue', hn, '--to', 'blocked', '--note', 'waits on the ERP\'s reply\non its card']);
+  ok(b.code === 0 && h.body === `${CARD}\n\n- **State:** blocked: waits on the ERP's reply on its card\n` && h.state === 'open', `a hand-filed request gets a State line, and blocked carries what it waits on in one line (${b.out.trim()})`);
+  const w = await run(['state', '--repo', 'o/r', '--issue', hn, '--to', 'working']);
+  ok(w.code === 0 && /- \*\*State:\*\* working$/m.test(h.body) && (h.body.match(/State:/g) || []).length === 1, 'the next move replaces the line, never adds a second');
+  const dl = await run(['state', '--repo', 'o/r', '--issue', hn, '--to', 'blocked', '--note', "the owner's OK for $100 a month, $' and $&"]);
+  ok(dl.code === 0 && h.body === `${CARD}\n\n- **State:** blocked: the owner's OK for $100 a month, $' and $&\n`, 'a dollar sign in a reason is kept as written: the body is never corrupted by a replacement pattern');
+  const dn = await run(['state', '--repo', 'o/r', '--issue', hn, '--to', 'done', '--note', 'merged as abc123']);
+  ok(dn.code === 0 && h.state === 'closed' && /- \*\*State:\*\* done\n- \*\*Evidence:\*\* merged as abc123\n$/.test(h.body), 'done adds the Evidence line to a hand-filed request and closes it');
+  issues.push({ number: issues.length + 1, state: 'open', author_association: 'OWNER', user: { login: 'owner', type: 'User' }, html_url: 'https://gh.test/o/r/issues/p', body: 'plain issue', labels: [{ name: 'bug' }], comments: [] });
+  const p = await run(['state', '--repo', 'o/r', '--issue', String(issues.length), '--to', 'working']);
+  ok(p.code === 1 && /is not an inbox request/.test(p.out) && issues.at(-1).body === 'plain issue', 'an issue without the inbox label is no request: nothing is written');
+}
 const locked = await run(['pending', '--repo', 'o/locked']);
 ok(locked.code === 1 && /answered 401/.test(locked.out) && /attach it first \(add_repo o\/locked with access "push"\)/.test(locked.out), 'a refused token names the fix: attach the repository to the session (cloud) or give GH_TOKEN access');
 srv.close();
